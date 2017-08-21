@@ -92,17 +92,19 @@ func DecryptHost(host string) string {
 }
 
 func copyAndClose(dst, src *net.TCPConn, key string) {
+	if key == "" {
+		if _, err := io.Copy(dst, src); err != nil && !*G_SuppressSocketReadWriteError {
+			logg.E("copyAndClose - ", err)
+		}
+	} else {
 
-	// if _, err := io.Copy(dst, src); err != nil && !*G_SuppressSocketReadWriteError {
-	// 	logg.E("copyAndClose - ", err)
-	// }
-
-	if _, err := (&IOCopyCipher{
-		Dst: dst,
-		Src: src,
-		Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("copyAndClose - ", err)
+		if _, err := (&IOCopyCipher{
+			Dst: dst,
+			Src: src,
+			Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
+		}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+			logg.E("copyAndClose - ", err)
+		}
 	}
 
 	dst.CloseWrite()
@@ -110,12 +112,18 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 }
 
 func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
-	if _, err := (&IOCopyCipher{
-		Dst: dst,
-		Src: src,
-		Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("copyAndClose - ", err)
+	if key == "" {
+		if _, err := io.Copy(dst, src); err != nil && !*G_SuppressSocketReadWriteError {
+			logg.E("copyAndClose - ", err)
+		}
+	} else {
+		if _, err := (&IOCopyCipher{
+			Dst: dst,
+			Src: src,
+			Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
+		}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+			logg.E("copyAndClose - ", err)
+		}
 	}
 
 	wg.Done()

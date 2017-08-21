@@ -1,6 +1,7 @@
 package config
 
 import (
+	"../lru"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -19,8 +20,11 @@ var (
 	G_Debug    = flag.Bool("debug", false, "debug mode")
 	G_SafeHttp = flag.Bool("h", true, "encrypt http content")
 	G_NoPA     = flag.Bool("disable-pa", false, "disable proxy authentication")
+	G_ProxyAll = flag.Bool("g", false, "proxy even those inside China")
 
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read write error")
+
+	G_Cache *lru.Cache
 )
 
 func setString(k *string, v interface{}) {
@@ -65,6 +69,7 @@ func LoadConfig(path string) {
 	setBool(G_SafeHttp, m["safehttp"])
 	setBool(G_SuppressSocketReadWriteError, m["ssrwe"])
 	setBool(G_NoPA, m["disablepa"])
+	setBool(G_ProxyAll, m["proxyall"])
 
 	if *G_Key == "." {
 		// use username/password combination as the key

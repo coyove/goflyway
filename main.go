@@ -4,9 +4,11 @@ import (
 	. "./config"
 	"./logg"
 	_ "./lookup"
+	"./lru"
 	"./proxy"
 
 	"flag"
+	"time"
 )
 
 var G_Config = flag.String("c", "", "config file path")
@@ -21,6 +23,16 @@ func main() {
 
 	if !*G_NoPA && *G_Username == "username" && *G_Password == "password" {
 		logg.W("you are using the default username and password for your proxy")
+	}
+
+	G_Cache = lru.NewCache(1024)
+	if *G_Debug || *G_Upstream != "" {
+		go func() {
+			for {
+				time.Sleep(10 * time.Minute)
+				G_Cache.PrintTopInfo(10)
+			}
+		}()
 	}
 
 	if *G_Debug {

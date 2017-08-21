@@ -14,14 +14,18 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
+	"time"
 )
 
 var hasPort = regexp.MustCompile(`:\d+$`)
 var OK200 = []byte("HTTP/1.0 200 OK\r\n\r\n")
+var tlsSkip = &tls.Config{InsecureSkipVerify: true}
 
 type ProxyHttpServer struct {
 	Tr       *http.Transport
+	TrDirect *http.Transport
 	Upstream string
 }
 
@@ -48,6 +52,13 @@ func TwoWayBridge(target, source net.Conn, key string) {
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
+		if Skip32DecodeString(G_KeyBytes, r.Header.Get("X-Host-Lookup-ID")) == *G_Key {
+			w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
+			return
+		}
+	}
+
 	if !*G_NoPA {
 		if proxy.Upstream != "" && !basicAuth(getAuth(r)) {
 			// only the downstream needs pa
@@ -55,11 +66,6 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			w.WriteHeader(407)
 			return
 		}
-	}
-
-	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
-		w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
-		return
 	}
 
 	if r.Method == "CONNECT" {
@@ -76,9 +82,26 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		_bridge := func(host, rkey string) {
+			targetSiteCon, err := net.Dial("tcp", host)
+			if err != nil {
+				logg.E("[HOST] - ", err)
+				return
+			}
+
+			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
+			proxyClient.Write(OK200)
+			TwoWayBridge(targetSiteCon, proxyClient, rkey)
+		}
+
 		if proxy.Upstream != "" {
 			// we are inside GFW and should pass data to upstream
 			host := r.URL.Host
+			if proxy.CanDirectConnect(host) {
+				_bridge(host, "")
+				return
+			}
+
 			if !hasPort.MatchString(host) {
 				host += ":80"
 			}
@@ -101,15 +124,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			host := DecryptHost(r.Header.Get("X-Forwarded-Host"))
 			rkey := r.Header.Get("X-Request-ID")
 
-			targetSiteCon, err := net.Dial("tcp", host)
-			if err != nil {
-				logg.E("[HOST] - ", err)
-				return
-			}
-
-			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-			proxyClient.Write(OK200)
-			TwoWayBridge(targetSiteCon, proxyClient, rkey)
+			_bridge(host, rkey)
 		}
 	} else {
 		// normal http requests
@@ -121,9 +136,14 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		direct := false
 		if proxy.Upstream != "" {
 			// encrypt req to pass GFW
-			EncryptRequest(r)
+			if proxy.CanDirectConnect(r.Host) {
+				direct = true
+			} else {
+				EncryptRequest(r)
+			}
 		} else {
 			// decrypt req from inside GFW
 			DecryptRequest(r)
@@ -132,9 +152,16 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
 
-		resp, err := proxy.Tr.RoundTrip(r)
+		var resp *http.Response
+
+		if direct {
+			resp, err = proxy.TrDirect.RoundTrip(r)
+		} else {
+			resp, err = proxy.Tr.RoundTrip(r)
+		}
+
 		if err != nil {
-			if proxy.Upstream != "" {
+			if proxy.Upstream != "" && !direct {
 				DecryptRequest(r)
 			}
 
@@ -147,7 +174,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		defer origBody.Close()
 
 		if resp.StatusCode >= 400 {
-			if proxy.Upstream != "" {
+			if proxy.Upstream != "" && !direct {
 				DecryptRequest(r)
 			}
 
@@ -167,7 +194,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		if *G_SafeHttp {
+		if *G_SafeHttp && !direct {
 			buf, err := ioutil.ReadAll(resp.Body)
 			tryClose(resp.Body)
 
@@ -193,6 +220,47 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
+	if *G_ProxyAll {
+		return false
+	}
+
+	host = strings.ToLower(host)
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	if lookup.IPAddressToInteger(host) != 0 {
+		return lookup.IPInLookupTable(host)
+	}
+
+	if v, ok := G_Cache.Get(host); ok {
+		return lookup.IPInLookupTable(v.(string))
+	}
+
+	client := http.Client{Timeout: time.Second}
+	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
+	req.Header.Add("X-Host-Lookup", host)
+	req.Header.Add("X-Host-Lookup-ID", Skip32EncodeString(G_KeyBytes, *G_Key))
+	resp, err := client.Do(req)
+
+	if err != nil {
+		logg.W("host lookup: ", err)
+		return false
+	}
+
+	ipbuf, err := ioutil.ReadAll(resp.Body)
+	tryClose(resp.Body)
+
+	if err != nil {
+		logg.W("host lookup: ", err)
+		return false
+	}
+
+	G_Cache.Add(host, string(ipbuf), 600)
+	return lookup.IPInLookupTable(string(ipbuf))
+}
+
 func Start(localaddr, upstream string) {
 	upstreamUrl, err := url.Parse("http://" + upstream)
 	if err != nil {
@@ -201,9 +269,10 @@ func Start(localaddr, upstream string) {
 
 	proxy := &ProxyHttpServer{
 		Tr: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),
 		},
+		TrDirect: &http.Transport{TLSClientConfig: tlsSkip},
 		Upstream: upstream,
 	}
 
@@ -213,7 +282,7 @@ func Start(localaddr, upstream string) {
 
 func StartUpstream(addr string) {
 	proxy := &ProxyHttpServer{
-		Tr: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		Tr: &http.Transport{TLSClientConfig: tlsSkip},
 	}
 
 	logg.L("listening on ", addr)
