@@ -3,6 +3,7 @@ package proxy
 import (
 	. "../config"
 	"../logg"
+	"../lookup"
 	"crypto/tls"
 
 	// "bytes"
@@ -56,6 +57,11 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
+		w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
+		return
+	}
+
 	if r.Method == "CONNECT" {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
@@ -70,9 +76,13 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		host := r.URL.Host
 		if proxy.Upstream != "" {
 			// we are inside GFW and should pass data to upstream
+			host := r.URL.Host
+			if !hasPort.MatchString(host) {
+				host += ":80"
+			}
+
 			host = EncryptHost(host)
 
 			upstreamConn, err := net.Dial("tcp", proxy.Upstream)
@@ -88,7 +98,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			TwoWayBridge(proxyClient, upstreamConn, rkey)
 		} else {
 			// we are outside GFW and should pass data to the real target
-			host = DecryptHost(r.Header.Get("X-Forwarded-Host"))
+			host := DecryptHost(r.Header.Get("X-Forwarded-Host"))
 			rkey := r.Header.Get("X-Request-ID")
 
 			targetSiteCon, err := net.Dial("tcp", host)
@@ -117,9 +127,10 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		} else {
 			// decrypt req from inside GFW
 			DecryptRequest(r)
-			r.Header.Del("Proxy-Authorization")
-			r.Header.Del("Proxy-Connection")
 		}
+
+		r.Header.Del("Proxy-Authorization")
+		r.Header.Del("Proxy-Connection")
 
 		resp, err := proxy.Tr.RoundTrip(r)
 		if err != nil {

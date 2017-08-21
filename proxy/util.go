@@ -25,10 +25,11 @@ var hostHeadExtract = regexp.MustCompile(`(\S+)\.baidu\.com`)
 var urlExtract = regexp.MustCompile(`\?q=(\S+)$`)
 
 func RandomKeyBase36() string {
-	retB := make([]byte, 32)
 	_rand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	ln := _rand.Intn(16) + 24
+	retB := make([]byte, ln)
 
-	for i := 0; i < 32; i++ {
+	for i := 0; i < ln; i++ {
 		retB[i] = byte(_rand.Intn(256))
 	}
 
@@ -121,7 +122,7 @@ func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
 }
 
 func copyHeaders(dst, src http.Header) {
-	for k, _ := range dst {
+	for k := range dst {
 		dst.Del(k)
 	}
 	for k, vs := range src {

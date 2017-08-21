@@ -1,7 +1,8 @@
 package lookup
 
 import (
-	"log"
+	"../logg"
+
 	"net"
 	"strconv"
 	"strings"
@@ -61,7 +62,7 @@ func IPInLookupTable(ip string) bool {
 func LookupIP(host string) string {
 	ip, err := net.ResolveIPAddr("ip4", host)
 	if err != nil {
-		log.Println("dns lookup:", err)
+		logg.L("dns lookup: ", err)
 		return ""
 	}
 

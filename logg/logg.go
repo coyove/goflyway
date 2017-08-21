@@ -45,7 +45,7 @@ func print(l string, params ...interface{}) {
 }
 
 func L(params ...interface{}) {
-	print("]", params...)
+	print(" ", params...)
 }
 
 func W(params ...interface{}) {
