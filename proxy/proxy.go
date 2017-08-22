@@ -8,7 +8,6 @@ import (
 
 	// "bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -52,9 +51,16 @@ func TwoWayBridge(target, source net.Conn, key string) {
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
-		if Skip32DecodeString(G_KeyBytes, r.Header.Get("X-Host-Lookup-ID")) == *G_Key {
-			w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
+	if r.Method == "GET" {
+		if r.Header.Get("X-Host-Lookup") != "" {
+			if Skip32DecodeString(G_KeyBytes, r.Header.Get("X-Host-Lookup-ID")) == *G_Key {
+				w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
+				return
+			}
+		}
+
+		if r.RequestURI == "/dns-lookup-cache" {
+			PrintCache(w)
 			return
 		}
 	}
@@ -194,7 +200,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		if *G_SafeHttp && !direct {
+		if !*G_UnsafeHttp && !direct {
 			buf, err := ioutil.ReadAll(resp.Body)
 			tryClose(resp.Body)
 
@@ -210,7 +216,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 			w.Write(buf)
 		} else {
-			nr, err := io.Copy(w, resp.Body)
+			nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body}).DoCopy()
 			tryClose(resp.Body)
 
 			if err != nil {
@@ -220,24 +226,37 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
-	if *G_ProxyAll {
-		return false
-	}
-
+func (proxy *ProxyHttpServer) CanDirectConnect(host string) (ret bool) {
 	host = strings.ToLower(host)
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
 	}
 
-	if lookup.IPAddressToInteger(host) != 0 {
-		return lookup.IPInLookupTable(host)
+	if lookup.IPAddressToInteger(host) != 0 { // host is just an ip
+		ret = lookup.IsPrivateIP(host) || lookup.IsChineseIP(host)
+		return
 	}
 
-	if v, ok := G_Cache.Get(host); ok {
-		return lookup.IPInLookupTable(v.(string))
+	if ip, ok := G_Cache.Get(host); ok { // we have cached the host
+		ret = lookup.IsPrivateIP(ip.(string)) || lookup.IsChineseIP(ip.(string))
+		return
 	}
 
+	// lookup at local in case host points to a private ip
+	ip := lookup.LookupIP(host)
+	if lookup.IsPrivateIP(ip) {
+		G_Cache.Add(host, ip)
+		return true
+	}
+
+	// if it is a foreign ip, just return false
+	// but if it is a chinese ip, we withhold and query the upstream to double check
+	if !lookup.IsChineseIP(ip) {
+		G_Cache.Add(host, ip)
+		return false
+	}
+
+	// lookup at upstream
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
 	req.Header.Add("X-Host-Lookup", host)
@@ -257,8 +276,8 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 		return false
 	}
 
-	G_Cache.Add(host, string(ipbuf), 600)
-	return lookup.IPInLookupTable(string(ipbuf))
+	G_Cache.Add(host, string(ipbuf))
+	return lookup.IsChineseIP(string(ipbuf))
 }
 
 func Start(localaddr, upstream string) {

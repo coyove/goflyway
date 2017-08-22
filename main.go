@@ -8,7 +8,6 @@ import (
 	"./proxy"
 
 	"flag"
-	"time"
 )
 
 var G_Config = flag.String("c", "", "config file path")
@@ -18,22 +17,14 @@ func main() {
 	LoadConfig(*G_Config)
 
 	if *G_Key == "0123456789" {
-		logg.W("just a reminder: you leave the key unchanged, better to set a different one")
+		logg.W("[WARNING] you are using the default key")
 	}
 
 	if !*G_NoPA && *G_Username == "username" && *G_Password == "password" {
-		logg.W("you are using the default username and password for your proxy")
+		logg.W("[WARNING] you are using the default username and password")
 	}
 
-	G_Cache = lru.NewCache(1024)
-	if *G_Debug || *G_Upstream != "" {
-		go func() {
-			for {
-				time.Sleep(10 * time.Minute)
-				G_Cache.PrintTopInfo(10)
-			}
-		}()
-	}
+	G_Cache = lru.NewCache(*G_DNSCacheEntries)
 
 	if *G_Debug {
 		logg.L("debug mode on, port 8100 for local redirection, upstream on 8101")

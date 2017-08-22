@@ -30,7 +30,7 @@ func print(l string, params ...interface{}) {
 			if ok {
 
 				l += fmt.Sprintf("src: %v, addr: %v, op: %s\n", op.Source, op.Addr, op.Op)
-				s = fmt.Sprintf("%serr: %+v", lead("^"), op.Err)
+				s = fmt.Sprintf("%s  %+v", lead("^"), op.Err)
 			}
 
 			if len(s) > 120 {

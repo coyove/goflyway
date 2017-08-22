@@ -17,12 +17,15 @@ var (
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
 
-	G_Debug    = flag.Bool("debug", false, "debug mode")
-	G_SafeHttp = flag.Bool("h", true, "encrypt http content")
-	G_NoPA     = flag.Bool("disable-pa", false, "disable proxy authentication")
-	G_ProxyAll = flag.Bool("g", false, "proxy even those inside China")
+	// G_WriteThreshold = flag.Int("wt", 0, "speed threshold in kb/s, 0 for unlimited")
 
-	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read write error")
+	G_Debug      = flag.Bool("debug", false, "debug mode")
+	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
+	G_NoPA       = flag.Bool("disable-pa", false, "disable proxy authentication")
+	G_ProxyAll   = flag.Bool("all", false, "proxy Chinese websites")
+
+	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
+	G_DNSCacheEntries              = flag.Int("dns-cache", 1024, "DNS cache size")
 
 	G_Cache *lru.Cache
 )
@@ -40,6 +43,13 @@ func setBool(k *bool, v interface{}) {
 	switch v.(type) {
 	case bool:
 		*k = v.(bool)
+	}
+}
+
+func setInt(k *int, v interface{}) {
+	switch v.(type) {
+	case int:
+		*k = v.(int)
 	}
 }
 
@@ -66,10 +76,13 @@ func LoadConfig(path string) {
 	setString(G_Password, m["password"])
 	setString(G_Local, m["listen"])
 	setString(G_Upstream, m["upstream"])
-	setBool(G_SafeHttp, m["safehttp"])
+
+	setBool(G_UnsafeHttp, m["unsafehttp"])
 	setBool(G_SuppressSocketReadWriteError, m["ssrwe"])
 	setBool(G_NoPA, m["disablepa"])
 	setBool(G_ProxyAll, m["proxyall"])
+
+	setInt(G_DNSCacheEntries, m["dnscache"])
 
 	if *G_Key == "." {
 		// use username/password combination as the key

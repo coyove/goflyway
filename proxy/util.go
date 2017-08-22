@@ -3,10 +3,10 @@ package proxy
 import (
 	. "../config"
 	"../logg"
+	"../lru"
 
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -63,7 +63,7 @@ func EncryptRequest(req *http.Request) {
 	req.Host = EncryptHost(req.Host)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + Skip32EncodeString(G_KeyBytes, req.URL.String()))
 
-	if *G_SafeHttp {
+	if !*G_UnsafeHttp {
 		processBody(req, true)
 	}
 }
@@ -74,7 +74,7 @@ func DecryptRequest(req *http.Request) {
 		req.URL, _ = url.Parse(Skip32DecodeString(G_KeyBytes, p[1]))
 	}
 
-	if *G_SafeHttp {
+	if !*G_UnsafeHttp {
 		processBody(req, false)
 	}
 }
@@ -92,19 +92,19 @@ func DecryptHost(host string) string {
 }
 
 func copyAndClose(dst, src *net.TCPConn, key string) {
-	if key == "" {
-		if _, err := io.Copy(dst, src); err != nil && !*G_SuppressSocketReadWriteError {
-			logg.E("copyAndClose - ", err)
-		}
-	} else {
+	// dst.SetWriteDeadline(time.Now().Add(time.Duration(G_Timeout) * time.Minute))
+	// src.SetReadDeadline(time.Now().Add(time.Duration(G_Timeout) * time.Minute))
+	var rkey []byte
+	if key != "" {
+		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
+	}
 
-		if _, err := (&IOCopyCipher{
-			Dst: dst,
-			Src: src,
-			Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
-		}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-			logg.E("copyAndClose - ", err)
-		}
+	if _, err := (&IOCopyCipher{
+		Dst: dst,
+		Src: src,
+		Key: rkey,
+	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+		logg.E("copyAndClose - ", err)
 	}
 
 	dst.CloseWrite()
@@ -112,18 +112,17 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 }
 
 func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
-	if key == "" {
-		if _, err := io.Copy(dst, src); err != nil && !*G_SuppressSocketReadWriteError {
-			logg.E("copyAndClose - ", err)
-		}
-	} else {
-		if _, err := (&IOCopyCipher{
-			Dst: dst,
-			Src: src,
-			Key: Skip32Decode(G_KeyBytes, Base36Decode(key), true),
-		}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-			logg.E("copyAndClose - ", err)
-		}
+	var rkey []byte
+	if key != "" {
+		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
+	}
+
+	if _, err := (&IOCopyCipher{
+		Dst: dst,
+		Src: src,
+		Key: rkey,
+	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+		logg.E("copyAndClose - ", err)
 	}
 
 	wg.Done()
@@ -183,6 +182,14 @@ func bytesStartWith(buf []byte, prefix []byte) bool {
 	return true
 }
 
+func PrintCache(w http.ResponseWriter) {
+	w.Write([]byte("<html><table><tr><th>host</th><th>ip</th><th align=right>hits</th></tr>"))
+	G_Cache.Info(func(k lru.Key, v interface{}, h int64) {
+		w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td>%v</td><td>%d</td></tr>", k, v, h)))
+	})
+	w.Write([]byte("</table></html>"))
+}
+
 type IOCopyCipher struct {
 	Dst io.Writer
 	Src io.Reader
@@ -192,31 +199,31 @@ type IOCopyCipher struct {
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
-	if len(cc.Key) == 0 {
-		return 0, errors.New("IOCopyCipher: invalid key")
-	}
-
-	ln := 32 * 1024
-	buf := make([]byte, ln)
+	buf := make([]byte, 32*1024)
 	cc.read = 0
 
 	for {
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
-			xs := 0
 
-			if bytesStartWith(xbuf, OK200) {
-				xs = len(OK200)
+			if cc.Key != nil && len(cc.Key) > 0 {
+				// if key is not null, do the en/decryption
+				xs := 0
+
+				if bytesStartWith(xbuf, OK200) {
+					xs = len(OK200)
+				}
+
+				for i := xs; i < nr; i++ {
+					xbuf[i] ^= cc.Key[(int(cc.read)+i-xs)%len(cc.Key)]
+				}
+
+				cc.read += int64(nr - xs)
 			}
-
-			for i := xs; i < nr; i++ {
-				xbuf[i] ^= cc.Key[(int(cc.read)+i-xs)%len(cc.Key)]
-			}
-
-			cc.read += int64(nr - xs)
 
 			nw, ew := cc.Dst.Write(xbuf)
+
 			if nw > 0 {
 				written += int64(nw)
 			}

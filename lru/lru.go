@@ -1,7 +1,6 @@
 package lru
 
 import (
-	"../logg"
 	"container/list"
 	"sync"
 )
@@ -48,27 +47,26 @@ func (c *Cache) Clear() {
 	c.Unlock()
 }
 
-func (c *Cache) PrintTopInfo(num int) {
+func (c *Cache) Info(callback func(Key, interface{}, int64)) {
 	c.RLock()
-	i, f := 0, c.ll.Front()
-	logg.L("cache info")
+	f := c.ll.Front()
 
 	for {
-		if i >= num || f == nil {
+		if f == nil {
 			break
 		}
 
 		e := f.Value.(*entry)
-		logg.L("+ ", e.key, " - ", e.value, " @", e.hits)
+		callback(e.key, e.value, e.hits)
 
 		f = f.Next()
-		i++
 	}
+
 	c.RUnlock()
 }
 
 // Add adds a value to the cache.
-func (c *Cache) Add(key Key, value interface{}, ttl int) {
+func (c *Cache) Add(key Key, value interface{}) {
 	c.Lock()
 	defer c.Unlock()
 

@@ -1,6 +1,7 @@
 package lookup
 
 import (
+	. "../config"
 	"../logg"
 
 	"net"
@@ -9,30 +10,37 @@ import (
 )
 
 var IPv4LookupTable [][]uint32
+var IPv4PrivateLookupTable [][]uint32
 
 func init() {
-	IPv4LookupTable = make([][]uint32, 0)
-	lastIPStart, lastIPEnd := -1, -1
+	IPv4LookupTable, IPv4PrivateLookupTable = make([][]uint32, 0), make([][]uint32, 0)
 
-	for _, iprange := range strings.Split(CHN_IP, "\n") {
-		p := strings.Split(iprange, " ")
-		ipstart, ipend := IPAddressToInteger(p[0]), IPAddressToInteger(p[1])
+	fill := func(table *[][]uint32, iplist string) {
+		lastIPStart, lastIPEnd := -1, -1
 
-		if lastIPStart == -1 {
-			lastIPStart, lastIPEnd = ipstart, ipend
-			continue
+		for _, iprange := range strings.Split(iplist, "\n") {
+			p := strings.Split(iprange, " ")
+			ipstart, ipend := IPAddressToInteger(p[0]), IPAddressToInteger(p[1])
+
+			if lastIPStart == -1 {
+				lastIPStart, lastIPEnd = ipstart, ipend
+				continue
+			}
+
+			if ipstart != lastIPEnd+1 {
+				*table = append(*table, []uint32{uint32(lastIPStart), uint32(lastIPEnd)})
+				lastIPStart = ipstart
+			}
+
+			lastIPEnd = ipend
 		}
-
-		if ipstart != lastIPEnd+1 {
-			IPv4LookupTable = append(IPv4LookupTable, []uint32{uint32(lastIPStart), uint32(lastIPEnd)})
-			lastIPStart = ipstart
-		}
-
-		lastIPEnd = ipend
 	}
+
+	fill(&IPv4LookupTable, CHN_IP)
+	fill(&IPv4PrivateLookupTable, PRIVATE_IP)
 }
 
-func IPInLookupTable(ip string) bool {
+func IPInLookupTable(ip string, table [][]uint32) bool {
 	m := uint32(IPAddressToInteger(ip))
 	if m == 0 {
 		return false
@@ -56,7 +64,19 @@ func IPInLookupTable(ip string) bool {
 		return rec(r[mid+1:])
 	}
 
-	return rec(IPv4LookupTable)
+	return rec(table)
+}
+
+func IsChineseIP(ip string) bool {
+	if *G_ProxyAll {
+		return false
+	}
+
+	return IPInLookupTable(ip, IPv4LookupTable)
+}
+
+func IsPrivateIP(ip string) bool {
+	return IPInLookupTable(ip, IPv4PrivateLookupTable)
 }
 
 func LookupIP(host string) string {
