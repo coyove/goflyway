@@ -182,12 +182,28 @@ func bytesStartWith(buf []byte, prefix []byte) bool {
 	return true
 }
 
-func PrintCache(w http.ResponseWriter) {
-	w.Write([]byte("<html><table><tr><th>host</th><th>ip</th><th align=right>hits</th></tr>"))
-	G_Cache.Info(func(k lru.Key, v interface{}, h int64) {
-		w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td>%v</td><td>%d</td></tr>", k, v, h)))
-	})
-	w.Write([]byte("</table></html>"))
+func PrintCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		w.Write([]byte(`<html><title>goflyway dns lookup cache</title>
+		<form method='POST'><button>clear cache</button></form>
+		<table>
+		<tr><th>host</th><th>ip</th><th>hits</th></tr>`))
+
+		flag := false
+		G_Cache.Info(func(k lru.Key, v interface{}, h int64) {
+			flag = true
+			w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td>%v</td><td align=right>%d</td></tr>", k, v, h)))
+		})
+
+		if !flag {
+			w.Write([]byte("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>"))
+		}
+
+		w.Write([]byte("</table></html>"))
+	} else if r.Method == "POST" {
+		G_Cache.Clear()
+		http.Redirect(w, r, "/dns-lookup-cache", 301)
+	}
 }
 
 type IOCopyCipher struct {
