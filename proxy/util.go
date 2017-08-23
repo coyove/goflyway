@@ -26,10 +26,9 @@ var urlExtract = regexp.MustCompile(`\?q=(\S+)$`)
 
 func RandomKeyBase36() string {
 	_rand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	ln := _rand.Intn(16) + 24
-	retB := make([]byte, ln)
+	retB := make([]byte, 64)
 
-	for i := 0; i < ln; i++ {
+	for i := 0; i < 64; i++ {
 		retB[i] = byte(_rand.Intn(256))
 	}
 
@@ -92,8 +91,8 @@ func DecryptHost(host string) string {
 }
 
 func copyAndClose(dst, src *net.TCPConn, key string) {
-	// dst.SetWriteDeadline(time.Now().Add(time.Duration(G_Timeout) * time.Minute))
-	// src.SetReadDeadline(time.Now().Add(time.Duration(G_Timeout) * time.Minute))
+	ts := time.Now()
+
 	var rkey []byte
 	if key != "" {
 		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
@@ -104,7 +103,7 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 		Src: src,
 		Key: rkey,
 	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("copyAndClose - ", err)
+		logg.E("[COPY] ~", time.Now().Sub(ts).Seconds(), " - ", err)
 	}
 
 	dst.CloseWrite()
@@ -112,6 +111,8 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 }
 
 func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
+	ts := time.Now()
+
 	var rkey []byte
 	if key != "" {
 		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
@@ -122,7 +123,7 @@ func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
 		Src: src,
 		Key: rkey,
 	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("copyAndClose - ", err)
+		logg.E("[COPYW] ~", time.Now().Sub(ts).Seconds(), " - ", err)
 	}
 
 	wg.Done()
@@ -219,6 +220,7 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	cc.read = 0
 
 	for {
+		ts := time.Now()
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
@@ -246,11 +248,13 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 			if ew != nil {
 				err = ew
+				logg.W("[IO TIMING 0] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 
 			if nr != nw {
 				err = io.ErrShortWrite
+				logg.W("[IO TIMING 1] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 		}
