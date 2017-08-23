@@ -21,6 +21,8 @@ import (
 var hasPort = regexp.MustCompile(`:\d+$`)
 var OK200 = []byte("HTTP/1.0 200 OK\r\n\r\n")
 var tlsSkip = &tls.Config{InsecureSkipVerify: true}
+var rkeyHeader = "X-Request-ID"
+var rkeyHeader2 = "X-Request-HTTP-ID"
 
 type ProxyHttpServer struct {
 	Tr       *http.Transport
@@ -118,21 +120,22 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 
-			rkey := RandomKeyBase36()
+			rkey := RandomKey()
 			upstreamConn.Write([]byte(fmt.Sprintf(
-				"CONNECT www.baidu.com HTTP/1.1\r\nHost: www.baidu.com\r\nX-Forwarded-Host: %s\r\nX-Request-ID: %s\r\n\r\n", host, rkey)))
+				"CONNECT www.baidu.com HTTP/1.1\r\nHost: www.baidu.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", host, rkeyHeader, rkey)))
 
 			TwoWayBridge(proxyClient, upstreamConn, rkey)
 		} else {
 			// we are outside GFW and should pass data to the real target
 			host := DecryptHost(r.Header.Get("X-Forwarded-Host"))
-			rkey := r.Header.Get("X-Request-ID")
+			rkey := r.Header.Get(rkeyHeader)
 
 			_bridge(host, rkey)
 		}
 	} else {
 		// normal http requests
 		var err error
+		var rkey string
 		// log.Println(proxy.Upstream, "got request", r.URL.Path, r.Host, r.Method, r.URL.String())
 
 		if !r.URL.IsAbs() {
@@ -146,11 +149,11 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			if proxy.CanDirectConnect(r.Host) {
 				direct = true
 			} else {
-				EncryptRequest(r)
+				rkey = EncryptRequest(r)
 			}
 		} else {
 			// decrypt req from inside GFW
-			DecryptRequest(r)
+			rkey = DecryptRequest(r)
 		}
 
 		r.Header.Del("Proxy-Authorization")
@@ -198,28 +201,15 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		if !*G_UnsafeHttp && !direct {
-			buf, err := ioutil.ReadAll(resp.Body)
-			tryClose(resp.Body)
+		if *G_UnsafeHttp {
+			rkey = ""
+		}
 
-			if err != nil {
-				logg.E("ioutil reading all: ", err)
-			}
+		nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}).DoCopy()
+		tryClose(resp.Body)
 
-			if proxy.Upstream == "" {
-				buf = Skip32Encode(G_KeyBytes, buf, false)
-			} else {
-				buf = Skip32Decode(G_KeyBytes, buf, false)
-			}
-
-			w.Write(buf)
-		} else {
-			nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body}).DoCopy()
-			tryClose(resp.Body)
-
-			if err != nil {
-				logg.E("io copy: ", err, " - bytes: ", nr)
-			}
+		if err != nil {
+			logg.E("io copy: ", err, " - bytes: ", nr)
 		}
 	}
 }

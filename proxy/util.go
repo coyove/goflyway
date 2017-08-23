@@ -23,25 +23,45 @@ import (
 var hostHead = "%s.baidu.com:433"
 var hostHeadExtract = regexp.MustCompile(`(\S+)\.baidu\.com`)
 var urlExtract = regexp.MustCompile(`\?q=(\S+)$`)
+var primes = []byte{
+	11, 13, 17, 19, 23, 29, 31, 37, 41, 43,
+	47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+}
 
-func RandomKeyBase36() string {
+func RandomKey() string {
 	_rand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	retB := make([]byte, 64)
+	c, p := _rand.Intn(4)+1, _rand.Perm(20)
 
-	for i := 0; i < 64; i++ {
-		retB[i] = byte(_rand.Intn(256))
+	retB := make([][]byte, c)
+
+	for m := 0; m < c; m++ {
+		ln := int(primes[p[c]])
+		ret := make([]byte, ln)
+
+		for i := 0; i < ln; i++ {
+			ret[i] = byte(_rand.Intn(255) + 1)
+		}
+
+		retB[m] = ret
 	}
 
-	return Base36Encode(Skip32Encode(G_KeyBytes, retB, true))
+	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, bytes.Join(retB, []byte{0}), true))
+}
+
+func ReverseRandomKey(key string) [][]byte {
+	if key == "" {
+		return nil
+	}
+
+	k, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		return nil
+	}
+
+	return bytes.Split(Skip32Decode(G_KeyBytes, k, true), []byte{0})
 }
 
 func processBody(req *http.Request, enc bool) {
-	buf, err := ioutil.ReadAll(req.Body)
-	req.Body.Close()
-
-	if err != nil {
-		return
-	}
 
 	for _, c := range req.Cookies() {
 		if enc {
@@ -51,31 +71,62 @@ func processBody(req *http.Request, enc bool) {
 		}
 	}
 
+	var rkey string
 	if enc {
-		req.Body = ioutil.NopCloser(bytes.NewReader(Skip32Encode(G_KeyBytes, buf, false)))
+		rkey = RandomKey()
+		SafeAddHeader(req, rkeyHeader2, rkey)
 	} else {
-		req.Body = ioutil.NopCloser(bytes.NewReader(Skip32Decode(G_KeyBytes, buf, false)))
+		rkey = SafeGetHeader(req, rkeyHeader2)
+	}
+
+	req.Body = ioutil.NopCloser(&IOReaderCipher{Src: req.Body, Key: ReverseRandomKey(rkey)})
+}
+
+func SafeAddHeader(req *http.Request, k, v string) {
+	if orig := req.Header.Get(k); orig != "" {
+		req.Header.Set(k, v+" "+orig)
+	} else {
+		req.Header.Add(k, v)
 	}
 }
 
-func EncryptRequest(req *http.Request) {
+func SafeGetHeader(req *http.Request, k string) string {
+	v := req.Header.Get(k)
+	if s := strings.Index(v, " "); s > 0 {
+		req.Header.Set(k, v[s+1:])
+		v = v[:s]
+	}
+
+	return v
+}
+
+func EncryptRequest(req *http.Request) string {
 	req.Host = EncryptHost(req.Host)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + Skip32EncodeString(G_KeyBytes, req.URL.String()))
+
+	rkey := RandomKey()
+	SafeAddHeader(req, rkeyHeader, rkey)
 
 	if !*G_UnsafeHttp {
 		processBody(req, true)
 	}
+
+	return rkey
 }
 
-func DecryptRequest(req *http.Request) {
+func DecryptRequest(req *http.Request) string {
 	req.Host = DecryptHost(req.Host)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(Skip32DecodeString(G_KeyBytes, p[1]))
 	}
 
+	rkey := SafeGetHeader(req, rkeyHeader)
+
 	if !*G_UnsafeHttp {
 		processBody(req, false)
 	}
+
+	return rkey
 }
 
 func EncryptHost(host string) string {
@@ -93,15 +144,10 @@ func DecryptHost(host string) string {
 func copyAndClose(dst, src *net.TCPConn, key string) {
 	ts := time.Now()
 
-	var rkey []byte
-	if key != "" {
-		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
-	}
-
 	if _, err := (&IOCopyCipher{
 		Dst: dst,
 		Src: src,
-		Key: rkey,
+		Key: ReverseRandomKey(key),
 	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
 		logg.E("[COPY] ~", time.Now().Sub(ts).Seconds(), " - ", err)
 	}
@@ -113,15 +159,10 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
 	ts := time.Now()
 
-	var rkey []byte
-	if key != "" {
-		rkey = Skip32Decode(G_KeyBytes, Base36Decode(key), true)
-	}
-
 	if _, err := (&IOCopyCipher{
 		Dst: dst,
 		Src: src,
-		Key: rkey,
+		Key: ReverseRandomKey(key),
 	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
 		logg.E("[COPYW] ~", time.Now().Sub(ts).Seconds(), " - ", err)
 	}
@@ -210,17 +251,23 @@ func PrintCache(w http.ResponseWriter, r *http.Request) {
 type IOCopyCipher struct {
 	Dst io.Writer
 	Src io.Reader
-	Key []byte
+	Key [][]byte
 
 	read int64
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logg.E("[WTF] - ", r)
+		}
+	}()
+
 	buf := make([]byte, 32*1024)
 	cc.read = 0
 
 	for {
-		ts := time.Now()
+		// ts := time.Now()
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
@@ -233,8 +280,11 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 					xs = len(OK200)
 				}
 
-				for i := xs; i < nr; i++ {
-					xbuf[i] ^= cc.Key[(int(cc.read)+i-xs)%len(cc.Key)]
+				for c := 0; c < len(cc.Key); c++ {
+					ln := len(cc.Key[c])
+					for i := xs; i < nr; i++ {
+						xbuf[i] ^= cc.Key[c][(int(cc.read)+i-xs)%ln]
+					}
 				}
 
 				cc.read += int64(nr - xs)
@@ -248,13 +298,13 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 			if ew != nil {
 				err = ew
-				logg.W("[IO TIMING 0] ", time.Now().Sub(ts).Seconds())
+				// logg.W("[IO TIMING 0] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 
 			if nr != nw {
 				err = io.ErrShortWrite
-				logg.W("[IO TIMING 1] ", time.Now().Sub(ts).Seconds())
+				// logg.W("[IO TIMING 1] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 		}
@@ -268,4 +318,30 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	}
 
 	return written, err
+}
+
+type IOReaderCipher struct {
+	Src io.Reader
+	Key [][]byte
+
+	read int64
+}
+
+func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
+	n, err = rc.Src.Read(p)
+	if n > 0 {
+
+		if rc.Key != nil && len(rc.Key) > 0 {
+			for c := 0; c < len(rc.Key); c++ {
+				ln := len(rc.Key[c])
+				for i := 0; i < n; i++ {
+					p[i] ^= rc.Key[c][(int(rc.read)+i)%ln]
+				}
+			}
+		}
+		// logg.L(string(p[:n]))
+		rc.read += int64(n)
+	}
+
+	return
 }

@@ -264,7 +264,7 @@ func Base36Decode(text string) []byte {
 	}
 
 	buf := ret.Bytes()
-	if padded {
+	if padded && len(buf) > 0 {
 		buf = buf[:len(buf)-1]
 	}
 	return buf
