@@ -16,8 +16,7 @@ var (
 	G_Password = flag.String("p", "password", "proxy password")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
-
-	// G_WriteThreshold = flag.Int("wt", 0, "speed threshold in kb/s, 0 for unlimited")
+	G_Dummies  = flag.String("dummy", "", "dummy hosts, separated by |")
 
 	G_Debug      = flag.Bool("debug", false, "debug mode")
 	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
@@ -76,6 +75,7 @@ func LoadConfig(path string) {
 	setString(G_Password, m["password"])
 	setString(G_Local, m["listen"])
 	setString(G_Upstream, m["upstream"])
+	setString(G_Dummies, m["dummies"])
 
 	setBool(G_UnsafeHttp, m["unsafehttp"])
 	setBool(G_SuppressSocketReadWriteError, m["ssrwe"])

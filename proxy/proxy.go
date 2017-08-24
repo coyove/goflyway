@@ -4,25 +4,15 @@ import (
 	. "../config"
 	"../logg"
 	"../lookup"
-	"crypto/tls"
 
-	// "bytes"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
-	"sync"
 	"time"
 )
-
-var hasPort = regexp.MustCompile(`:\d+$`)
-var OK200 = []byte("HTTP/1.0 200 OK\r\n\r\n")
-var tlsSkip = &tls.Config{InsecureSkipVerify: true}
-var rkeyHeader = "X-Request-ID"
-var rkeyHeader2 = "X-Request-HTTP-ID"
 
 type ProxyHttpServer struct {
 	Tr       *http.Transport
@@ -30,32 +20,10 @@ type ProxyHttpServer struct {
 	Upstream string
 }
 
-func TwoWayBridge(target, source net.Conn, key string) {
-
-	targetTCP, targetOK := target.(*net.TCPConn)
-	sourceTCP, sourceOK := source.(*net.TCPConn)
-
-	if targetOK && sourceOK {
-		go copyAndClose(targetTCP, sourceTCP, key) // copy from source, decrypt, to target
-		go copyAndClose(sourceTCP, targetTCP, key) // copy from target, encrypt, to source
-	} else {
-		go func() {
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go copyOrWarn(target, source, key, &wg)
-			go copyOrWarn(source, target, key, &wg)
-			wg.Wait()
-
-			source.Close()
-			target.Close()
-		}()
-	}
-}
-
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
-		if Skip32DecodeString(G_KeyBytes, r.Header.Get("X-Host-Lookup-ID")) == *G_Key {
-			w.Write([]byte(lookup.LookupIP(r.Header.Get("X-Host-Lookup"))))
+		if Skip32DecodeString(G_KeyBytes, r.Header.Get(dnsHeaderID)) == *G_Key {
+			w.Write([]byte(lookup.LookupIP(r.Header.Get(dnsHeader))))
 			return
 		}
 	}
@@ -246,8 +214,8 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	// lookup at upstream
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-	req.Header.Add("X-Host-Lookup", host)
-	req.Header.Add("X-Host-Lookup-ID", Skip32EncodeString(G_KeyBytes, *G_Key))
+	req.Header.Add(dnsHeader, host)
+	req.Header.Add(dnsHeaderID, Skip32EncodeString(G_KeyBytes, *G_Key))
 	resp, err := client.Do(req)
 
 	if err != nil {
