@@ -5,6 +5,7 @@ import (
 
 	"io"
 	"net"
+	"net/http"
 	"sync"
 )
 
@@ -126,4 +127,19 @@ func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 	}
 
 	return
+}
+
+func XorWrite(w http.ResponseWriter, r *http.Request, p []byte) (n int, err error) {
+	key := ReverseRandomKey(SafeGetHeader(r, rkeyHeader))
+
+	if key != nil && len(key) > 0 {
+		for c := 0; c < len(key); c++ {
+			ln := len(key[c])
+			for i := 0; i < len(p); i++ {
+				p[i] ^= key[c][i%ln]
+			}
+		}
+	}
+
+	return w.Write(p)
 }

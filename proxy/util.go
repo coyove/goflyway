@@ -33,7 +33,7 @@ var (
 	dnsHeaderID = "X-Host-Lookup-ID"
 	dnsHeader   = "X-Host-Lookup"
 
-	hostHeadHolder  = "%s.%s.com:%d"
+	hostHeadHolder  = "%s.%s.com"
 	dummyHosts      = append([]string{"baidu", "qq", "taobao", "sina", "163", "youku"}, strings.Split(*G_Dummies, "|")...)
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.(?:` + strings.Join(dummyHosts, "|") + `)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
@@ -152,16 +152,17 @@ func DecryptRequest(req *http.Request) string {
 }
 
 func SplitHostPort(host string) (string, int) {
+
 	if idx := strings.Index(host, ":"); idx > 0 {
 		n, err := strconv.Atoi(host[idx+1:])
 		if err != nil {
 			logg.E("cannot split: ", host)
-			return host, 80
+			return host, 0
 		}
 
 		return host[:idx], n
 	} else {
-		return host, 80
+		return host, 0
 	}
 }
 
@@ -170,11 +171,19 @@ func EncryptHost(host string) string {
 	dummy := dummyHosts[NewRand().Intn(len(dummyHosts))]
 
 	if *G_NoShoco {
-		return fmt.Sprintf(hostHeadHolder, Skip32EncodeString(G_KeyBytes, h), dummy, p)
+		t := fmt.Sprintf(hostHeadHolder, Skip32EncodeString(G_KeyBytes, h), dummy)
+		if p > 0 {
+			t += ":" + strconv.Itoa(p)
+		}
+		return t
 	}
 
 	x := Base36Encode(Skip32Encode(G_KeyBytes, shoco.CompressHost(h), false))
-	return fmt.Sprintf(hostHeadHolder, x, dummy, p)
+	t := fmt.Sprintf(hostHeadHolder, x, dummy)
+	if p > 0 {
+		t += ":" + strconv.Itoa(p)
+	}
+	return t
 }
 
 func DecryptHost(host string) string {
@@ -188,10 +197,18 @@ func DecryptHost(host string) string {
 
 	if s := hostHeadExtract.FindStringSubmatch(h); len(s) > 1 {
 		if *G_NoShoco {
-			return Skip32DecodeString(G_KeyBytes, s[1]) + ":" + strconv.Itoa(p)
+			if p > 0 {
+				return Skip32DecodeString(G_KeyBytes, s[1]) + ":" + strconv.Itoa(p)
+			} else {
+				return Skip32DecodeString(G_KeyBytes, s[1])
+			}
 		}
 
-		return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false)) + ":" + strconv.Itoa(p)
+		if p > 0 {
+			return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false)) + ":" + strconv.Itoa(p)
+		} else {
+			return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false))
+		}
 	}
 
 	return ""

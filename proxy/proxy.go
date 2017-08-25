@@ -71,13 +71,13 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		if proxy.Upstream != "" {
 			// we are inside GFW and should pass data to upstream
 			host := r.URL.Host
+			if !hasPort.MatchString(host) {
+				host += ":80"
+			}
+
 			if proxy.CanDirectConnect(host) {
 				_bridge(host, "")
 				return
-			}
-
-			if !hasPort.MatchString(host) {
-				host += ":80"
 			}
 
 			host = EncryptHost(host)
@@ -141,7 +141,13 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			}
 
 			logg.E("[PRT] - ", err.Error(), " - ", r.URL)
-			http.Error(w, err.Error(), 500)
+
+			if proxy.Upstream != "" || direct {
+				http.Error(w, err.Error(), 500)
+			} else {
+				w.WriteHeader(500)
+				XorWrite(w, r, []byte(err.Error()))
+			}
 			return
 		}
 
