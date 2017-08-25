@@ -1665,7 +1665,6 @@ BE
 CZ
 TECH
 NG
-XN--P1AI
 BY
 MY
 IS
@@ -1694,11 +1693,11 @@ func init() {
 	for i, t := range ts {
 		TLDs[t] = i + 1
 		TLDs_rev[i+1] = t
-	} // 127
+	} // 126
 
 	for i, t := range strings.Split(_TLDs, "\n") {
 		if _, e := TLDs[t]; !e {
-			TLDs[t] = i + len(ts) + 1
+			TLDs[t] = i + len(ts) + 2
 			TLDs_rev[TLDs[t]] = t
 		}
 	}

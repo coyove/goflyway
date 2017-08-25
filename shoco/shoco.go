@@ -3,6 +3,7 @@ package shoco
 // this is a go implementation of shoco alogrithm
 
 import (
+	"../lookup"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -220,6 +221,13 @@ func Decompress(buf []byte) string {
 }
 
 func CompressHost(text string) []byte {
+	if i := lookup.IPAddressToInteger(text); i > 0 {
+		return []byte{
+			127,
+			byte(i >> 24), byte(i << 8 >> 24), byte(i << 16 >> 24), byte(i),
+		}
+	}
+
 	if li := strings.LastIndex(text, "."); li > 0 {
 		buf := Compress(text[:li])
 		idx := getTLDIndex(strings.ToUpper(text[li+1:]))
@@ -228,7 +236,7 @@ func CompressHost(text string) []byte {
 			panic("serious wrong host: " + text)
 		}
 
-		if idx < 128 {
+		if idx < 127 {
 			return append([]byte{byte(idx)}, buf...)
 		} else {
 			h := uint16(idx) / 256
@@ -247,8 +255,12 @@ func DecompressHost(buf []byte) string {
 		return ""
 	}
 
+	if uint8(buf[0]) == 127 && len(buf) == 5 {
+		return fmt.Sprintf("%d.%d.%d.%d", buf[1], buf[2], buf[3], buf[4])
+	}
+
 	var idx, xs int
-	if uint8(buf[0]) < 128 {
+	if uint8(buf[0]) < 127 {
 		idx = int(buf[0])
 		xs = 1
 	} else {
