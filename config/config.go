@@ -16,11 +16,12 @@ var (
 	G_Password = flag.String("p", "password", "proxy password")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
-	G_Dummies  = flag.String("dummy", "", "dummy hosts, separated by |")
+	G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
 
 	G_Debug      = flag.Bool("debug", false, "debug mode")
 	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
 	G_NoPA       = flag.Bool("disable-pa", false, "disable proxy authentication")
+	G_NoShoco    = flag.Bool("disable-shoco", false, "disable shoco compression")
 	G_ProxyAll   = flag.Bool("all", false, "proxy Chinese websites")
 
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
@@ -80,6 +81,7 @@ func LoadConfig(path string) {
 	setBool(G_UnsafeHttp, m["unsafehttp"])
 	setBool(G_SuppressSocketReadWriteError, m["ssrwe"])
 	setBool(G_NoPA, m["disablepa"])
+	setBool(G_NoShoco, m["disableshoco"])
 	setBool(G_ProxyAll, m["proxyall"])
 
 	setInt(G_DNSCacheEntries, m["dnscache"])

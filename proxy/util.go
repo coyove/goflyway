@@ -4,6 +4,7 @@ import (
 	. "../config"
 	"../logg"
 	"../lru"
+	"../shoco"
 
 	"bytes"
 	"crypto/tls"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +33,7 @@ var (
 	dnsHeaderID = "X-Host-Lookup-ID"
 	dnsHeader   = "X-Host-Lookup"
 
-	hostHeadHolder  = "%s.%s.com:433"
+	hostHeadHolder  = "%s.%s.com:%d"
 	dummyHosts      = append([]string{"baidu", "qq", "taobao", "sina", "163", "youku"}, strings.Split(*G_Dummies, "|")...)
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.(?:` + strings.Join(dummyHosts, "|") + `)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
@@ -149,13 +151,47 @@ func DecryptRequest(req *http.Request) string {
 	return rkey
 }
 
+func SplitHostPort(host string) (string, int) {
+	if idx := strings.Index(host, ":"); idx > 0 {
+		n, err := strconv.Atoi(host[idx+1:])
+		if err != nil {
+			logg.E("cannot split: ", host)
+			return host, 80
+		}
+
+		return host[:idx], n
+	} else {
+		return host, 80
+	}
+}
+
 func EncryptHost(host string) string {
-	return fmt.Sprintf(hostHeadHolder, Skip32EncodeString(G_KeyBytes, host), dummyHosts[NewRand().Intn(len(dummyHosts))])
+	h, p := SplitHostPort(host)
+	dummy := dummyHosts[NewRand().Intn(len(dummyHosts))]
+
+	if *G_NoShoco {
+		return fmt.Sprintf(hostHeadHolder, Skip32EncodeString(G_KeyBytes, h), dummy, p)
+	}
+
+	x := Base36Encode(Skip32Encode(G_KeyBytes, shoco.CompressHost(h), false))
+	return fmt.Sprintf(hostHeadHolder, x, dummy, p)
 }
 
 func DecryptHost(host string) string {
-	if p := hostHeadExtract.FindStringSubmatch(host); len(p) > 1 {
-		return Skip32DecodeString(G_KeyBytes, p[1])
+	defer func() {
+		if r := recover(); r != nil {
+			logg.E("[SHOCO] - ", r)
+		}
+	}()
+
+	h, p := SplitHostPort(host)
+
+	if s := hostHeadExtract.FindStringSubmatch(h); len(s) > 1 {
+		if *G_NoShoco {
+			return Skip32DecodeString(G_KeyBytes, s[1]) + ":" + strconv.Itoa(p)
+		}
+
+		return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false)) + ":" + strconv.Itoa(p)
 	}
 
 	return ""

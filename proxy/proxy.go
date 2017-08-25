@@ -88,9 +88,9 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 
-			rkey := RandomKey()
+			rkey, rhost := RandomKey(), dummyHosts[NewRand().Intn(len(dummyHosts))]
 			upstreamConn.Write([]byte(fmt.Sprintf(
-				"CONNECT www.baidu.com HTTP/1.1\r\nHost: www.baidu.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", host, rkeyHeader, rkey)))
+				"CONNECT www.%s.com HTTP/1.1\r\nHost: www.%s.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", rhost, rhost, host, rkeyHeader, rkey)))
 
 			TwoWayBridge(proxyClient, upstreamConn, rkey)
 		} else {
@@ -219,7 +219,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	resp, err := client.Do(req)
 
 	if err != nil {
-		logg.W("host lookup: ", err)
+		logg.W("[REMOTE LOOKUP] ", err)
 		return maybeChinese
 	}
 
@@ -227,7 +227,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	tryClose(resp.Body)
 
 	if err != nil {
-		logg.W("host lookup: ", err)
+		logg.W("[REMOTE LOOKUP] ", err)
 		return maybeChinese
 	}
 

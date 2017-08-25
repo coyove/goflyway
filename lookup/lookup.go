@@ -82,7 +82,7 @@ func IsPrivateIP(ip string) bool {
 func LookupIP(host string) string {
 	ip, err := net.ResolveIPAddr("ip4", host)
 	if err != nil {
-		logg.L("dns lookup: ", err)
+		logg.L("[DNS] ", err)
 		return ""
 	}
 
