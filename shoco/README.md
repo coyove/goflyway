@@ -1,3 +1,4 @@
+[shoco project](https://github.com/Ed-von-Schleck/shoco)
 
 **shoco**: a fast compressor for short strings
 --------------------------------------------
