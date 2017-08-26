@@ -186,7 +186,9 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	resp, err := client.Do(req)
 
 	if err != nil {
-		logg.W("[REMOTE LOOKUP] ", err)
+		if !err.(net.Error).Timeout() {
+			logg.W("[REMOTE LOOKUP] ", err)
+		}
 		return maybeChinese
 	}
 

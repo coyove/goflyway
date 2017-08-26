@@ -97,8 +97,8 @@ func (c *Cache) Add(key Key, value interface{}) {
 
 // Get looks up a key's value from the cache.
 func (c *Cache) Get(key Key) (value interface{}, ok bool) {
-	c.RLock()
-	defer c.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 
 	if c.cache == nil {
 		return
