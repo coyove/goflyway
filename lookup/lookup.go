@@ -97,7 +97,12 @@ func IPAddressToInteger(ip string) int {
 
 	np := 0
 	for i := 0; i < 4; i++ {
-		n, _ := strconv.Atoi(p[i])
+		n, err := strconv.Atoi(p[i])
+		// exception: 68.media.tumblr.com
+		if err != nil {
+			return 0
+		}
+
 		for j := 3; j > i; j-- {
 			n *= 256
 		}
