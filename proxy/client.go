@@ -21,25 +21,15 @@ type ProxyHttpServer struct {
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
-		if Skip32DecodeString(G_KeyBytes, r.Header.Get(dnsHeaderID)) == *G_Key {
-			w.Write([]byte(lookup.LookupIP(r.Header.Get(dnsHeader))))
-			return
-		}
-	}
-
 	if r.RequestURI == "/dns-lookup-cache" {
 		PrintCache(w, r)
 		return
 	}
 
-	if !*G_NoPA {
-		if proxy.Upstream != "" && !basicAuth(getAuth(r)) {
-			// only the downstream needs pa
-			w.Header().Set("Proxy-Authenticate", "Basic realm=zzz")
-			w.WriteHeader(407)
-			return
-		}
+	if !*G_NoPA && !basicAuth(getAuth(r)) {
+		w.Header().Set("Proxy-Authenticate", "Basic realm=zzz")
+		w.WriteHeader(407)
+		return
 	}
 
 	if r.Method == "CONNECT" {
@@ -56,7 +46,13 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		_bridge := func(host, rkey string) {
+		// we are inside GFW and should pass data to upstream
+		host := r.URL.Host
+		if !hasPort.MatchString(host) {
+			host += ":80"
+		}
+
+		if proxy.CanDirectConnect(host) {
 			targetSiteCon, err := net.Dial("tcp", host)
 			if err != nil {
 				logg.E("[HOST] - ", err)
@@ -65,41 +61,24 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 			proxyClient.Write(OK200)
-			TwoWayBridge(targetSiteCon, proxyClient, rkey)
+			TwoWayBridge(targetSiteCon, proxyClient, "")
+			return
 		}
 
-		if proxy.Upstream != "" {
-			// we are inside GFW and should pass data to upstream
-			host := r.URL.Host
-			if !hasPort.MatchString(host) {
-				host += ":80"
-			}
+		host = EncryptHost(host)
 
-			if proxy.CanDirectConnect(host) {
-				_bridge(host, "")
-				return
-			}
-
-			host = EncryptHost(host)
-
-			upstreamConn, err := net.Dial("tcp", proxy.Upstream)
-			if err != nil {
-				logg.E("[UPSTREAM] - ", err)
-				return
-			}
-
-			rkey, rhost := RandomKey(), dummyHosts[NewRand().Intn(len(dummyHosts))]
-			upstreamConn.Write([]byte(fmt.Sprintf(
-				"CONNECT www.%s.com HTTP/1.1\r\nHost: www.%s.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", rhost, rhost, host, rkeyHeader, rkey)))
-
-			TwoWayBridge(proxyClient, upstreamConn, rkey)
-		} else {
-			// we are outside GFW and should pass data to the real target
-			host := DecryptHost(r.Header.Get("X-Forwarded-Host"))
-			rkey := r.Header.Get(rkeyHeader)
-
-			_bridge(host, rkey)
+		upstreamConn, err := net.Dial("tcp", proxy.Upstream)
+		if err != nil {
+			logg.E("[UPSTREAM] - ", err)
+			return
 		}
+
+		rkey, rhost := RandomKey(), dummyHosts[NewRand().Intn(len(dummyHosts))]
+		upstreamConn.Write([]byte(fmt.Sprintf(
+			"CONNECT www.%s.com HTTP/1.1\r\nHost: www.%s.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", rhost, rhost, host, rkeyHeader, rkey)))
+
+		TwoWayBridge(proxyClient, upstreamConn, rkey)
+
 	} else {
 		// normal http requests
 		var err error
@@ -107,21 +86,17 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		// log.Println(proxy.Upstream, "got request", r.URL.Path, r.Host, r.Method, r.URL.String())
 
 		if !r.URL.IsAbs() {
-			http.Error(w, "abspath only", 500)
+			http.Error(w, "abspath only", http.StatusInternalServerError)
 			return
 		}
 
 		direct := false
-		if proxy.Upstream != "" {
-			// encrypt req to pass GFW
-			if proxy.CanDirectConnect(r.Host) {
-				direct = true
-			} else {
-				rkey = EncryptRequest(r)
-			}
+		rUrl := r.URL.String()
+		// encrypt req to pass GFW
+		if proxy.CanDirectConnect(r.Host) {
+			direct = true
 		} else {
-			// decrypt req from inside GFW
-			rkey = DecryptRequest(r)
+			rkey = EncryptRequest(r)
 		}
 
 		r.Header.Del("Proxy-Authorization")
@@ -136,18 +111,8 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err != nil {
-			if proxy.Upstream != "" && !direct {
-				DecryptRequest(r)
-			}
-
-			logg.E("[PRT] - ", err.Error(), " - ", r.URL)
-
-			if proxy.Upstream != "" || direct {
-				http.Error(w, err.Error(), 500)
-			} else {
-				w.WriteHeader(500)
-				XorWrite(w, r, []byte(err.Error()))
-			}
+			logg.E("[PRT] - ", err.Error(), " - ", rUrl)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -155,11 +120,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		defer origBody.Close()
 
 		if resp.StatusCode >= 400 {
-			if proxy.Upstream != "" && !direct {
-				DecryptRequest(r)
-			}
-
-			logg.L("[", resp.Status, "] - ", r.URL)
+			logg.L("[", resp.Status, "] - ", rUrl)
 		}
 
 		// http.ResponseWriter will take care of filling the correct response length
@@ -183,7 +144,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		tryClose(resp.Body)
 
 		if err != nil {
-			logg.E("io copy: ", err, " - bytes: ", nr)
+			logg.E("[COPYC] ", err, " - bytes: ", nr)
 		}
 	}
 }
@@ -241,7 +202,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	return lookup.IsChineseIP(string(ipbuf))
 }
 
-func Start(localaddr, upstream string) {
+func StartClient(localaddr, upstream string) {
 	upstreamUrl, err := url.Parse("http://" + upstream)
 	if err != nil {
 		logg.F(err)
@@ -258,13 +219,4 @@ func Start(localaddr, upstream string) {
 
 	logg.L("listening on ", localaddr, ", upstream is ", upstream)
 	logg.F(http.ListenAndServe(localaddr, proxy))
-}
-
-func StartUpstream(addr string) {
-	proxy := &ProxyHttpServer{
-		Tr: &http.Transport{TLSClientConfig: tlsSkip},
-	}
-
-	logg.L("listening on ", addr)
-	logg.F(http.ListenAndServe(addr, proxy))
 }
