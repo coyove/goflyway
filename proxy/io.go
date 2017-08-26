@@ -1,13 +1,44 @@
 package proxy
 
 import (
+	. "../config"
 	"../logg"
 
 	"io"
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
+
+func copyAndClose(dst, src *net.TCPConn, key string) {
+	ts := time.Now()
+
+	if _, err := (&IOCopyCipher{
+		Dst: dst,
+		Src: src,
+		Key: ReverseRandomKey(key),
+	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+		logg.E("[COPY] ~", time.Now().Sub(ts).Seconds(), " - ", err)
+	}
+
+	dst.CloseWrite()
+	src.CloseRead()
+}
+
+func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
+	ts := time.Now()
+
+	if _, err := (&IOCopyCipher{
+		Dst: dst,
+		Src: src,
+		Key: ReverseRandomKey(key),
+	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
+		logg.E("[COPYW] ~", time.Now().Sub(ts).Seconds(), " - ", err)
+	}
+
+	wg.Done()
+}
 
 func TwoWayBridge(target, source net.Conn, key string) {
 

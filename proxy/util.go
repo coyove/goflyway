@@ -14,13 +14,11 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -212,35 +210,6 @@ func DecryptHost(host string) string {
 	}
 
 	return ""
-}
-
-func copyAndClose(dst, src *net.TCPConn, key string) {
-	ts := time.Now()
-
-	if _, err := (&IOCopyCipher{
-		Dst: dst,
-		Src: src,
-		Key: ReverseRandomKey(key),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("[COPY] ~", time.Now().Sub(ts).Seconds(), " - ", err)
-	}
-
-	dst.CloseWrite()
-	src.CloseRead()
-}
-
-func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
-	ts := time.Now()
-
-	if _, err := (&IOCopyCipher{
-		Dst: dst,
-		Src: src,
-		Key: ReverseRandomKey(key),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("[COPYW] ~", time.Now().Sub(ts).Seconds(), " - ", err)
-	}
-
-	wg.Done()
 }
 
 func copyHeaders(dst, src http.Header) {
