@@ -12,6 +12,10 @@ import (
 var IPv4LookupTable [][]uint32
 var IPv4PrivateLookupTable [][]uint32
 
+type China_list_t map[string]interface{}
+
+var ChinaList China_list_t
+
 func init() {
 	IPv4LookupTable, IPv4PrivateLookupTable = make([][]uint32, 0), make([][]uint32, 0)
 
@@ -65,6 +69,29 @@ func IPInLookupTable(ip string, table [][]uint32) bool {
 	}
 
 	return rec(table)
+}
+
+func IsChineseWebsite(host string) bool {
+	subs := strings.Split(host, ".")
+	if len(subs) <= 1 {
+		return false
+	}
+
+	top := ChinaList
+	for i := len(subs) - 1; i >= 0; i-- {
+		sub := subs[i]
+		if top[sub] == nil {
+			if v, eol := top["_"].(bool); v && eol {
+				return true
+			}
+
+			return false
+		}
+
+		top = top[sub].(China_list_t)
+	}
+
+	return true
 }
 
 func IsChineseIP(ip string) bool {

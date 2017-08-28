@@ -159,6 +159,10 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 		return lookup.IsPrivateIP(host) || lookup.IsChineseIP(host)
 	}
 
+	if *G_ProxyChina && lookup.IsChineseWebsite(host) {
+		return true
+	}
+
 	if ip, ok := G_Cache.Get(host); ok && ip.(string) != "" { // we have cached the host
 		return lookup.IsPrivateIP(ip.(string)) || lookup.IsChineseIP(ip.(string))
 	}
