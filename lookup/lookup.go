@@ -71,6 +71,9 @@ func IPInLookupTable(ip string, table [][]uint32) bool {
 	return rec(table)
 }
 
+// Exceptions are those Chinese websites who have oversea servers or CDNs,
+// if you lookup their IPs outside China, you get foreign IPs based on your VPS's geolocation, which are of course undesired results.
+// Using white list to filter these exceptions
 func IsChineseWebsite(host string) bool {
 	subs := strings.Split(host, ".")
 	if len(subs) <= 1 {
@@ -78,6 +81,10 @@ func IsChineseWebsite(host string) bool {
 	}
 
 	top := ChinaList
+	if top == nil {
+		return false
+	}
+
 	for i := len(subs) - 1; i >= 0; i-- {
 		sub := subs[i]
 		if top[sub] == nil {
