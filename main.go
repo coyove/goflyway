@@ -29,7 +29,7 @@ func main() {
 	flag.Parse()
 	LoadConfig(*G_Config)
 
-	if *G_Key == "0123456789" {
+	if *G_Key == "0123456789abcdef" {
 		logg.W("[WARNING] you are using the default key (-k key)")
 	}
 

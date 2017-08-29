@@ -6,7 +6,6 @@ import (
 	"../lru"
 	"../shoco"
 
-	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
@@ -50,25 +49,16 @@ func NewRand() *rand.Rand {
 
 func RandomKey() string {
 	_rand := NewRand()
-	c, p := _rand.Intn(3)+3, _rand.Perm(20)
+	retB := make([]byte, 16)
 
-	retB := make([][]byte, c)
-
-	for m := 0; m < c; m++ {
-		ln := int(primes[p[c]])
-		ret := make([]byte, ln)
-
-		for i := 0; i < ln; i++ {
-			ret[i] = byte(_rand.Intn(255) + 1)
-		}
-
-		retB[m] = ret
+	for i := 0; i < 16; i++ {
+		retB[i] = byte(_rand.Intn(255) + 1)
 	}
 
-	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, bytes.Join(retB, []byte{0}), true))
+	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, retB, false))
 }
 
-func ReverseRandomKey(key string) [][]byte {
+func ReverseRandomKey(key string) []byte {
 	if key == "" {
 		return nil
 	}
@@ -78,7 +68,7 @@ func ReverseRandomKey(key string) [][]byte {
 		return nil
 	}
 
-	return bytes.Split(Skip32Decode(G_KeyBytes, k, true), []byte{0})
+	return Skip32Decode(G_KeyBytes, k, false)
 }
 
 func processBody(req *http.Request, enc bool) {
@@ -99,7 +89,7 @@ func processBody(req *http.Request, enc bool) {
 		rkey = SafeGetHeader(req, rkeyHeader2)
 	}
 
-	req.Body = ioutil.NopCloser(&IOReaderCipher{Src: req.Body, Key: ReverseRandomKey(rkey)})
+	req.Body = ioutil.NopCloser((&IOReaderCipher{Src: req.Body, Key: ReverseRandomKey(rkey)}).Init())
 }
 
 func SafeAddHeader(req *http.Request, k, v string) {

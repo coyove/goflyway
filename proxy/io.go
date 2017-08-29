@@ -4,6 +4,8 @@ import (
 	. "../config"
 	"../logg"
 
+	"crypto/aes"
+	"crypto/cipher"
 	"io"
 	"net"
 	"net/http"
@@ -62,12 +64,25 @@ func TwoWayBridge(target, source net.Conn, key string) {
 	}
 }
 
+func GetStream(key []byte) cipher.Stream {
+	block, err := aes.NewCipher(G_KeyBytes[:32])
+	if err != nil {
+		logg.E("[AES] cannot create cipher: ", err)
+		return nil
+	}
+
+	if len(key) != 16 {
+		logg.E("[AES] key is not 128bit long")
+		return nil
+	}
+
+	return cipher.NewCTR(block, key)
+}
+
 type IOCopyCipher struct {
 	Dst io.Writer
 	Src io.Reader
-	Key [][]byte
-
-	read int64
+	Key []byte
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
@@ -78,7 +93,12 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	}()
 
 	buf := make([]byte, 32*1024)
-	cc.read = 0
+	cbuf := make([]byte, len(buf))
+
+	var ctr cipher.Stream
+	if cc.Key != nil {
+		ctr = GetStream(cc.Key)
+	}
 
 	for {
 		// ts := time.Now()
@@ -86,7 +106,7 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 		if nr > 0 {
 			xbuf := buf[0:nr]
 
-			if cc.Key != nil && len(cc.Key) > 0 {
+			if ctr != nil {
 				// if key is not null, do the en/decryption
 				xs := 0
 
@@ -94,14 +114,9 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 					xs = len(OK200)
 				}
 
-				for c := 0; c < len(cc.Key); c++ {
-					ln := len(cc.Key[c])
-					for i := xs; i < nr; i++ {
-						xbuf[i] ^= cc.Key[c][(int(cc.read)+i-xs)%ln]
-					}
-				}
-
-				cc.read += int64(nr - xs)
+				copy(cbuf, xbuf)
+				ctr.XORKeyStream(cbuf[xs:nr], xbuf[xs:])
+				copy(xbuf[xs:], cbuf[xs:nr])
 			}
 
 			nw, ew := cc.Dst.Write(xbuf)
@@ -136,25 +151,26 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 type IOReaderCipher struct {
 	Src io.Reader
-	Key [][]byte
+	Key []byte
 
-	read int64
+	ctr cipher.Stream
+}
+
+func (rc *IOReaderCipher) Init() *IOReaderCipher {
+	if rc.Key != nil {
+		rc.ctr = GetStream(rc.Key)
+	}
+
+	return rc
 }
 
 func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 	n, err = rc.Src.Read(p)
-	if n > 0 {
-
-		if rc.Key != nil && len(rc.Key) > 0 {
-			for c := 0; c < len(rc.Key); c++ {
-				ln := len(rc.Key[c])
-				for i := 0; i < n; i++ {
-					p[i] ^= rc.Key[c][(int(rc.read)+i)%ln]
-				}
-			}
-		}
-		// logg.L(string(p[:n]))
-		rc.read += int64(n)
+	if n > 0 && rc.ctr != nil {
+		cp := make([]byte, n)
+		copy(cp, p[:n])
+		rc.ctr.XORKeyStream(cp, p[:n])
+		copy(p, cp)
 	}
 
 	return
@@ -163,12 +179,12 @@ func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 func XorWrite(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
 	key := ReverseRandomKey(SafeGetHeader(r, rkeyHeader))
 
-	if key != nil && len(key) > 0 {
-		for c := 0; c < len(key); c++ {
-			ln := len(key[c])
-			for i := 0; i < len(p); i++ {
-				p[i] ^= key[c][i%ln]
-			}
+	if key != nil {
+		if ctr := GetStream(key); ctr != nil {
+			cp := make([]byte, len(p))
+			copy(cp, p)
+			ctr.XORKeyStream(cp, p)
+			copy(p, cp)
 		}
 	}
 

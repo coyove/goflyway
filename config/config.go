@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	G_Key      = flag.String("k", "0123456789", "key, max length = 10")
+	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
 	G_KeyBytes = []byte(*G_Key)
 
 	G_Username = flag.String("u", "username", "proxy username")
@@ -90,7 +90,7 @@ func LoadConfig(path string) {
 	}
 
 	G_KeyBytes = []byte(*G_Key)
-	if len(G_KeyBytes) < 10 {
-		G_KeyBytes = append(G_KeyBytes, make([]byte, 10-len(G_KeyBytes))...)
+	for len(G_KeyBytes) < 32 {
+		G_KeyBytes = append(G_KeyBytes, G_KeyBytes...)
 	}
 }
