@@ -21,8 +21,8 @@ type ProxyHttpServer struct {
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/dns-lookup-cache" {
-		PrintCache(w, r)
+	if r.RequestURI == "/?goflyway-console" {
+		handleWebConsole(w, r)
 		return
 	}
 
