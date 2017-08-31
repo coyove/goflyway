@@ -29,6 +29,8 @@ func main() {
 	flag.Parse()
 	LoadConfig(*G_Config)
 
+	logg.RecordLocalhostError(*G_RecordLocalhostError)
+
 	if *G_Key == "0123456789abcdef" {
 		logg.W("[WARNING] you are using the default key (-k key)")
 	}

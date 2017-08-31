@@ -63,7 +63,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 
 		resp, err := proxy.Tr.RoundTrip(r)
 		if err != nil {
-			logg.E("[PRT] - ", err.Error(), " - ", r.URL)
+			logg.E("[HTTP] - ", err.Error(), " - ", r.URL)
 			XorWrite(w, r, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}

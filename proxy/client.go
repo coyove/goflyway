@@ -111,7 +111,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err != nil {
-			logg.E("[PRT] - ", err.Error(), " - ", rUrl)
+			logg.E("[HTTP] - ", rUrl, " - ", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

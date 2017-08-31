@@ -1,11 +1,12 @@
 package config
 
 import (
+	"../logg"
 	"../lru"
+
 	"encoding/json"
 	"flag"
 	"io/ioutil"
-	"log"
 )
 
 var (
@@ -25,6 +26,7 @@ var (
 	G_ProxyAll   = flag.Bool("all", false, "proxy Chinese websites")
 	G_ProxyChina = flag.Bool("china", true, "proxy Chinese websites using china-list")
 
+	G_RecordLocalhostError         = flag.Bool("rle", false, "log all localhost errors")
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
 	G_DNSCacheEntries              = flag.Int("dns-cache", 1024, "DNS cache size")
 
@@ -58,13 +60,13 @@ func LoadConfig(path string) {
 	if path != "" {
 		buf, err := ioutil.ReadFile(path)
 		if err != nil {
-			log.Fatalln(err)
+			logg.F(err)
 		}
 
 		m := make(map[string]interface{})
 		err = json.Unmarshal(buf, &m)
 		if err != nil {
-			log.Fatalln(err)
+			logg.F(err)
 		}
 
 		setString(G_Key, m["key"])

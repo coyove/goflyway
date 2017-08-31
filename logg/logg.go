@@ -4,9 +4,16 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 )
+
+var ignoreLocalhost = true
+
+func RecordLocalhostError(r bool) {
+	ignoreLocalhost = !r
+}
 
 func timestamp() string {
 	t := time.Now()
@@ -42,16 +49,20 @@ func print(l string, params ...interface{}) {
 	l = lead(l)
 
 	for _, p := range params {
-		s := fmt.Sprintf("%+v", p)
 		switch p.(type) {
 		case *net.OpError:
 			op := p.(*net.OpError)
+			if ignoreLocalhost && op.Source != nil && op.Addr != nil {
+				if strings.Split(op.Source.String(), ":")[0] == strings.Split(op.Addr.String(), ":")[0] {
+					return
+				}
+			}
 			l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
 		case *net.DNSError:
 			op := p.(*net.DNSError)
 			l += fmt.Sprintf("lookup: %s, timeout: %v", op.Name, op.IsTimeout)
 		default:
-			l += (s)
+			l += fmt.Sprintf("%+v", p)
 		}
 	}
 
