@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -19,26 +20,39 @@ func lead(l string) string {
 	return ("[" + l + " " + timestamp() + "] ")
 }
 
+// Widnows WSA error messages are way too long to print
+// ex: An established connection was aborted by the software in your host machine.write tcp 127.0.0.1:8100->127.0.0.1:52466: wsasend: An established connection was aborted by the software in your host machine.
+func tryShortenWSAError(err interface{}) (ret string) {
+	defer recover()
+
+	ret = "not a network error"
+
+	e := err.(*net.OpError).Err.(*os.SyscallError).Err.(syscall.Errno)
+	if msg, ok := WSAErrno[int(e)]; ok {
+		ret = msg
+	} else {
+		// messages on linux are short enough
+		ret = fmt.Sprintf("C%d, %s", uintptr(e), e.Error())
+	}
+
+	return
+}
+
 func print(l string, params ...interface{}) {
 	l = lead(l)
 
 	for _, p := range params {
 		s := fmt.Sprintf("%+v", p)
-
-		if _, ok := p.(error); ok {
-			op, ok := p.(*net.OpError)
-			if ok {
-
-				l += fmt.Sprintf("src: %v, addr: %v, op: %s\n", op.Source, op.Addr, op.Op)
-				s = fmt.Sprintf("%s  %+v", lead("^"), op.Err)
-			}
-
-			if len(s) > 120 {
-				s = s[:120] + "..."
-			}
+		switch p.(type) {
+		case *net.OpError:
+			op := p.(*net.OpError)
+			l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
+		case *net.DNSError:
+			op := p.(*net.DNSError)
+			l += fmt.Sprintf("lookup: %s, timeout: %v", op.Name, op.IsTimeout)
+		default:
+			l += (s)
 		}
-
-		l += (s)
 	}
 
 	fmt.Println(l)
