@@ -30,9 +30,11 @@ func lead(l string) string {
 // Widnows WSA error messages are way too long to print
 // ex: An established connection was aborted by the software in your host machine.write tcp 127.0.0.1:8100->127.0.0.1:52466: wsasend: An established connection was aborted by the software in your host machine.
 func tryShortenWSAError(err interface{}) (ret string) {
-	defer func() { recover() }()
-
-	ret = "not a network error"
+	defer func() {
+		if recover() != nil {
+			ret = fmt.Sprintf("%v", err)
+		}
+	}()
 
 	if e, sysok := err.(*net.OpError).Err.(*os.SyscallError); sysok {
 		errno := e.Err.(syscall.Errno)
