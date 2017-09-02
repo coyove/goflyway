@@ -4,6 +4,7 @@ import (
 	. "../config"
 	"../logg"
 	"../lookup"
+	"../lru"
 
 	"fmt"
 	"io/ioutil"
@@ -65,7 +66,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		host = EncryptHost(host)
+		host = EncryptHost(host, "*")
 
 		upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 		if err != nil {
@@ -73,9 +74,14 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		rkey, rhost := RandomKey(), dummyHosts[NewRand().Intn(len(dummyHosts))]
-		upstreamConn.Write([]byte(fmt.Sprintf(
-			"CONNECT www.%s.com HTTP/1.1\r\nHost: www.%s.com\r\nX-Forwarded-Host: %s\r\n%s: %s\r\n\r\n", rhost, rhost, host, rkeyHeader, rkey)))
+		rkey := RandomKey()
+		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
+
+		G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
+			payload += k.(string) + ": " + v.(string) + "\r\n"
+		})
+
+		upstreamConn.Write([]byte(payload + "\r\n"))
 
 		TwoWayBridge(proxyClient, upstreamConn, rkey)
 

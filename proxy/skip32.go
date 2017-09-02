@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"time"
 )
@@ -94,35 +95,35 @@ func _skip32(key []byte, buf []byte, encrypt bool) {
 }
 
 func _left_shift(buf []byte) {
-	lead := buf[0]
-	copy(buf[0:], buf[1:])
-	buf[len(buf)-1] = lead
+	lead1, lead2, lead3 := buf[0], buf[1], buf[2]
+	copy(buf[0:], buf[3:])
+	buf[len(buf)-3], buf[len(buf)-2], buf[len(buf)-1] = lead1, lead2, lead3
 }
 
 func _right_shift(buf []byte) {
-	lead := buf[len(buf)-1]
-	copy(buf[1:], buf[0:])
-	buf[0] = lead
+	// lead := buf[len(buf)-1]
+	// copy(buf[1:], buf[0:])
+	// buf[0] = lead
+	lead1, lead2, lead3 := buf[len(buf)-3], buf[len(buf)-2], buf[len(buf)-1]
+	copy(buf[3:], buf[0:])
+	buf[0], buf[1], buf[2] = lead1, lead2, lead3
+
 }
 
-func Skip32Encode(key, buf []byte, padding bool) []byte {
+func Skip32Encode(key, buf []byte) []byte {
 	if len(key) > 10 {
 		key = key[:10]
 	}
 
 	ln := len(buf)
 	if ln == 0 {
-		return buf
+		return []byte{}
 	}
 
-	if padding {
-		ts := int32(time.Now().UnixNano())
-		buf = append(buf, byte(ts>>24), byte(ts>>16), byte(ts>>8), byte(ts))
-	} else {
-		ln -= 3
-	}
+	ts := int32(time.Now().UnixNano())
+	buf = append(buf, byte(ts>>24), byte(ts>>16), byte(ts>>8), byte(ts))
 
-	for c := 0; c < 4; c++ {
+	for c := 0; c < ln; c++ {
 		for i := 0; i < ln; i += 4 {
 			_skip32(key, buf[i:i+4], true)
 		}
@@ -132,36 +133,24 @@ func Skip32Encode(key, buf []byte, padding bool) []byte {
 	return buf
 }
 
-func Skip32Decode(key, buf []byte, padding bool) []byte {
+func Skip32Decode(key, buf []byte) []byte {
 	if len(key) > 10 {
 		key = key[:10]
 	}
 
 	ln := len(buf)
-	if ln < 5 && padding {
+	if ln < 5 {
 		// buf must contain at least 1 byte + 4 bytes padding
-		return buf
+		return []byte{}
 	}
 
-	if ln == 0 {
-		return buf
-	}
+	ln -= 4
 
-	if padding {
-		ln -= 4
-	} else {
-		ln -= 3
-	}
-
-	for c := 0; c < 4; c++ {
+	for c := 0; c < ln; c++ {
 		_right_shift(buf)
 		for i := 0; i < ln; i += 4 {
 			_skip32(key, buf[i:i+4], false)
 		}
-	}
-
-	if !padding {
-		return buf
 	}
 
 	return buf[:ln]
@@ -194,7 +183,7 @@ func Base36Encode(buf []byte) string {
 		}
 
 		if padded && i == len(buf)/4*2 {
-			ret.WriteString(".")
+			ret.WriteString("-")
 		}
 	}
 
@@ -202,6 +191,7 @@ func Base36Encode(buf []byte) string {
 }
 
 func Base36Decode(text string) []byte {
+
 	ret := bytes.Buffer{}
 	padded := false
 
@@ -231,9 +221,8 @@ func Base36Decode(text string) []byte {
 				return 0, false
 			}
 			return n + 36, true
-		} else if b == '.' && !padded {
-			padded = true
-			return _next(p)
+		} else {
+			panic(b)
 		}
 
 		return 0, false
@@ -255,6 +244,11 @@ func Base36Decode(text string) []byte {
 			break
 		}
 
+		if text[i+1] == '-' {
+			padded = true
+			i++
+		}
+
 		n := n3*37*36 + n2*36 + n1
 		b1 := n / 256
 		b2 := n - b1*256
@@ -267,21 +261,19 @@ func Base36Decode(text string) []byte {
 	if padded && len(buf) > 0 {
 		buf = buf[:len(buf)-1]
 	}
+
 	return buf
 }
 
 func Skip32EncodeString(key []byte, text string) string {
-	return Base36Encode(Skip32Encode(key, []byte(text), true))
+	return hex.EncodeToString(Skip32Encode(key, []byte(text)))
 }
 
 func Skip32DecodeString(key []byte, text string) string {
-	return string(Skip32Decode(key, Base36Decode(text), true))
-}
+	ret, err := hex.DecodeString(text)
+	if err != nil {
+		return ""
+	}
 
-func Skip32EncodeStringNoPadding(key []byte, text string) string {
-	return Base36Encode(Skip32Encode(key, []byte(text), false))
-}
-
-func Skip32DecodeStringNoPadding(key []byte, text string) string {
-	return string(Skip32Decode(key, Base36Decode(text), false))
+	return string(Skip32Decode(key, ret))
 }

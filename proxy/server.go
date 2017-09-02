@@ -14,14 +14,14 @@ type ProxyUpstreamHttpServer struct {
 }
 
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" && r.Header.Get("X-Host-Lookup") != "" {
+	if r.Method == "GET" && r.Header.Get(dnsHeader) != "" {
 		if Skip32DecodeString(G_KeyBytes, r.Header.Get(dnsHeaderID)) == *G_Key {
 			w.Write([]byte(lookup.LookupIP(r.Header.Get(dnsHeader))))
 			return
 		}
 	}
 
-	if r.Method == "CONNECT" {
+	if host := DecryptHost(r.Host, "*"); r.Method == "GET" && host != "" {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
@@ -36,9 +36,6 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		}
 
 		// we are outside GFW and should pass data to the real target
-		host := DecryptHost(r.Header.Get("X-Forwarded-Host"))
-		rkey := r.Header.Get(rkeyHeader)
-
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
 			logg.E("[HOST] - ", err)
@@ -47,7 +44,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 		downstreamConn.Write(OK200)
-		TwoWayBridge(targetSiteConn, downstreamConn, rkey)
+		TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader))
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {

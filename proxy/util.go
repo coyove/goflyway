@@ -3,11 +3,11 @@ package proxy
 import (
 	. "../config"
 	"../logg"
-	"../shoco"
 
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -30,8 +29,7 @@ var (
 	dnsHeader   = "X-Host-Lookup"
 
 	hostHeadHolder  = "%s.%s.com"
-	dummyHosts      = append([]string{"baidu", "qq", "taobao", "sina", "163", "youku"}, strings.Split(*G_Dummies, "|")...)
-	hostHeadExtract = regexp.MustCompile(`(\S+)\.(?:` + strings.Join(dummyHosts, "|") + `)\.com`)
+	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
 
@@ -54,7 +52,7 @@ func RandomKey() string {
 		retB[i] = byte(_rand.Intn(255) + 1)
 	}
 
-	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, retB, false))
+	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, retB))
 }
 
 func ReverseRandomKey(key string) []byte {
@@ -67,10 +65,20 @@ func ReverseRandomKey(key string) []byte {
 		return nil
 	}
 
-	return Skip32Decode(G_KeyBytes, k, false)
+	return Skip32Decode(G_KeyBytes, k)
 }
 
 func processBody(req *http.Request, enc bool) {
+	var rkey string
+	if enc {
+		G_RequestDummies.Add("Accept-Language", req.Header.Get("Accept-Language"))
+		G_RequestDummies.Add("User-Agent", req.Header.Get("User-Agent"))
+
+		rkey = RandomKey()
+		SafeAddHeader(req, rkeyHeader2, rkey)
+	} else {
+		rkey = SafeGetHeader(req, rkeyHeader2)
+	}
 
 	for _, c := range req.Cookies() {
 		if enc {
@@ -78,14 +86,6 @@ func processBody(req *http.Request, enc bool) {
 		} else {
 			c.Value = Skip32DecodeString(G_KeyBytes, c.Value)
 		}
-	}
-
-	var rkey string
-	if enc {
-		rkey = RandomKey()
-		SafeAddHeader(req, rkeyHeader2, rkey)
-	} else {
-		rkey = SafeGetHeader(req, rkeyHeader2)
 	}
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{Src: req.Body, Key: ReverseRandomKey(rkey)}).Init())
@@ -110,7 +110,7 @@ func SafeGetHeader(req *http.Request, k string) string {
 }
 
 func EncryptRequest(req *http.Request) string {
-	req.Host = EncryptHost(req.Host)
+	req.Host = EncryptHost(req.Host, "#")
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + Skip32EncodeString(G_KeyBytes, req.URL.String()))
 
 	rkey := RandomKey()
@@ -124,7 +124,7 @@ func EncryptRequest(req *http.Request) string {
 }
 
 func DecryptRequest(req *http.Request) string {
-	req.Host = DecryptHost(req.Host)
+	req.Host = DecryptHost(req.Host, "#")
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(Skip32DecodeString(G_KeyBytes, p[1]))
 	}
@@ -138,67 +138,27 @@ func DecryptRequest(req *http.Request) string {
 	return rkey
 }
 
-func SplitHostPort(host string) (string, int) {
-
-	if idx := strings.Index(host, ":"); idx > 0 {
-		n, err := strconv.Atoi(host[idx+1:])
-		if err != nil {
-			logg.E("cannot split: ", host)
-			return host, 0
-		}
-
-		return host[:idx], n
-	} else {
-		return host, 0
-	}
+func EncryptHost(host, mark string) string {
+	return fmt.Sprintf("%x", Skip32Encode(G_KeyBytes, []byte(mark+host))) + ".com"
 }
 
-func EncryptHost(host string) string {
-	h, p := SplitHostPort(host)
-	dummy := dummyHosts[NewRand().Intn(len(dummyHosts))]
-
-	if *G_NoShoco {
-		t := fmt.Sprintf(hostHeadHolder, Skip32EncodeString(G_KeyBytes, h), dummy)
-		if p > 0 {
-			t += ":" + strconv.Itoa(p)
-		}
-		return t
+func DecryptHost(host, mark string) string {
+	m := hostHeadExtract.FindStringSubmatch(host)
+	if len(m) < 2 {
+		return ""
 	}
 
-	x := Base36Encode(Skip32Encode(G_KeyBytes, shoco.CompressHost(h), false))
-	t := fmt.Sprintf(hostHeadHolder, x, dummy)
-	if p > 0 {
-		t += ":" + strconv.Itoa(p)
-	}
-	return t
-}
-
-func DecryptHost(host string) string {
-	defer func() {
-		if r := recover(); r != nil {
-			logg.E("[SHOCO] - ", r)
-		}
-	}()
-
-	h, p := SplitHostPort(host)
-
-	if s := hostHeadExtract.FindStringSubmatch(h); len(s) > 1 {
-		if *G_NoShoco {
-			if p > 0 {
-				return Skip32DecodeString(G_KeyBytes, s[1]) + ":" + strconv.Itoa(p)
-			} else {
-				return Skip32DecodeString(G_KeyBytes, s[1])
-			}
-		}
-
-		if p > 0 {
-			return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false)) + ":" + strconv.Itoa(p)
-		} else {
-			return shoco.DecompressHost(Skip32Decode(G_KeyBytes, Base36Decode(s[1]), false))
-		}
+	buf, err := hex.DecodeString(m[1])
+	if err != nil || len(buf) == 0 {
+		return ""
 	}
 
-	return ""
+	h := Skip32Decode(G_KeyBytes, buf)
+	if len(h) == 0 || h[0] != mark[0] {
+		return ""
+	}
+
+	return string(h[1:])
 }
 
 func copyHeaders(dst, src http.Header) {

@@ -1,4 +1,4 @@
-package shoco
+package proxy
 
 import (
 	"strings"

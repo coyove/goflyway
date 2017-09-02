@@ -39,7 +39,7 @@ func main() {
 		logg.W("[WARNING] you are using the default username and password (-u user and -p pass)")
 	}
 
-	G_Cache = lru.NewCache(*G_DNSCacheEntries)
+	G_Cache, G_RequestDummies = lru.NewCache(*G_DNSCacheEntries), lru.NewCache(2)
 
 	if *G_ProxyChina {
 		buf, _ := ioutil.ReadFile("./chinalist.txt")

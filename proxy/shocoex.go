@@ -1,7 +1,8 @@
-package shoco
+package proxy
 
 import (
 	"../lookup"
+	"../shoco"
 
 	"fmt"
 	"strings"
@@ -16,7 +17,7 @@ func CompressHost(text string) []byte {
 	}
 
 	if li := strings.LastIndex(text, "."); li > 0 {
-		buf := Compress(text[:li])
+		buf := shoco.Compress(text[:li])
 		idx := getTLDIndex(strings.ToUpper(text[li+1:]))
 
 		if idx == 0 {
@@ -57,5 +58,5 @@ func DecompressHost(buf []byte) string {
 		xs = 2
 	}
 
-	return Decompress(buf[xs:]) + "." + strings.ToLower(getIndexTLD(idx))
+	return shoco.Decompress(buf[xs:]) + "." + strings.ToLower(getIndexTLD(idx))
 }

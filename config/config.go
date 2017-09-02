@@ -30,7 +30,8 @@ var (
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
 	G_DNSCacheEntries              = flag.Int("dns-cache", 1024, "DNS cache size")
 
-	G_Cache *lru.Cache
+	G_Cache          *lru.Cache
+	G_RequestDummies *lru.Cache
 )
 
 func setString(k *string, v interface{}) {
