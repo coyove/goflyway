@@ -23,8 +23,8 @@ var (
 	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
 	G_NoPA       = flag.Bool("disable-pa", false, "disable proxy authentication")
 	G_NoShoco    = flag.Bool("disable-shoco", false, "disable shoco compression")
-	G_ProxyAll   = flag.Bool("all", false, "proxy Chinese websites")
-	G_ProxyChina = flag.Bool("china", true, "proxy Chinese websites using china-list")
+	G_ProxyAll   = flag.Bool("proxy-all", false, "proxy Chinese websites")
+	G_ProxyChina = flag.Bool("china-list", true, "identify Chinese websites using china-list")
 
 	G_RecordLocalhostError         = flag.Bool("rle", false, "log all localhost errors")
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")

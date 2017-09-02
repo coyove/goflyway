@@ -96,7 +96,7 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	cbuf := make([]byte, len(buf))
 
 	var ctr cipher.Stream
-	if cc.Key != nil {
+	if cc.Key != nil && len(cc.Key) > 0 {
 		ctr = GetStream(cc.Key)
 	}
 
