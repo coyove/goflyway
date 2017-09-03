@@ -4,59 +4,164 @@ import (
 	"../lookup"
 	"../shoco"
 
-	"fmt"
+	"bytes"
 	"strings"
 )
 
-func CompressHost(text string) []byte {
-	if i := lookup.IPAddressToInteger(text); i > 0 {
-		return []byte{
-			127,
-			byte(i >> 24), byte(i << 8 >> 24), byte(i << 16 >> 24), byte(i),
-		}
-	}
+const base35table = "abcdefghijklmnopqrstuvwxyz123456789-"
 
-	if li := strings.LastIndex(text, "."); li > 0 {
-		buf := shoco.Compress(text[:li])
-		idx := getTLDIndex(strings.ToUpper(text[li+1:]))
-
-		if idx == 0 {
-			panic("serious wrong host: " + text)
-		}
-
-		if idx < 127 {
-			return append([]byte{byte(idx)}, buf...)
-		} else {
-			h := uint16(idx) / 256
-			l := uint16(idx) - h*256
-			h = h | 0x80
-
-			return append([]byte{byte(h), byte(l)}, buf...)
-		}
+func SplitHostPort(host string) (string, string) {
+	if idx := strings.Index(host, ":"); idx > 0 {
+		return strings.ToLower(host[:idx]), host[idx:] // Port has a colon ':'
 	} else {
-		panic("serious wrong host: " + text)
+		return strings.ToLower(host), ""
 	}
 }
 
-func DecompressHost(buf []byte) string {
-	if len(buf) < 2 {
-		return ""
+func EncryptHost(text, mark string) string {
+	host, port := SplitHostPort(text)
+
+	enc := func(in string) string {
+		return Base35Encode(AEncrypt(shoco.Compress(in)))
 	}
 
-	if uint8(buf[0]) == 127 && len(buf) == 5 {
-		return fmt.Sprintf("%d.%d.%d.%d", buf[1], buf[2], buf[3], buf[4])
+	if lookup.IPAddressToInteger(host) != 0 {
+		return enc(mark+host) + port
 	}
 
-	var idx, xs int
-	if uint8(buf[0]) < 127 {
-		idx = int(buf[0])
-		xs = 1
-	} else {
-		idx = int(buf[1])
-		idx += (int(buf[0]) - 128) * 256
-
-		xs = 2
+	parts := strings.Split(host, ".")
+	flag := false
+	for i := len(parts) - 1; i >= 0; i-- {
+		if !tlds[parts[i]] {
+			parts[i] = enc(mark + parts[i])
+			flag = true
+			break
+		}
 	}
 
-	return shoco.Decompress(buf[xs:]) + "." + strings.ToLower(getIndexTLD(idx))
+	if flag {
+		return strings.Join(parts, ".") + port
+	}
+
+	return enc(mark+host) + port
+}
+
+func DecryptHost(text, mark string) string {
+	host, port := SplitHostPort(text)
+	parts := strings.Split(host, ".")
+
+	for i := len(parts) - 1; i >= 0; i-- {
+		if !tlds[parts[i]] {
+			buf := Base35Decode(parts[i])
+
+			parts[i] = shoco.Decompress(ADecrypt(buf))
+			if parts[i][0] != mark[0] {
+				return ""
+			}
+
+			parts[i] = parts[i][1:]
+			break
+		}
+	}
+
+	return strings.Join(parts, ".") + port
+}
+
+func Base35Encode(buf []byte) string {
+	ret := bytes.Buffer{}
+	padded := false
+
+	if len(buf)%2 != 0 {
+		buf = append(buf, 0)
+		padded = true
+	}
+
+	for i := 0; i < len(buf); i += 2 {
+		n := int(buf[i])<<8 + int(buf[i+1])
+
+		ret.WriteString(base35table[n%35 : n%35+1])
+		n /= 35
+
+		ret.WriteString(base35table[n%35 : n%35+1])
+		n /= 35
+
+		if n < 35 {
+			// cheers
+			ret.WriteString(base35table[n : n+1])
+		} else {
+			m := n % 35
+			ret.WriteString("-" + base35table[m:m+1])
+		}
+	}
+
+	if padded {
+		ret.WriteString("0")
+	}
+
+	return ret.String()
+}
+
+func Base35Decode(text string) []byte {
+	ret := bytes.Buffer{}
+	padded := false
+
+	i := -1
+
+	var _next func() (int, bool)
+	_next = func() (int, bool) {
+		i++
+
+		if i >= len(text) {
+			return 0, false
+		}
+
+		b := text[i]
+
+		if b >= 'a' && b <= 'z' {
+			return int(b - 'a'), true
+		} else if b > '0' && b <= '9' {
+			return int(b-'1') + 26, true
+		} else if b == '-' {
+			n, ok := _next()
+			if !ok {
+				return 0, false
+			}
+			return n + 35, true
+		} else if b == '0' {
+			padded = true
+		}
+
+		return 0, false
+	}
+
+	for {
+		var ok bool
+		var n1, n2, n3 int
+
+		if n1, ok = _next(); !ok {
+			break
+		}
+
+		if n2, ok = _next(); !ok {
+			break
+		}
+
+		if n3, ok = _next(); !ok {
+			break
+		}
+
+		n := n3*35*35 + n2*35 + n1
+		b1 := n / 256
+		b2 := n - b1*256
+
+		ret.WriteByte(byte(b1))
+		ret.WriteByte(byte(b2))
+	}
+
+	buf := ret.Bytes()
+	if padded && len(buf) > 0 {
+		buf = buf[:len(buf)-1]
+	}
+
+	return buf
 }

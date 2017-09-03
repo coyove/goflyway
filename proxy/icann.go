@@ -1,1718 +1,1551 @@
 package proxy
 
-import (
-	"strings"
-	"sync"
-)
-
-const _TLDs = `AAA
-AARP
-ABARTH
-ABB
-ABBOTT
-ABBVIE
-ABC
-ABLE
-ABOGADO
-ABUDHABI
-AC
-ACADEMY
-ACCENTURE
-ACCOUNTANT
-ACCOUNTANTS
-ACO
-ACTIVE
-ACTOR
-AD
-ADAC
-ADS
-ADULT
-AE
-AEG
-AERO
-AETNA
-AF
-AFAMILYCOMPANY
-AFL
-AFRICA
-AG
-AGAKHAN
-AGENCY
-AI
-AIG
-AIGO
-AIRBUS
-AIRFORCE
-AIRTEL
-AKDN
-AL
-ALFAROMEO
-ALIBABA
-ALIPAY
-ALLFINANZ
-ALLSTATE
-ALLY
-ALSACE
-ALSTOM
-AM
-AMERICANEXPRESS
-AMERICANFAMILY
-AMEX
-AMFAM
-AMICA
-AMSTERDAM
-ANALYTICS
-ANDROID
-ANQUAN
-ANZ
-AO
-AOL
-APARTMENTS
-APP
-APPLE
-AQ
-AQUARELLE
-AR
-ARAB
-ARAMCO
-ARCHI
-ARMY
-ARPA
-ART
-ARTE
-AS
-ASDA
-ASIA
-ASSOCIATES
-AT
-ATHLETA
-ATTORNEY
-AU
-AUCTION
-AUDI
-AUDIBLE
-AUDIO
-AUSPOST
-AUTHOR
-AUTO
-AUTOS
-AVIANCA
-AW
-AWS
-AX
-AXA
-AZ
-AZURE
-BA
-BABY
-BAIDU
-BANAMEX
-BANANAREPUBLIC
-BAND
-BANK
-BAR
-BARCELONA
-BARCLAYCARD
-BARCLAYS
-BAREFOOT
-BARGAINS
-BASEBALL
-BASKETBALL
-BAUHAUS
-BAYERN
-BB
-BBC
-BBT
-BBVA
-BCG
-BCN
-BD
-BE
-BEATS
-BEAUTY
-BEER
-BENTLEY
-BERLIN
-BEST
-BESTBUY
-BET
-BF
-BG
-BH
-BHARTI
-BI
-BIBLE
-BID
-BIKE
-BING
-BINGO
-BIO
-BIZ
-BJ
-BLACK
-BLACKFRIDAY
-BLANCO
-BLOCKBUSTER
-BLOG
-BLOOMBERG
-BLUE
-BM
-BMS
-BMW
-BN
-BNL
-BNPPARIBAS
-BO
-BOATS
-BOEHRINGER
-BOFA
-BOM
-BOND
-BOO
-BOOK
-BOOKING
-BOOTS
-BOSCH
-BOSTIK
-BOSTON
-BOT
-BOUTIQUE
-BOX
-BR
-BRADESCO
-BRIDGESTONE
-BROADWAY
-BROKER
-BROTHER
-BRUSSELS
-BS
-BT
-BUDAPEST
-BUGATTI
-BUILD
-BUILDERS
-BUSINESS
-BUY
-BUZZ
-BV
-BW
-BY
-BZ
-BZH
-CA
-CAB
-CAFE
-CAL
-CALL
-CALVINKLEIN
-CAM
-CAMERA
-CAMP
-CANCERRESEARCH
-CANON
-CAPETOWN
-CAPITAL
-CAPITALONE
-CAR
-CARAVAN
-CARDS
-CARE
-CAREER
-CAREERS
-CARS
-CARTIER
-CASA
-CASE
-CASEIH
-CASH
-CASINO
-CAT
-CATERING
-CATHOLIC
-CBA
-CBN
-CBRE
-CBS
-CC
-CD
-CEB
-CENTER
-CEO
-CERN
-CF
-CFA
-CFD
-CG
-CH
-CHANEL
-CHANNEL
-CHASE
-CHAT
-CHEAP
-CHINTAI
-CHLOE
-CHRISTMAS
-CHROME
-CHRYSLER
-CHURCH
-CI
-CIPRIANI
-CIRCLE
-CISCO
-CITADEL
-CITI
-CITIC
-CITY
-CITYEATS
-CK
-CL
-CLAIMS
-CLEANING
-CLICK
-CLINIC
-CLINIQUE
-CLOTHING
-CLOUD
-CLUB
-CLUBMED
-CM
-CN
-CO
-COACH
-CODES
-COFFEE
-COLLEGE
-COLOGNE
-COM
-COMCAST
-COMMBANK
-COMMUNITY
-COMPANY
-COMPARE
-COMPUTER
-COMSEC
-CONDOS
-CONSTRUCTION
-CONSULTING
-CONTACT
-CONTRACTORS
-COOKING
-COOKINGCHANNEL
-COOL
-COOP
-CORSICA
-COUNTRY
-COUPON
-COUPONS
-COURSES
-CR
-CREDIT
-CREDITCARD
-CREDITUNION
-CRICKET
-CROWN
-CRS
-CRUISE
-CRUISES
-CSC
-CU
-CUISINELLA
-CV
-CW
-CX
-CY
-CYMRU
-CYOU
-CZ
-DABUR
-DAD
-DANCE
-DATA
-DATE
-DATING
-DATSUN
-DAY
-DCLK
-DDS
-DE
-DEAL
-DEALER
-DEALS
-DEGREE
-DELIVERY
-DELL
-DELOITTE
-DELTA
-DEMOCRAT
-DENTAL
-DENTIST
-DESI
-DESIGN
-DEV
-DHL
-DIAMONDS
-DIET
-DIGITAL
-DIRECT
-DIRECTORY
-DISCOUNT
-DISCOVER
-DISH
-DIY
-DJ
-DK
-DM
-DNP
-DO
-DOCS
-DOCTOR
-DODGE
-DOG
-DOHA
-DOMAINS
-DOT
-DOWNLOAD
-DRIVE
-DTV
-DUBAI
-DUCK
-DUNLOP
-DUNS
-DUPONT
-DURBAN
-DVAG
-DVR
-DZ
-EARTH
-EAT
-EC
-ECO
-EDEKA
-EDU
-EDUCATION
-EE
-EG
-EMAIL
-EMERCK
-ENERGY
-ENGINEER
-ENGINEERING
-ENTERPRISES
-EPOST
-EPSON
-EQUIPMENT
-ER
-ERICSSON
-ERNI
-ES
-ESQ
-ESTATE
-ESURANCE
-ET
-ETISALAT
-EU
-EUROVISION
-EUS
-EVENTS
-EVERBANK
-EXCHANGE
-EXPERT
-EXPOSED
-EXPRESS
-EXTRASPACE
-FAGE
-FAIL
-FAIRWINDS
-FAITH
-FAMILY
-FAN
-FANS
-FARM
-FARMERS
-FASHION
-FAST
-FEDEX
-FEEDBACK
-FERRARI
-FERRERO
-FI
-FIAT
-FIDELITY
-FIDO
-FILM
-FINAL
-FINANCE
-FINANCIAL
-FIRE
-FIRESTONE
-FIRMDALE
-FISH
-FISHING
-FIT
-FITNESS
-FJ
-FK
-FLICKR
-FLIGHTS
-FLIR
-FLORIST
-FLOWERS
-FLY
-FM
-FO
-FOO
-FOOD
-FOODNETWORK
-FOOTBALL
-FORD
-FOREX
-FORSALE
-FORUM
-FOUNDATION
-FOX
-FR
-FREE
-FRESENIUS
-FRL
-FROGANS
-FRONTDOOR
-FRONTIER
-FTR
-FUJITSU
-FUJIXEROX
-FUN
-FUND
-FURNITURE
-FUTBOL
-FYI
-GA
-GAL
-GALLERY
-GALLO
-GALLUP
-GAME
-GAMES
-GAP
-GARDEN
-GB
-GBIZ
-GD
-GDN
-GE
-GEA
-GENT
-GENTING
-GEORGE
-GF
-GG
-GGEE
-GH
-GI
-GIFT
-GIFTS
-GIVES
-GIVING
-GL
-GLADE
-GLASS
-GLE
-GLOBAL
-GLOBO
-GM
-GMAIL
-GMBH
-GMO
-GMX
-GN
-GODADDY
-GOLD
-GOLDPOINT
-GOLF
-GOO
-GOODHANDS
-GOODYEAR
-GOOG
-GOOGLE
-GOP
-GOT
-GOV
-GP
-GQ
-GR
-GRAINGER
-GRAPHICS
-GRATIS
-GREEN
-GRIPE
-GROCERY
-GROUP
-GS
-GT
-GU
-GUARDIAN
-GUCCI
-GUGE
-GUIDE
-GUITARS
-GURU
-GW
-GY
-HAIR
-HAMBURG
-HANGOUT
-HAUS
-HBO
-HDFC
-HDFCBANK
-HEALTH
-HEALTHCARE
-HELP
-HELSINKI
-HERE
-HERMES
-HGTV
-HIPHOP
-HISAMITSU
-HITACHI
-HIV
-HK
-HKT
-HM
-HN
-HOCKEY
-HOLDINGS
-HOLIDAY
-HOMEDEPOT
-HOMEGOODS
-HOMES
-HOMESENSE
-HONDA
-HONEYWELL
-HORSE
-HOSPITAL
-HOST
-HOSTING
-HOT
-HOTELES
-HOTELS
-HOTMAIL
-HOUSE
-HOW
-HR
-HSBC
-HT
-HTC
-HU
-HUGHES
-HYATT
-HYUNDAI
-IBM
-ICBC
-ICE
-ICU
-ID
-IE
-IEEE
-IFM
-IKANO
-IL
-IM
-IMAMAT
-IMDB
-IMMO
-IMMOBILIEN
-IN
-INDUSTRIES
-INFINITI
-INFO
-ING
-INK
-INSTITUTE
-INSURANCE
-INSURE
-INT
-INTEL
-INTERNATIONAL
-INTUIT
-INVESTMENTS
-IO
-IPIRANGA
-IQ
-IR
-IRISH
-IS
-ISELECT
-ISMAILI
-IST
-ISTANBUL
-IT
-ITAU
-ITV
-IVECO
-IWC
-JAGUAR
-JAVA
-JCB
-JCP
-JE
-JEEP
-JETZT
-JEWELRY
-JIO
-JLC
-JLL
-JM
-JMP
-JNJ
-JO
-JOBS
-JOBURG
-JOT
-JOY
-JP
-JPMORGAN
-JPRS
-JUEGOS
-JUNIPER
-KAUFEN
-KDDI
-KE
-KERRYHOTELS
-KERRYLOGISTICS
-KERRYPROPERTIES
-KFH
-KG
-KH
-KI
-KIA
-KIM
-KINDER
-KINDLE
-KITCHEN
-KIWI
-KM
-KN
-KOELN
-KOMATSU
-KOSHER
-KP
-KPMG
-KPN
-KR
-KRD
-KRED
-KUOKGROUP
-KW
-KY
-KYOTO
-KZ
-LA
-LACAIXA
-LADBROKES
-LAMBORGHINI
-LAMER
-LANCASTER
-LANCIA
-LANCOME
-LAND
-LANDROVER
-LANXESS
-LASALLE
-LAT
-LATINO
-LATROBE
-LAW
-LAWYER
-LB
-LC
-LDS
-LEASE
-LECLERC
-LEFRAK
-LEGAL
-LEGO
-LEXUS
-LGBT
-LI
-LIAISON
-LIDL
-LIFE
-LIFEINSURANCE
-LIFESTYLE
-LIGHTING
-LIKE
-LILLY
-LIMITED
-LIMO
-LINCOLN
-LINDE
-LINK
-LIPSY
-LIVE
-LIVING
-LIXIL
-LK
-LOAN
-LOANS
-LOCKER
-LOCUS
-LOFT
-LOL
-LONDON
-LOTTE
-LOTTO
-LOVE
-LPL
-LPLFINANCIAL
-LR
-LS
-LT
-LTD
-LTDA
-LU
-LUNDBECK
-LUPIN
-LUXE
-LUXURY
-LV
-LY
-MA
-MACYS
-MADRID
-MAIF
-MAISON
-MAKEUP
-MAN
-MANAGEMENT
-MANGO
-MAP
-MARKET
-MARKETING
-MARKETS
-MARRIOTT
-MARSHALLS
-MASERATI
-MATTEL
-MBA
-MC
-MCD
-MCDONALDS
-MCKINSEY
-MD
-ME
-MED
-MEDIA
-MEET
-MELBOURNE
-MEME
-MEMORIAL
-MEN
-MENU
-MEO
-MERCKMSD
-METLIFE
-MG
-MH
-MIAMI
-MICROSOFT
-MIL
-MINI
-MINT
-MIT
-MITSUBISHI
-MK
-ML
-MLB
-MLS
-MM
-MMA
-MN
-MO
-MOBI
-MOBILE
-MOBILY
-MODA
-MOE
-MOI
-MOM
-MONASH
-MONEY
-MONSTER
-MONTBLANC
-MOPAR
-MORMON
-MORTGAGE
-MOSCOW
-MOTO
-MOTORCYCLES
-MOV
-MOVIE
-MOVISTAR
-MP
-MQ
-MR
-MS
-MSD
-MT
-MTN
-MTR
-MU
-MUSEUM
-MUTUAL
-MV
-MW
-MX
-MY
-MZ
-NA
-NAB
-NADEX
-NAGOYA
-NAME
-NATIONWIDE
-NATURA
-NAVY
-NBA
-NC
-NE
-NEC
-NET
-NETBANK
-NETFLIX
-NETWORK
-NEUSTAR
-NEW
-NEWHOLLAND
-NEWS
-NEXT
-NEXTDIRECT
-NEXUS
-NF
-NFL
-NG
-NGO
-NHK
-NI
-NICO
-NIKE
-NIKON
-NINJA
-NISSAN
-NISSAY
-NL
-NO
-NOKIA
-NORTHWESTERNMUTUAL
-NORTON
-NOW
-NOWRUZ
-NOWTV
-NP
-NR
-NRA
-NRW
-NTT
-NU
-NYC
-NZ
-OBI
-OBSERVER
-OFF
-OFFICE
-OKINAWA
-OLAYAN
-OLAYANGROUP
-OLDNAVY
-OLLO
-OM
-OMEGA
-ONE
-ONG
-ONL
-ONLINE
-ONYOURSIDE
-OOO
-OPEN
-ORACLE
-ORANGE
-ORG
-ORGANIC
-ORIGINS
-OSAKA
-OTSUKA
-OTT
-OVH
-PA
-PAGE
-PAMPEREDCHEF
-PANASONIC
-PANERAI
-PARIS
-PARS
-PARTNERS
-PARTS
-PARTY
-PASSAGENS
-PAY
-PCCW
-PE
-PET
-PF
-PFIZER
-PG
-PH
-PHARMACY
-PHD
-PHILIPS
-PHONE
-PHOTO
-PHOTOGRAPHY
-PHOTOS
-PHYSIO
-PIAGET
-PICS
-PICTET
-PICTURES
-PID
-PIN
-PING
-PINK
-PIONEER
-PIZZA
-PK
-PL
-PLACE
-PLAY
-PLAYSTATION
-PLUMBING
-PLUS
-PM
-PN
-PNC
-POHL
-POKER
-POLITIE
-PORN
-POST
-PR
-PRAMERICA
-PRAXI
-PRESS
-PRIME
-PRO
-PROD
-PRODUCTIONS
-PROF
-PROGRESSIVE
-PROMO
-PROPERTIES
-PROPERTY
-PROTECTION
-PRU
-PRUDENTIAL
-PS
-PT
-PUB
-PW
-PWC
-PY
-QA
-QPON
-QUEBEC
-QUEST
-QVC
-RACING
-RADIO
-RAID
-RE
-READ
-REALESTATE
-REALTOR
-REALTY
-RECIPES
-RED
-REDSTONE
-REDUMBRELLA
-REHAB
-REISE
-REISEN
-REIT
-RELIANCE
-REN
-RENT
-RENTALS
-REPAIR
-REPORT
-REPUBLICAN
-REST
-RESTAURANT
-REVIEW
-REVIEWS
-REXROTH
-RICH
-RICHARDLI
-RICOH
-RIGHTATHOME
-RIL
-RIO
-RIP
-RMIT
-RO
-ROCHER
-ROCKS
-RODEO
-ROGERS
-ROOM
-RS
-RSVP
-RU
-RUGBY
-RUHR
-RUN
-RW
-RWE
-RYUKYU
-SA
-SAARLAND
-SAFE
-SAFETY
-SAKURA
-SALE
-SALON
-SAMSCLUB
-SAMSUNG
-SANDVIK
-SANDVIKCOROMANT
-SANOFI
-SAP
-SAPO
-SARL
-SAS
-SAVE
-SAXO
-SB
-SBI
-SBS
-SC
-SCA
-SCB
-SCHAEFFLER
-SCHMIDT
-SCHOLARSHIPS
-SCHOOL
-SCHULE
-SCHWARZ
-SCIENCE
-SCJOHNSON
-SCOR
-SCOT
-SD
-SE
-SEARCH
-SEAT
-SECURE
-SECURITY
-SEEK
-SELECT
-SENER
-SERVICES
-SES
-SEVEN
-SEW
-SEX
-SEXY
-SFR
-SG
-SH
-SHANGRILA
-SHARP
-SHAW
-SHELL
-SHIA
-SHIKSHA
-SHOES
-SHOP
-SHOPPING
-SHOUJI
-SHOW
-SHOWTIME
-SHRIRAM
-SI
-SILK
-SINA
-SINGLES
-SITE
-SJ
-SK
-SKI
-SKIN
-SKY
-SKYPE
-SL
-SLING
-SM
-SMART
-SMILE
-SN
-SNCF
-SO
-SOCCER
-SOCIAL
-SOFTBANK
-SOFTWARE
-SOHU
-SOLAR
-SOLUTIONS
-SONG
-SONY
-SOY
-SPACE
-SPIEGEL
-SPOT
-SPREADBETTING
-SR
-SRL
-SRT
-ST
-STADA
-STAPLES
-STAR
-STARHUB
-STATEBANK
-STATEFARM
-STATOIL
-STC
-STCGROUP
-STOCKHOLM
-STORAGE
-STORE
-STREAM
-STUDIO
-STUDY
-STYLE
-SU
-SUCKS
-SUPPLIES
-SUPPLY
-SUPPORT
-SURF
-SURGERY
-SUZUKI
-SV
-SWATCH
-SWIFTCOVER
-SWISS
-SX
-SY
-SYDNEY
-SYMANTEC
-SYSTEMS
-SZ
-TAB
-TAIPEI
-TALK
-TAOBAO
-TARGET
-TATAMOTORS
-TATAR
-TATTOO
-TAX
-TAXI
-TC
-TCI
-TD
-TDK
-TEAM
-TECH
-TECHNOLOGY
-TEL
-TELECITY
-TELEFONICA
-TEMASEK
-TENNIS
-TEVA
-TF
-TG
-TH
-THD
-THEATER
-THEATRE
-TIAA
-TICKETS
-TIENDA
-TIFFANY
-TIPS
-TIRES
-TIROL
-TJ
-TJMAXX
-TJX
-TK
-TKMAXX
-TL
-TM
-TMALL
-TN
-TO
-TODAY
-TOKYO
-TOOLS
-TOP
-TORAY
-TOSHIBA
-TOTAL
-TOURS
-TOWN
-TOYOTA
-TOYS
-TR
-TRADE
-TRADING
-TRAINING
-TRAVEL
-TRAVELCHANNEL
-TRAVELERS
-TRAVELERSINSURANCE
-TRUST
-TRV
-TT
-TUBE
-TUI
-TUNES
-TUSHU
-TV
-TVS
-TW
-TZ
-UA
-UBANK
-UBS
-UCONNECT
-UG
-UK
-UNICOM
-UNIVERSITY
-UNO
-UOL
-UPS
-US
-UY
-UZ
-VA
-VACATIONS
-VANA
-VANGUARD
-VC
-VE
-VEGAS
-VENTURES
-VERISIGN
-VERSICHERUNG
-VET
-VG
-VI
-VIAJES
-VIDEO
-VIG
-VIKING
-VILLAS
-VIN
-VIP
-VIRGIN
-VISA
-VISION
-VISTA
-VISTAPRINT
-VIVA
-VIVO
-VLAANDEREN
-VN
-VODKA
-VOLKSWAGEN
-VOLVO
-VOTE
-VOTING
-VOTO
-VOYAGE
-VU
-VUELOS
-WALES
-WALMART
-WALTER
-WANG
-WANGGOU
-WARMAN
-WATCH
-WATCHES
-WEATHER
-WEATHERCHANNEL
-WEBCAM
-WEBER
-WEBSITE
-WED
-WEDDING
-WEIBO
-WEIR
-WF
-WHOSWHO
-WIEN
-WIKI
-WILLIAMHILL
-WIN
-WINDOWS
-WINE
-WINNERS
-WME
-WOLTERSKLUWER
-WOODSIDE
-WORK
-WORKS
-WORLD
-WOW
-WS
-WTC
-WTF
-XBOX
-XEROX
-XFINITY
-XIHUAN
-XIN
-XN--11B4C3D
-XN--1CK2E1B
-XN--1QQW23A
-XN--2SCRJ9C
-XN--30RR7Y
-XN--3BST00M
-XN--3DS443G
-XN--3E0B707E
-XN--3HCRJ9C
-XN--3OQ18VL8PN36A
-XN--3PXU8K
-XN--42C2D9A
-XN--45BR5CYL
-XN--45BRJ9C
-XN--45Q11C
-XN--4GBRIM
-XN--54B7FTA0CC
-XN--55QW42G
-XN--55QX5D
-XN--5SU34J936BGSG
-XN--5TZM5G
-XN--6FRZ82G
-XN--6QQ986B3XL
-XN--80ADXHKS
-XN--80AO21A
-XN--80AQECDR1A
-XN--80ASEHDB
-XN--80ASWG
-XN--8Y0A063A
-XN--90A3AC
-XN--90AE
-XN--90AIS
-XN--9DBQ2A
-XN--9ET52U
-XN--9KRT00A
-XN--B4W605FERD
-XN--BCK1B9A5DRE4C
-XN--C1AVG
-XN--C2BR7G
-XN--CCK2B3B
-XN--CG4BKI
-XN--CLCHC0EA0B2G2A9GCD
-XN--CZR694B
-XN--CZRS0T
-XN--CZRU2D
-XN--D1ACJ3B
-XN--D1ALF
-XN--E1A4C
-XN--ECKVDTC9D
-XN--EFVY88H
-XN--ESTV75G
-XN--FCT429K
-XN--FHBEI
-XN--FIQ228C5HS
-XN--FIQ64B
-XN--FIQS8S
-XN--FIQZ9S
-XN--FJQ720A
-XN--FLW351E
-XN--FPCRJ9C3D
-XN--FZC2C9E2C
-XN--FZYS8D69UVGM
-XN--G2XX48C
-XN--GCKR3F0F
-XN--GECRJ9C
-XN--GK3AT1E
-XN--H2BREG3EVE
-XN--H2BRJ9C
-XN--H2BRJ9C8C
-XN--HXT814E
-XN--I1B6B1A6A2E
-XN--IMR513N
-XN--IO0A7I
-XN--J1AEF
-XN--J1AMH
-XN--J6W193G
-XN--JLQ61U9W7B
-XN--JVR189M
-XN--KCRX77D1X4A
-XN--KPRW13D
-XN--KPRY57D
-XN--KPU716F
-XN--KPUT3I
-XN--L1ACC
-XN--LGBBAT1AD8J
-XN--MGB9AWBF
-XN--MGBA3A3EJT
-XN--MGBA3A4F16A
-XN--MGBA7C0BBN0A
-XN--MGBAAKC7DVF
-XN--MGBAAM7A8H
-XN--MGBAB2BD
-XN--MGBAI9AZGQP6J
-XN--MGBAYH7GPA
-XN--MGBB9FBPOB
-XN--MGBBH1A
-XN--MGBBH1A71E
-XN--MGBC0A9AZCG
-XN--MGBCA7DZDO
-XN--MGBERP4A5D4AR
-XN--MGBGU82A
-XN--MGBI4ECEXP
-XN--MGBPL2FH
-XN--MGBT3DHD
-XN--MGBTX2B
-XN--MGBX4CD0AB
-XN--MIX891F
-XN--MK1BU44C
-XN--MXTQ1M
-XN--NGBC5AZD
-XN--NGBE9E0A
-XN--NGBRX
-XN--NODE
-XN--NQV7F
-XN--NQV7FS00EMA
-XN--NYQY26A
-XN--O3CW4H
-XN--OGBPF8FL
-XN--P1ACF
-XN--P1AI
-XN--PBT977C
-XN--PGBS0DH
-XN--PSSY2U
-XN--Q9JYB4C
-XN--QCKA1PMC
-XN--QXAM
-XN--RHQV96G
-XN--ROVU88B
-XN--RVC1E0AM3E
-XN--S9BRJ9C
-XN--SES554G
-XN--T60B56A
-XN--TCKWE
-XN--TIQ49XQYJ
-XN--UNUP4Y
-XN--VERMGENSBERATER-CTB
-XN--VERMGENSBERATUNG-PWB
-XN--VHQUV
-XN--VUQ861B
-XN--W4R85EL8FHU5DNRA
-XN--W4RS40L
-XN--WGBH1C
-XN--WGBL6A
-XN--XHQ521B
-XN--XKC2AL3HYE2A
-XN--XKC2DL3A5EE0H
-XN--Y9A3AQ
-XN--YFRO4I67O
-XN--YGBI2AMMX
-XN--ZFR164B
-XPERIA
-XXX
-XYZ
-YACHTS
-YAHOO
-YAMAXUN
-YANDEX
-YE
-YODOBASHI
-YOGA
-YOKOHAMA
-YOU
-YOUTUBE
-YT
-YUN
-ZA
-ZAPPOS
-ZARA
-ZERO
-ZIP
-ZIPPO
-ZM
-ZONE
-ZUERICH
-ZW`
-
-const _t_TLDs = `SA
-SE
-UA
-UZ
-NL
-IT
-DO
-LT
-TR
-ASIA
-SG
-FI
-UK
-LK
-NET
-IL
-CL
-STREAM
-AZ
-TOP
-BG
-ME
-HR
-VN
-TN
-LA
-DK
-IO
-HU
-CAT
-KR
-ONLINE
-COM
-GR
-NO
-GA
-WS
-UY
-PL
-PH
-IN
-DOWNLOAD
-BR
-SK
-RS
-WIN
-CA
-LV
-AU
-BIZ
-SPACE
-RU
-LY
-EE
-KE
-SI
-EDU
-EU
-NEWS
-EC
-ZA
-NZ
-NU
-DEV
-DE
-CO
-VE
-FM
-AT
-LIFE
-TODAY
-XXX
-INFO
-AR
-TO
-JP
-ORG
-WEBSITE
-CN
-AE
-CC
-AM
-PRO
-ML
-ES
-IE
-PT
-CLUB
-MOBI
-KZ
-HK
-GOV
-XYZ
-NAME
-GDN
-PK
-EG
-LINK
-CH
-MA
-PW
-MX
-BD
-RO
-IR
-SU
-TV
-SITE
-BE
-CZ
-TECH
-NG
-BY
-MY
-IS
-AO
-TW
-US
-PE
-BID
-TH
-TOKYO
-FR
-ID
-GE
-TK`
-
-var TLDs map[string]int
-var TLDs_rev map[int]string
-
-var mu sync.RWMutex
-
-func init() {
-	TLDs = make(map[string]int)
-	TLDs_rev = make(map[int]string)
-
-	ts := strings.Split(_t_TLDs, "\n")
-	for i, t := range ts {
-		TLDs[t] = i + 1
-		TLDs_rev[i+1] = t
-	} // 126
-
-	for i, t := range strings.Split(_TLDs, "\n") {
-		if _, e := TLDs[t]; !e {
-			TLDs[t] = i + len(ts) + 2
-			TLDs_rev[TLDs[t]] = t
-		}
-	}
-}
-
-func getTLDIndex(tld string) int {
-	mu.RLock()
-	defer mu.RUnlock()
-
-	return TLDs[tld]
-}
-
-func getIndexTLD(idx int) string {
-	mu.RLock()
-	defer mu.RUnlock()
-
-	return TLDs_rev[idx]
+var tlds = map[string]bool{
+	"aaa":             true,
+	"aarp":            true,
+	"abarth":          true,
+	"abb":             true,
+	"abbott":          true,
+	"abbvie":          true,
+	"abc":             true,
+	"able":            true,
+	"abogado":         true,
+	"abudhabi":        true,
+	"ac":              true,
+	"academy":         true,
+	"accenture":       true,
+	"accountant":      true,
+	"accountants":     true,
+	"aco":             true,
+	"active":          true,
+	"actor":           true,
+	"ad":              true,
+	"adac":            true,
+	"ads":             true,
+	"adult":           true,
+	"ae":              true,
+	"aeg":             true,
+	"aero":            true,
+	"aetna":           true,
+	"af":              true,
+	"afamilycompany":  true,
+	"afl":             true,
+	"africa":          true,
+	"ag":              true,
+	"agakhan":         true,
+	"agency":          true,
+	"ai":              true,
+	"aig":             true,
+	"aigo":            true,
+	"airbus":          true,
+	"airforce":        true,
+	"airtel":          true,
+	"akdn":            true,
+	"al":              true,
+	"alfaromeo":       true,
+	"alibaba":         true,
+	"alipay":          true,
+	"allfinanz":       true,
+	"allstate":        true,
+	"ally":            true,
+	"alsace":          true,
+	"alstom":          true,
+	"am":              true,
+	"americanexpress": true,
+	"americanfamily":  true,
+	"amex":            true,
+	"amfam":           true,
+	"amica":           true,
+	"amsterdam":       true,
+	"analytics":       true,
+	"android":         true,
+	"anquan":          true,
+	"anz":             true,
+	"ao":              true,
+	"aol":             true,
+	"apartments":      true,
+	"app":             true,
+	"apple":           true,
+	"aq":              true,
+	"aquarelle":       true,
+	"ar":              true,
+	"arab":            true,
+	"aramco":          true,
+	"archi":           true,
+	"army":            true,
+	"arpa":            true,
+	"art":             true,
+	"arte":            true,
+	"as":              true,
+	"asda":            true,
+	"asia":            true,
+	"associates":      true,
+	"at":              true,
+	"athleta":         true,
+	"attorney":        true,
+	"au":              true,
+	"auction":         true,
+	"audi":            true,
+	"audible":         true,
+	"audio":           true,
+	"auspost":         true,
+	"author":          true,
+	"auto":            true,
+	"autos":           true,
+	"avianca":         true,
+	"aw":              true,
+	"aws":             true,
+	"ax":              true,
+	"axa":             true,
+	"az":              true,
+	"azure":           true,
+	"ba":              true,
+	"baby":            true,
+	"baidu":           true,
+	"banamex":         true,
+	"bananarepublic":  true,
+	"band":            true,
+	"bank":            true,
+	"bar":             true,
+	"barcelona":       true,
+	"barclaycard":     true,
+	"barclays":        true,
+	"barefoot":        true,
+	"bargains":        true,
+	"baseball":        true,
+	"basketball":      true,
+	"bauhaus":         true,
+	"bayern":          true,
+	"bb":              true,
+	"bbc":             true,
+	"bbt":             true,
+	"bbva":            true,
+	"bcg":             true,
+	"bcn":             true,
+	"bd":              true,
+	"be":              true,
+	"beats":           true,
+	"beauty":          true,
+	"beer":            true,
+	"bentley":         true,
+	"berlin":          true,
+	"best":            true,
+	"bestbuy":         true,
+	"bet":             true,
+	"bf":              true,
+	"bg":              true,
+	"bh":              true,
+	"bharti":          true,
+	"bi":              true,
+	"bible":           true,
+	"bid":             true,
+	"bike":            true,
+	"bing":            true,
+	"bingo":           true,
+	"bio":             true,
+	"biz":             true,
+	"bj":              true,
+	"black":           true,
+	"blackfriday":     true,
+	"blanco":          true,
+	"blockbuster":     true,
+	"blog":            true,
+	"bloomberg":       true,
+	"blue":            true,
+	"bm":              true,
+	"bms":             true,
+	"bmw":             true,
+	"bn":              true,
+	"bnl":             true,
+	"bnpparibas":      true,
+	"bo":              true,
+	"boats":           true,
+	"boehringer":      true,
+	"bofa":            true,
+	"bom":             true,
+	"bond":            true,
+	"boo":             true,
+	"book":            true,
+	"booking":         true,
+	"boots":           true,
+	"bosch":           true,
+	"bostik":          true,
+	"boston":          true,
+	"bot":             true,
+	"boutique":        true,
+	"box":             true,
+	"br":              true,
+	"bradesco":        true,
+	"bridgestone":     true,
+	"broadway":        true,
+	"broker":          true,
+	"brother":         true,
+	"brussels":        true,
+	"bs":              true,
+	"bt":              true,
+	"budapest":        true,
+	"bugatti":         true,
+	"build":           true,
+	"builders":        true,
+	"business":        true,
+	"buy":             true,
+	"buzz":            true,
+	"bv":              true,
+	"bw":              true,
+	"by":              true,
+	"bz":              true,
+	"bzh":             true,
+	"ca":              true,
+	"cab":             true,
+	"cafe":            true,
+	"cal":             true,
+	"call":            true,
+	"calvinklein":     true,
+	"cam":             true,
+	"camera":          true,
+	"camp":            true,
+	"cancerresearch":  true,
+	"canon":           true,
+	"capetown":        true,
+	"capital":         true,
+	"capitalone":      true,
+	"car":             true,
+	"caravan":         true,
+	"cards":           true,
+	"care":            true,
+	"career":          true,
+	"careers":         true,
+	"cars":            true,
+	"cartier":         true,
+	"casa":            true,
+	"case":            true,
+	"caseih":          true,
+	"cash":            true,
+	"casino":          true,
+	"cat":             true,
+	"catering":        true,
+	"catholic":        true,
+	"cba":             true,
+	"cbn":             true,
+	"cbre":            true,
+	"cbs":             true,
+	"cc":              true,
+	"cd":              true,
+	"ceb":             true,
+	"center":          true,
+	"ceo":             true,
+	"cern":            true,
+	"cf":              true,
+	"cfa":             true,
+	"cfd":             true,
+	"cg":              true,
+	"ch":              true,
+	"chanel":          true,
+	"channel":         true,
+	"chase":           true,
+	"chat":            true,
+	"cheap":           true,
+	"chintai":         true,
+	"chloe":           true,
+	"christmas":       true,
+	"chrome":          true,
+	"chrysler":        true,
+	"church":          true,
+	"ci":              true,
+	"cipriani":        true,
+	"circle":          true,
+	"cisco":           true,
+	"citadel":         true,
+	"citi":            true,
+	"citic":           true,
+	"city":            true,
+	"cityeats":        true,
+	"ck":              true,
+	"cl":              true,
+	"claims":          true,
+	"cleaning":        true,
+	"click":           true,
+	"clinic":          true,
+	"clinique":        true,
+	"clothing":        true,
+	"cloud":           true,
+	"club":            true,
+	"clubmed":         true,
+	"cm":              true,
+	"cn":              true,
+	"co":              true,
+	"coach":           true,
+	"codes":           true,
+	"coffee":          true,
+	"college":         true,
+	"cologne":         true,
+	"com":             true,
+	"comcast":         true,
+	"commbank":        true,
+	"community":       true,
+	"company":         true,
+	"compare":         true,
+	"computer":        true,
+	"comsec":          true,
+	"condos":          true,
+	"construction":    true,
+	"consulting":      true,
+	"contact":         true,
+	"contractors":     true,
+	"cooking":         true,
+	"cookingchannel":  true,
+	"cool":            true,
+	"coop":            true,
+	"corsica":         true,
+	"country":         true,
+	"coupon":          true,
+	"coupons":         true,
+	"courses":         true,
+	"cr":              true,
+	"credit":          true,
+	"creditcard":      true,
+	"creditunion":     true,
+	"cricket":         true,
+	"crown":           true,
+	"crs":             true,
+	"cruise":          true,
+	"cruises":         true,
+	"csc":             true,
+	"cu":              true,
+	"cuisinella":      true,
+	"cv":              true,
+	"cw":              true,
+	"cx":              true,
+	"cy":              true,
+	"cymru":           true,
+	"cyou":            true,
+	"cz":              true,
+	"dabur":           true,
+	"dad":             true,
+	"dance":           true,
+	"data":            true,
+	"date":            true,
+	"dating":          true,
+	"datsun":          true,
+	"day":             true,
+	"dclk":            true,
+	"dds":             true,
+	"de":              true,
+	"deal":            true,
+	"dealer":          true,
+	"deals":           true,
+	"degree":          true,
+	"delivery":        true,
+	"dell":            true,
+	"deloitte":        true,
+	"delta":           true,
+	"democrat":        true,
+	"dental":          true,
+	"dentist":         true,
+	"desi":            true,
+	"design":          true,
+	"dev":             true,
+	"dhl":             true,
+	"diamonds":        true,
+	"diet":            true,
+	"digital":         true,
+	"direct":          true,
+	"directory":       true,
+	"discount":        true,
+	"discover":        true,
+	"dish":            true,
+	"diy":             true,
+	"dj":              true,
+	"dk":              true,
+	"dm":              true,
+	"dnp":             true,
+	"do":              true,
+	"docs":            true,
+	"doctor":          true,
+	"dodge":           true,
+	"dog":             true,
+	"doha":            true,
+	"domains":         true,
+	"dot":             true,
+	"download":        true,
+	"drive":           true,
+	"dtv":             true,
+	"dubai":           true,
+	"duck":            true,
+	"dunlop":          true,
+	"duns":            true,
+	"dupont":          true,
+	"durban":          true,
+	"dvag":            true,
+	"dvr":             true,
+	"dz":              true,
+	"earth":           true,
+	"eat":             true,
+	"ec":              true,
+	"eco":             true,
+	"edeka":           true,
+	"edu":             true,
+	"education":       true,
+	"ee":              true,
+	"eg":              true,
+	"email":           true,
+	"emerck":          true,
+	"energy":          true,
+	"engineer":        true,
+	"engineering":     true,
+	"enterprises":     true,
+	"epost":           true,
+	"epson":           true,
+	"equipment":       true,
+	"er":              true,
+	"ericsson":        true,
+	"erni":            true,
+	"es":              true,
+	"esq":             true,
+	"estate":          true,
+	"esurance":        true,
+	"et":              true,
+	"etisalat":        true,
+	"eu":              true,
+	"eurovision":      true,
+	"eus":             true,
+	"events":          true,
+	"everbank":        true,
+	"exchange":        true,
+	"expert":          true,
+	"exposed":         true,
+	"express":         true,
+	"extraspace":      true,
+	"fage":            true,
+	"fail":            true,
+	"fairwinds":       true,
+	"faith":           true,
+	"family":          true,
+	"fan":             true,
+	"fans":            true,
+	"farm":            true,
+	"farmers":         true,
+	"fashion":         true,
+	"fast":            true,
+	"fedex":           true,
+	"feedback":        true,
+	"ferrari":         true,
+	"ferrero":         true,
+	"fi":              true,
+	"fiat":            true,
+	"fidelity":        true,
+	"fido":            true,
+	"film":            true,
+	"final":           true,
+	"finance":         true,
+	"financial":       true,
+	"fire":            true,
+	"firestone":       true,
+	"firmdale":        true,
+	"fish":            true,
+	"fishing":         true,
+	"fit":             true,
+	"fitness":         true,
+	"fj":              true,
+	"fk":              true,
+	"flickr":          true,
+	"flights":         true,
+	"flir":            true,
+	"florist":         true,
+	"flowers":         true,
+	"fly":             true,
+	"fm":              true,
+	"fo":              true,
+	"foo":             true,
+	"food":            true,
+	"foodnetwork":     true,
+	"football":        true,
+	"ford":            true,
+	"forex":           true,
+	"forsale":         true,
+	"forum":           true,
+	"foundation":      true,
+	"fox":             true,
+	"fr":              true,
+	"free":            true,
+	"fresenius":       true,
+	"frl":             true,
+	"frogans":         true,
+	"frontdoor":       true,
+	"frontier":        true,
+	"ftr":             true,
+	"fujitsu":         true,
+	"fujixerox":       true,
+	"fun":             true,
+	"fund":            true,
+	"furniture":       true,
+	"futbol":          true,
+	"fyi":             true,
+	"ga":              true,
+	"gal":             true,
+	"gallery":         true,
+	"gallo":           true,
+	"gallup":          true,
+	"game":            true,
+	"games":           true,
+	"gap":             true,
+	"garden":          true,
+	"gb":              true,
+	"gbiz":            true,
+	"gd":              true,
+	"gdn":             true,
+	"ge":              true,
+	"gea":             true,
+	"gent":            true,
+	"genting":         true,
+	"george":          true,
+	"gf":              true,
+	"gg":              true,
+	"ggee":            true,
+	"gh":              true,
+	"gi":              true,
+	"gift":            true,
+	"gifts":           true,
+	"gives":           true,
+	"giving":          true,
+	"gl":              true,
+	"glade":           true,
+	"glass":           true,
+	"gle":             true,
+	"global":          true,
+	"globo":           true,
+	"gm":              true,
+	"gmail":           true,
+	"gmbh":            true,
+	"gmo":             true,
+	"gmx":             true,
+	"gn":              true,
+	"godaddy":         true,
+	"gold":            true,
+	"goldpoint":       true,
+	"golf":            true,
+	"goo":             true,
+	"goodhands":       true,
+	"goodyear":        true,
+	"goog":            true,
+	// "google":                   true,
+	"gop":                      true,
+	"got":                      true,
+	"gov":                      true,
+	"gp":                       true,
+	"gq":                       true,
+	"gr":                       true,
+	"grainger":                 true,
+	"graphics":                 true,
+	"gratis":                   true,
+	"green":                    true,
+	"gripe":                    true,
+	"grocery":                  true,
+	"group":                    true,
+	"gs":                       true,
+	"gt":                       true,
+	"gu":                       true,
+	"guardian":                 true,
+	"gucci":                    true,
+	"guge":                     true,
+	"guide":                    true,
+	"guitars":                  true,
+	"guru":                     true,
+	"gw":                       true,
+	"gy":                       true,
+	"hair":                     true,
+	"hamburg":                  true,
+	"hangout":                  true,
+	"haus":                     true,
+	"hbo":                      true,
+	"hdfc":                     true,
+	"hdfcbank":                 true,
+	"health":                   true,
+	"healthcare":               true,
+	"help":                     true,
+	"helsinki":                 true,
+	"here":                     true,
+	"hermes":                   true,
+	"hgtv":                     true,
+	"hiphop":                   true,
+	"hisamitsu":                true,
+	"hitachi":                  true,
+	"hiv":                      true,
+	"hk":                       true,
+	"hkt":                      true,
+	"hm":                       true,
+	"hn":                       true,
+	"hockey":                   true,
+	"holdings":                 true,
+	"holiday":                  true,
+	"homedepot":                true,
+	"homegoods":                true,
+	"homes":                    true,
+	"homesense":                true,
+	"honda":                    true,
+	"honeywell":                true,
+	"horse":                    true,
+	"hospital":                 true,
+	"host":                     true,
+	"hosting":                  true,
+	"hot":                      true,
+	"hoteles":                  true,
+	"hotels":                   true,
+	"hotmail":                  true,
+	"house":                    true,
+	"how":                      true,
+	"hr":                       true,
+	"hsbc":                     true,
+	"ht":                       true,
+	"htc":                      true,
+	"hu":                       true,
+	"hughes":                   true,
+	"hyatt":                    true,
+	"hyundai":                  true,
+	"ibm":                      true,
+	"icbc":                     true,
+	"ice":                      true,
+	"icu":                      true,
+	"id":                       true,
+	"ie":                       true,
+	"ieee":                     true,
+	"ifm":                      true,
+	"ikano":                    true,
+	"il":                       true,
+	"im":                       true,
+	"imamat":                   true,
+	"imdb":                     true,
+	"immo":                     true,
+	"immobilien":               true,
+	"in":                       true,
+	"industries":               true,
+	"infiniti":                 true,
+	"info":                     true,
+	"ing":                      true,
+	"ink":                      true,
+	"institute":                true,
+	"insurance":                true,
+	"insure":                   true,
+	"int":                      true,
+	"intel":                    true,
+	"international":            true,
+	"intuit":                   true,
+	"investments":              true,
+	"io":                       true,
+	"ipiranga":                 true,
+	"iq":                       true,
+	"ir":                       true,
+	"irish":                    true,
+	"is":                       true,
+	"iselect":                  true,
+	"ismaili":                  true,
+	"ist":                      true,
+	"istanbul":                 true,
+	"it":                       true,
+	"itau":                     true,
+	"itv":                      true,
+	"iveco":                    true,
+	"iwc":                      true,
+	"jaguar":                   true,
+	"java":                     true,
+	"jcb":                      true,
+	"jcp":                      true,
+	"je":                       true,
+	"jeep":                     true,
+	"jetzt":                    true,
+	"jewelry":                  true,
+	"jio":                      true,
+	"jlc":                      true,
+	"jll":                      true,
+	"jm":                       true,
+	"jmp":                      true,
+	"jnj":                      true,
+	"jo":                       true,
+	"jobs":                     true,
+	"joburg":                   true,
+	"jot":                      true,
+	"joy":                      true,
+	"jp":                       true,
+	"jpmorgan":                 true,
+	"jprs":                     true,
+	"juegos":                   true,
+	"juniper":                  true,
+	"kaufen":                   true,
+	"kddi":                     true,
+	"ke":                       true,
+	"kerryhotels":              true,
+	"kerrylogistics":           true,
+	"kerryproperties":          true,
+	"kfh":                      true,
+	"kg":                       true,
+	"kh":                       true,
+	"ki":                       true,
+	"kia":                      true,
+	"kim":                      true,
+	"kinder":                   true,
+	"kindle":                   true,
+	"kitchen":                  true,
+	"kiwi":                     true,
+	"km":                       true,
+	"kn":                       true,
+	"koeln":                    true,
+	"komatsu":                  true,
+	"kosher":                   true,
+	"kp":                       true,
+	"kpmg":                     true,
+	"kpn":                      true,
+	"kr":                       true,
+	"krd":                      true,
+	"kred":                     true,
+	"kuokgroup":                true,
+	"kw":                       true,
+	"ky":                       true,
+	"kyoto":                    true,
+	"kz":                       true,
+	"la":                       true,
+	"lacaixa":                  true,
+	"ladbrokes":                true,
+	"lamborghini":              true,
+	"lamer":                    true,
+	"lancaster":                true,
+	"lancia":                   true,
+	"lancome":                  true,
+	"land":                     true,
+	"landrover":                true,
+	"lanxess":                  true,
+	"lasalle":                  true,
+	"lat":                      true,
+	"latino":                   true,
+	"latrobe":                  true,
+	"law":                      true,
+	"lawyer":                   true,
+	"lb":                       true,
+	"lc":                       true,
+	"lds":                      true,
+	"lease":                    true,
+	"leclerc":                  true,
+	"lefrak":                   true,
+	"legal":                    true,
+	"lego":                     true,
+	"lexus":                    true,
+	"lgbt":                     true,
+	"li":                       true,
+	"liaison":                  true,
+	"lidl":                     true,
+	"life":                     true,
+	"lifeinsurance":            true,
+	"lifestyle":                true,
+	"lighting":                 true,
+	"like":                     true,
+	"lilly":                    true,
+	"limited":                  true,
+	"limo":                     true,
+	"lincoln":                  true,
+	"linde":                    true,
+	"link":                     true,
+	"lipsy":                    true,
+	"live":                     true,
+	"living":                   true,
+	"lixil":                    true,
+	"lk":                       true,
+	"loan":                     true,
+	"loans":                    true,
+	"locker":                   true,
+	"locus":                    true,
+	"loft":                     true,
+	"lol":                      true,
+	"london":                   true,
+	"lotte":                    true,
+	"lotto":                    true,
+	"love":                     true,
+	"lpl":                      true,
+	"lplfinancial":             true,
+	"lr":                       true,
+	"ls":                       true,
+	"lt":                       true,
+	"ltd":                      true,
+	"ltda":                     true,
+	"lu":                       true,
+	"lundbeck":                 true,
+	"lupin":                    true,
+	"luxe":                     true,
+	"luxury":                   true,
+	"lv":                       true,
+	"ly":                       true,
+	"ma":                       true,
+	"macys":                    true,
+	"madrid":                   true,
+	"maif":                     true,
+	"maison":                   true,
+	"makeup":                   true,
+	"man":                      true,
+	"management":               true,
+	"mango":                    true,
+	"map":                      true,
+	"market":                   true,
+	"marketing":                true,
+	"markets":                  true,
+	"marriott":                 true,
+	"marshalls":                true,
+	"maserati":                 true,
+	"mattel":                   true,
+	"mba":                      true,
+	"mc":                       true,
+	"mcd":                      true,
+	"mcdonalds":                true,
+	"mckinsey":                 true,
+	"md":                       true,
+	"me":                       true,
+	"med":                      true,
+	"media":                    true,
+	"meet":                     true,
+	"melbourne":                true,
+	"meme":                     true,
+	"memorial":                 true,
+	"men":                      true,
+	"menu":                     true,
+	"meo":                      true,
+	"merckmsd":                 true,
+	"metlife":                  true,
+	"mg":                       true,
+	"mh":                       true,
+	"miami":                    true,
+	"microsoft":                true,
+	"mil":                      true,
+	"mini":                     true,
+	"mint":                     true,
+	"mit":                      true,
+	"mitsubishi":               true,
+	"mk":                       true,
+	"ml":                       true,
+	"mlb":                      true,
+	"mls":                      true,
+	"mm":                       true,
+	"mma":                      true,
+	"mn":                       true,
+	"mo":                       true,
+	"mobi":                     true,
+	"mobile":                   true,
+	"mobily":                   true,
+	"moda":                     true,
+	"moe":                      true,
+	"moi":                      true,
+	"mom":                      true,
+	"monash":                   true,
+	"money":                    true,
+	"monster":                  true,
+	"montblanc":                true,
+	"mopar":                    true,
+	"mormon":                   true,
+	"mortgage":                 true,
+	"moscow":                   true,
+	"moto":                     true,
+	"motorcycles":              true,
+	"mov":                      true,
+	"movie":                    true,
+	"movistar":                 true,
+	"mp":                       true,
+	"mq":                       true,
+	"mr":                       true,
+	"ms":                       true,
+	"msd":                      true,
+	"mt":                       true,
+	"mtn":                      true,
+	"mtr":                      true,
+	"mu":                       true,
+	"museum":                   true,
+	"mutual":                   true,
+	"mv":                       true,
+	"mw":                       true,
+	"mx":                       true,
+	"my":                       true,
+	"mz":                       true,
+	"na":                       true,
+	"nab":                      true,
+	"nadex":                    true,
+	"nagoya":                   true,
+	"name":                     true,
+	"nationwide":               true,
+	"natura":                   true,
+	"navy":                     true,
+	"nba":                      true,
+	"nc":                       true,
+	"ne":                       true,
+	"nec":                      true,
+	"net":                      true,
+	"netbank":                  true,
+	"netflix":                  true,
+	"network":                  true,
+	"neustar":                  true,
+	"new":                      true,
+	"newholland":               true,
+	"news":                     true,
+	"next":                     true,
+	"nextdirect":               true,
+	"nexus":                    true,
+	"nf":                       true,
+	"nfl":                      true,
+	"ng":                       true,
+	"ngo":                      true,
+	"nhk":                      true,
+	"ni":                       true,
+	"nico":                     true,
+	"nike":                     true,
+	"nikon":                    true,
+	"ninja":                    true,
+	"nissan":                   true,
+	"nissay":                   true,
+	"nl":                       true,
+	"no":                       true,
+	"nokia":                    true,
+	"northwesternmutual":       true,
+	"norton":                   true,
+	"now":                      true,
+	"nowruz":                   true,
+	"nowtv":                    true,
+	"np":                       true,
+	"nr":                       true,
+	"nra":                      true,
+	"nrw":                      true,
+	"ntt":                      true,
+	"nu":                       true,
+	"nyc":                      true,
+	"nz":                       true,
+	"obi":                      true,
+	"observer":                 true,
+	"off":                      true,
+	"office":                   true,
+	"okinawa":                  true,
+	"olayan":                   true,
+	"olayangroup":              true,
+	"oldnavy":                  true,
+	"ollo":                     true,
+	"om":                       true,
+	"omega":                    true,
+	"one":                      true,
+	"ong":                      true,
+	"onl":                      true,
+	"online":                   true,
+	"onyourside":               true,
+	"ooo":                      true,
+	"open":                     true,
+	"oracle":                   true,
+	"orange":                   true,
+	"org":                      true,
+	"organic":                  true,
+	"origins":                  true,
+	"osaka":                    true,
+	"otsuka":                   true,
+	"ott":                      true,
+	"ovh":                      true,
+	"pa":                       true,
+	"page":                     true,
+	"pamperedchef":             true,
+	"panasonic":                true,
+	"panerai":                  true,
+	"paris":                    true,
+	"pars":                     true,
+	"partners":                 true,
+	"parts":                    true,
+	"party":                    true,
+	"passagens":                true,
+	"pay":                      true,
+	"pccw":                     true,
+	"pe":                       true,
+	"pet":                      true,
+	"pf":                       true,
+	"pfizer":                   true,
+	"pg":                       true,
+	"ph":                       true,
+	"pharmacy":                 true,
+	"phd":                      true,
+	"philips":                  true,
+	"phone":                    true,
+	"photo":                    true,
+	"photography":              true,
+	"photos":                   true,
+	"physio":                   true,
+	"piaget":                   true,
+	"pics":                     true,
+	"pictet":                   true,
+	"pictures":                 true,
+	"pid":                      true,
+	"pin":                      true,
+	"ping":                     true,
+	"pink":                     true,
+	"pioneer":                  true,
+	"pizza":                    true,
+	"pk":                       true,
+	"pl":                       true,
+	"place":                    true,
+	"play":                     true,
+	"playstation":              true,
+	"plumbing":                 true,
+	"plus":                     true,
+	"pm":                       true,
+	"pn":                       true,
+	"pnc":                      true,
+	"pohl":                     true,
+	"poker":                    true,
+	"politie":                  true,
+	"porn":                     true,
+	"post":                     true,
+	"pr":                       true,
+	"pramerica":                true,
+	"praxi":                    true,
+	"press":                    true,
+	"prime":                    true,
+	"pro":                      true,
+	"prod":                     true,
+	"productions":              true,
+	"prof":                     true,
+	"progressive":              true,
+	"promo":                    true,
+	"properties":               true,
+	"property":                 true,
+	"protection":               true,
+	"pru":                      true,
+	"prudential":               true,
+	"ps":                       true,
+	"pt":                       true,
+	"pub":                      true,
+	"pw":                       true,
+	"pwc":                      true,
+	"py":                       true,
+	"qa":                       true,
+	"qpon":                     true,
+	"quebec":                   true,
+	"quest":                    true,
+	"qvc":                      true,
+	"racing":                   true,
+	"radio":                    true,
+	"raid":                     true,
+	"re":                       true,
+	"read":                     true,
+	"realestate":               true,
+	"realtor":                  true,
+	"realty":                   true,
+	"recipes":                  true,
+	"red":                      true,
+	"redstone":                 true,
+	"redumbrella":              true,
+	"rehab":                    true,
+	"reise":                    true,
+	"reisen":                   true,
+	"reit":                     true,
+	"reliance":                 true,
+	"ren":                      true,
+	"rent":                     true,
+	"rentals":                  true,
+	"repair":                   true,
+	"report":                   true,
+	"republican":               true,
+	"rest":                     true,
+	"restaurant":               true,
+	"review":                   true,
+	"reviews":                  true,
+	"rexroth":                  true,
+	"rich":                     true,
+	"richardli":                true,
+	"ricoh":                    true,
+	"rightathome":              true,
+	"ril":                      true,
+	"rio":                      true,
+	"rip":                      true,
+	"rmit":                     true,
+	"ro":                       true,
+	"rocher":                   true,
+	"rocks":                    true,
+	"rodeo":                    true,
+	"rogers":                   true,
+	"room":                     true,
+	"rs":                       true,
+	"rsvp":                     true,
+	"ru":                       true,
+	"rugby":                    true,
+	"ruhr":                     true,
+	"run":                      true,
+	"rw":                       true,
+	"rwe":                      true,
+	"ryukyu":                   true,
+	"sa":                       true,
+	"saarland":                 true,
+	"safe":                     true,
+	"safety":                   true,
+	"sakura":                   true,
+	"sale":                     true,
+	"salon":                    true,
+	"samsclub":                 true,
+	"samsung":                  true,
+	"sandvik":                  true,
+	"sandvikcoromant":          true,
+	"sanofi":                   true,
+	"sap":                      true,
+	"sapo":                     true,
+	"sarl":                     true,
+	"sas":                      true,
+	"save":                     true,
+	"saxo":                     true,
+	"sb":                       true,
+	"sbi":                      true,
+	"sbs":                      true,
+	"sc":                       true,
+	"sca":                      true,
+	"scb":                      true,
+	"schaeffler":               true,
+	"schmidt":                  true,
+	"scholarships":             true,
+	"school":                   true,
+	"schule":                   true,
+	"schwarz":                  true,
+	"science":                  true,
+	"scjohnson":                true,
+	"scor":                     true,
+	"scot":                     true,
+	"sd":                       true,
+	"se":                       true,
+	"search":                   true,
+	"seat":                     true,
+	"secure":                   true,
+	"security":                 true,
+	"seek":                     true,
+	"select":                   true,
+	"sener":                    true,
+	"services":                 true,
+	"ses":                      true,
+	"seven":                    true,
+	"sew":                      true,
+	"sex":                      true,
+	"sexy":                     true,
+	"sfr":                      true,
+	"sg":                       true,
+	"sh":                       true,
+	"shangrila":                true,
+	"sharp":                    true,
+	"shaw":                     true,
+	"shell":                    true,
+	"shia":                     true,
+	"shiksha":                  true,
+	"shoes":                    true,
+	"shop":                     true,
+	"shopping":                 true,
+	"shouji":                   true,
+	"show":                     true,
+	"showtime":                 true,
+	"shriram":                  true,
+	"si":                       true,
+	"silk":                     true,
+	"sina":                     true,
+	"singles":                  true,
+	"site":                     true,
+	"sj":                       true,
+	"sk":                       true,
+	"ski":                      true,
+	"skin":                     true,
+	"sky":                      true,
+	"skype":                    true,
+	"sl":                       true,
+	"sling":                    true,
+	"sm":                       true,
+	"smart":                    true,
+	"smile":                    true,
+	"sn":                       true,
+	"sncf":                     true,
+	"so":                       true,
+	"soccer":                   true,
+	"social":                   true,
+	"softbank":                 true,
+	"software":                 true,
+	"sohu":                     true,
+	"solar":                    true,
+	"solutions":                true,
+	"song":                     true,
+	"sony":                     true,
+	"soy":                      true,
+	"space":                    true,
+	"spiegel":                  true,
+	"spot":                     true,
+	"spreadbetting":            true,
+	"sr":                       true,
+	"srl":                      true,
+	"srt":                      true,
+	"st":                       true,
+	"stada":                    true,
+	"staples":                  true,
+	"star":                     true,
+	"starhub":                  true,
+	"statebank":                true,
+	"statefarm":                true,
+	"statoil":                  true,
+	"stc":                      true,
+	"stcgroup":                 true,
+	"stockholm":                true,
+	"storage":                  true,
+	"store":                    true,
+	"stream":                   true,
+	"studio":                   true,
+	"study":                    true,
+	"style":                    true,
+	"su":                       true,
+	"sucks":                    true,
+	"supplies":                 true,
+	"supply":                   true,
+	"support":                  true,
+	"surf":                     true,
+	"surgery":                  true,
+	"suzuki":                   true,
+	"sv":                       true,
+	"swatch":                   true,
+	"swiftcover":               true,
+	"swiss":                    true,
+	"sx":                       true,
+	"sy":                       true,
+	"sydney":                   true,
+	"symantec":                 true,
+	"systems":                  true,
+	"sz":                       true,
+	"tab":                      true,
+	"taipei":                   true,
+	"talk":                     true,
+	"taobao":                   true,
+	"target":                   true,
+	"tatamotors":               true,
+	"tatar":                    true,
+	"tattoo":                   true,
+	"tax":                      true,
+	"taxi":                     true,
+	"tc":                       true,
+	"tci":                      true,
+	"td":                       true,
+	"tdk":                      true,
+	"team":                     true,
+	"tech":                     true,
+	"technology":               true,
+	"tel":                      true,
+	"telecity":                 true,
+	"telefonica":               true,
+	"temasek":                  true,
+	"tennis":                   true,
+	"teva":                     true,
+	"tf":                       true,
+	"tg":                       true,
+	"th":                       true,
+	"thd":                      true,
+	"theater":                  true,
+	"theatre":                  true,
+	"tiaa":                     true,
+	"tickets":                  true,
+	"tienda":                   true,
+	"tiffany":                  true,
+	"tips":                     true,
+	"tires":                    true,
+	"tirol":                    true,
+	"tj":                       true,
+	"tjmaxx":                   true,
+	"tjx":                      true,
+	"tk":                       true,
+	"tkmaxx":                   true,
+	"tl":                       true,
+	"tm":                       true,
+	"tmall":                    true,
+	"tn":                       true,
+	"to":                       true,
+	"today":                    true,
+	"tokyo":                    true,
+	"tools":                    true,
+	"top":                      true,
+	"toray":                    true,
+	"toshiba":                  true,
+	"total":                    true,
+	"tours":                    true,
+	"town":                     true,
+	"toyota":                   true,
+	"toys":                     true,
+	"tr":                       true,
+	"trade":                    true,
+	"trading":                  true,
+	"training":                 true,
+	"travel":                   true,
+	"travelchannel":            true,
+	"travelers":                true,
+	"travelersinsurance":       true,
+	"trust":                    true,
+	"trv":                      true,
+	"tt":                       true,
+	"tube":                     true,
+	"tui":                      true,
+	"tunes":                    true,
+	"tushu":                    true,
+	"tv":                       true,
+	"tvs":                      true,
+	"tw":                       true,
+	"tz":                       true,
+	"ua":                       true,
+	"ubank":                    true,
+	"ubs":                      true,
+	"uconnect":                 true,
+	"ug":                       true,
+	"uk":                       true,
+	"unicom":                   true,
+	"university":               true,
+	"uno":                      true,
+	"uol":                      true,
+	"ups":                      true,
+	"us":                       true,
+	"uy":                       true,
+	"uz":                       true,
+	"va":                       true,
+	"vacations":                true,
+	"vana":                     true,
+	"vanguard":                 true,
+	"vc":                       true,
+	"ve":                       true,
+	"vegas":                    true,
+	"ventures":                 true,
+	"verisign":                 true,
+	"versicherung":             true,
+	"vet":                      true,
+	"vg":                       true,
+	"vi":                       true,
+	"viajes":                   true,
+	"video":                    true,
+	"vig":                      true,
+	"viking":                   true,
+	"villas":                   true,
+	"vin":                      true,
+	"vip":                      true,
+	"virgin":                   true,
+	"visa":                     true,
+	"vision":                   true,
+	"vista":                    true,
+	"vistaprint":               true,
+	"viva":                     true,
+	"vivo":                     true,
+	"vlaanderen":               true,
+	"vn":                       true,
+	"vodka":                    true,
+	"volkswagen":               true,
+	"volvo":                    true,
+	"vote":                     true,
+	"voting":                   true,
+	"voto":                     true,
+	"voyage":                   true,
+	"vu":                       true,
+	"vuelos":                   true,
+	"wales":                    true,
+	"walmart":                  true,
+	"walter":                   true,
+	"wang":                     true,
+	"wanggou":                  true,
+	"warman":                   true,
+	"watch":                    true,
+	"watches":                  true,
+	"weather":                  true,
+	"weatherchannel":           true,
+	"webcam":                   true,
+	"weber":                    true,
+	"website":                  true,
+	"wed":                      true,
+	"wedding":                  true,
+	"weibo":                    true,
+	"weir":                     true,
+	"wf":                       true,
+	"whoswho":                  true,
+	"wien":                     true,
+	"wiki":                     true,
+	"williamhill":              true,
+	"win":                      true,
+	"windows":                  true,
+	"wine":                     true,
+	"winners":                  true,
+	"wme":                      true,
+	"wolterskluwer":            true,
+	"woodside":                 true,
+	"work":                     true,
+	"works":                    true,
+	"world":                    true,
+	"wow":                      true,
+	"ws":                       true,
+	"wtc":                      true,
+	"wtf":                      true,
+	"xbox":                     true,
+	"xerox":                    true,
+	"xfinity":                  true,
+	"xihuan":                   true,
+	"xin":                      true,
+	"xn--11b4c3d":              true,
+	"xn--1ck2e1b":              true,
+	"xn--1qqw23a":              true,
+	"xn--2scrj9c":              true,
+	"xn--30rr7y":               true,
+	"xn--3bst00m":              true,
+	"xn--3ds443g":              true,
+	"xn--3e0b707e":             true,
+	"xn--3hcrj9c":              true,
+	"xn--3oq18vl8pn36a":        true,
+	"xn--3pxu8k":               true,
+	"xn--42c2d9a":              true,
+	"xn--45br5cyl":             true,
+	"xn--45brj9c":              true,
+	"xn--45q11c":               true,
+	"xn--4gbrim":               true,
+	"xn--54b7fta0cc":           true,
+	"xn--55qw42g":              true,
+	"xn--55qx5d":               true,
+	"xn--5su34j936bgsg":        true,
+	"xn--5tzm5g":               true,
+	"xn--6frz82g":              true,
+	"xn--6qq986b3xl":           true,
+	"xn--80adxhks":             true,
+	"xn--80ao21a":              true,
+	"xn--80aqecdr1a":           true,
+	"xn--80asehdb":             true,
+	"xn--80aswg":               true,
+	"xn--8y0a063a":             true,
+	"xn--90a3ac":               true,
+	"xn--90ae":                 true,
+	"xn--90ais":                true,
+	"xn--9dbq2a":               true,
+	"xn--9et52u":               true,
+	"xn--9krt00a":              true,
+	"xn--b4w605ferd":           true,
+	"xn--bck1b9a5dre4c":        true,
+	"xn--c1avg":                true,
+	"xn--c2br7g":               true,
+	"xn--cck2b3b":              true,
+	"xn--cg4bki":               true,
+	"xn--clchc0ea0b2g2a9gcd":   true,
+	"xn--czr694b":              true,
+	"xn--czrs0t":               true,
+	"xn--czru2d":               true,
+	"xn--d1acj3b":              true,
+	"xn--d1alf":                true,
+	"xn--e1a4c":                true,
+	"xn--eckvdtc9d":            true,
+	"xn--efvy88h":              true,
+	"xn--estv75g":              true,
+	"xn--fct429k":              true,
+	"xn--fhbei":                true,
+	"xn--fiq228c5hs":           true,
+	"xn--fiq64b":               true,
+	"xn--fiqs8s":               true,
+	"xn--fiqz9s":               true,
+	"xn--fjq720a":              true,
+	"xn--flw351e":              true,
+	"xn--fpcrj9c3d":            true,
+	"xn--fzc2c9e2c":            true,
+	"xn--fzys8d69uvgm":         true,
+	"xn--g2xx48c":              true,
+	"xn--gckr3f0f":             true,
+	"xn--gecrj9c":              true,
+	"xn--gk3at1e":              true,
+	"xn--h2breg3eve":           true,
+	"xn--h2brj9c":              true,
+	"xn--h2brj9c8c":            true,
+	"xn--hxt814e":              true,
+	"xn--i1b6b1a6a2e":          true,
+	"xn--imr513n":              true,
+	"xn--io0a7i":               true,
+	"xn--j1aef":                true,
+	"xn--j1amh":                true,
+	"xn--j6w193g":              true,
+	"xn--jlq61u9w7b":           true,
+	"xn--jvr189m":              true,
+	"xn--kcrx77d1x4a":          true,
+	"xn--kprw13d":              true,
+	"xn--kpry57d":              true,
+	"xn--kpu716f":              true,
+	"xn--kput3i":               true,
+	"xn--l1acc":                true,
+	"xn--lgbbat1ad8j":          true,
+	"xn--mgb9awbf":             true,
+	"xn--mgba3a3ejt":           true,
+	"xn--mgba3a4f16a":          true,
+	"xn--mgba7c0bbn0a":         true,
+	"xn--mgbaakc7dvf":          true,
+	"xn--mgbaam7a8h":           true,
+	"xn--mgbab2bd":             true,
+	"xn--mgbai9azgqp6j":        true,
+	"xn--mgbayh7gpa":           true,
+	"xn--mgbb9fbpob":           true,
+	"xn--mgbbh1a":              true,
+	"xn--mgbbh1a71e":           true,
+	"xn--mgbc0a9azcg":          true,
+	"xn--mgbca7dzdo":           true,
+	"xn--mgberp4a5d4ar":        true,
+	"xn--mgbgu82a":             true,
+	"xn--mgbi4ecexp":           true,
+	"xn--mgbpl2fh":             true,
+	"xn--mgbt3dhd":             true,
+	"xn--mgbtx2b":              true,
+	"xn--mgbx4cd0ab":           true,
+	"xn--mix891f":              true,
+	"xn--mk1bu44c":             true,
+	"xn--mxtq1m":               true,
+	"xn--ngbc5azd":             true,
+	"xn--ngbe9e0a":             true,
+	"xn--ngbrx":                true,
+	"xn--node":                 true,
+	"xn--nqv7f":                true,
+	"xn--nqv7fs00ema":          true,
+	"xn--nyqy26a":              true,
+	"xn--o3cw4h":               true,
+	"xn--ogbpf8fl":             true,
+	"xn--p1acf":                true,
+	"xn--p1ai":                 true,
+	"xn--pbt977c":              true,
+	"xn--pgbs0dh":              true,
+	"xn--pssy2u":               true,
+	"xn--q9jyb4c":              true,
+	"xn--qcka1pmc":             true,
+	"xn--qxam":                 true,
+	"xn--rhqv96g":              true,
+	"xn--rovu88b":              true,
+	"xn--rvc1e0am3e":           true,
+	"xn--s9brj9c":              true,
+	"xn--ses554g":              true,
+	"xn--t60b56a":              true,
+	"xn--tckwe":                true,
+	"xn--tiq49xqyj":            true,
+	"xn--unup4y":               true,
+	"xn--vermgensberater-ctb":  true,
+	"xn--vermgensberatung-pwb": true,
+	"xn--vhquv":                true,
+	"xn--vuq861b":              true,
+	"xn--w4r85el8fhu5dnra":     true,
+	"xn--w4rs40l":              true,
+	"xn--wgbh1c":               true,
+	"xn--wgbl6a":               true,
+	"xn--xhq521b":              true,
+	"xn--xkc2al3hye2a":         true,
+	"xn--xkc2dl3a5ee0h":        true,
+	"xn--y9a3aq":               true,
+	"xn--yfro4i67o":            true,
+	"xn--ygbi2ammx":            true,
+	"xn--zfr164b":              true,
+	"xperia":                   true,
+	"xxx":                      true,
+	"xyz":                      true,
+	"yachts":                   true,
+	// "yahoo":                    true,
+	"yamaxun":   true,
+	"yandex":    true,
+	"ye":        true,
+	"yodobashi": true,
+	"yoga":      true,
+	"yokohama":  true,
+	"you":       true,
+	// "youtube":                  true,
+	"yt":      true,
+	"yun":     true,
+	"za":      true,
+	"zappos":  true,
+	"zara":    true,
+	"zero":    true,
+	"zip":     true,
+	"zippo":   true,
+	"zm":      true,
+	"zone":    true,
+	"zuerich": true,
+	"zw":      true,
 }

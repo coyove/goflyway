@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -27,10 +26,11 @@ var (
 	dnsHeaderID = "X-Host-Lookup-ID"
 	dnsHeader   = "X-Host-Lookup"
 
-	hostHeadHolder  = "%s.%s.com"
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
+
+	base32Paddings = []string{".com", ".org", ".net", ".co", ".me", ".cc", ".edu", ".cn"}
 )
 
 func NewRand() *rand.Rand {
@@ -132,28 +132,52 @@ func DecryptRequest(req *http.Request) string {
 	return rkey
 }
 
-func EncryptHost(host, mark string) string {
-	return AEncryptString(mark+host) + ".com"
-}
+// func EncryptHost(host, mark string) string {
+// 	var buf []byte
+// 	if *G_NoShoco {
+// 		buf = AEncrypt([]byte(mark + host))
+// 	} else {
+// 		buf = AEncrypt(shoco.Compress(mark + host))
+// 	}
 
-func DecryptHost(host, mark string) string {
-	m := hostHeadExtract.FindStringSubmatch(host)
-	if len(m) < 2 {
-		return ""
-	}
+// 	t := base32.StdEncoding.EncodeToString(buf)
+// 	for i := 7; i >= 1; i-- {
+// 		if strings.HasSuffix(t, "======="[:i]) {
+// 			return t[:len(t)-i] + base32Paddings[i]
+// 		}
+// 	}
 
-	buf, err := hex.DecodeString(m[1])
-	if err != nil || len(buf) == 0 {
-		return ""
-	}
+// 	return t + base32Paddings[0]
+// }
 
-	h := ADecrypt(buf)
-	if len(h) == 0 || h[0] != mark[0] {
-		return ""
-	}
+// func DecryptHost(host, mark string) string {
 
-	return string(h[1:])
-}
+// 	for i := 7; i >= 0; i-- {
+// 		if strings.HasSuffix(host, base32Paddings[i]) {
+// 			host = host[:len(host)-len(base32Paddings[i])] + "======="[:i]
+// 			goto next
+// 		}
+// 	}
+
+// 	return ""
+
+// next:
+// 	buf, err := base32.StdEncoding.DecodeString(host)
+// 	if err != nil || len(buf) == 0 {
+// 		return ""
+// 	}
+
+// 	h := ADecrypt(buf)
+// 	if !*G_NoShoco {
+// 		h = []byte(shoco.Decompress(h))
+// 	}
+
+// 	if len(h) == 0 || h[0] != mark[0] {
+// 		return ""
+// 	}
+
+// 	return string(h[1:])
+// }
 
 func copyHeaders(dst, src http.Header) {
 	for k := range dst {

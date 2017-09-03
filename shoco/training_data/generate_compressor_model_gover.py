@@ -289,7 +289,7 @@ def main():
 
     chrs_indices = collections.OrderedDict(zip(successors.keys(), range(chars_count)))
     chrs_reversed = [chrs_indices.get(chr(i), -1) for i in range(256)]
-
+    
     successors_reversed = collections.OrderedDict()
     for char, successor_list in successors.items():
         successors_reversed[char] = [None] * chars_count
@@ -298,8 +298,7 @@ def main():
             successors_reversed[char][i] = s_indices.get(s, -1)
 
     zeros_line = ['\0'] * (1 << args.max_successor_bits)
-    chrs_by_chr_and_successor_id = [successors.get(chr(i), zeros_line) for i in range(min_chr, max_chr)]
-
+    chrs_by_chr_and_successor_id = [successors.get(i, zeros_line) for i in range(min_chr, max_chr)]
 
     if args.optimize_encoding:
         log("finding best packing structures ... ", end="")

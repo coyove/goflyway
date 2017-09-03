@@ -75,7 +75,8 @@ func generateIV(s, s2 byte) []byte {
 }
 
 func AEncrypt(buf []byte) []byte {
-	b, b2 := byte(NewRand().Intn(256)), byte(NewRand().Intn(256))
+	r := NewRand()
+	b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
 	return append(_AXor(G_KeyBlock, generateIV(b, b2), buf), b, b2)
 }
 
