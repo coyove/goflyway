@@ -78,7 +78,9 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
 
 		G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
-			payload += k.(string) + ": " + v.(string) + "\r\n"
+			if v.(string) != "" {
+				payload += k.(string) + ": " + v.(string) + "\r\n"
+			}
 		})
 
 		upstreamConn.Write([]byte(payload + "\r\n"))

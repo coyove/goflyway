@@ -65,8 +65,18 @@ func ReverseRandomKey(key string) []byte {
 func processBody(req *http.Request, enc bool) {
 	var rkey string
 	if enc {
-		G_RequestDummies.Add("Accept-Language", req.Header.Get("Accept-Language"))
-		G_RequestDummies.Add("User-Agent", req.Header.Get("User-Agent"))
+		add := func(field string) {
+			if x := req.Header.Get(field); x != "" {
+				G_RequestDummies.Add(field, x)
+			}
+		}
+
+		add("Accept-Language")
+		add("User-Agent")
+		add("Referer")
+		add("Cache-Control")
+		add("Accept-Encoding")
+		add("Connection")
 
 		rkey = RandomKey()
 		SafeAddHeader(req, rkeyHeader2, rkey)
