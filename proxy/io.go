@@ -4,7 +4,6 @@ import (
 	. "../config"
 	"../logg"
 
-	"crypto/aes"
 	"crypto/cipher"
 	"io"
 	"net"
@@ -62,21 +61,6 @@ func TwoWayBridge(target, source net.Conn, key string) {
 			target.Close()
 		}()
 	}
-}
-
-func GetStream(key []byte) cipher.Stream {
-	block, err := aes.NewCipher(G_KeyBytes[:32])
-	if err != nil {
-		logg.E("[AES] cannot create cipher: ", err)
-		return nil
-	}
-
-	if len(key) != 16 {
-		logg.E("[AES] key is not 128bit long")
-		return nil
-	}
-
-	return cipher.NewCTR(block, key)
 }
 
 type IOCopyCipher struct {

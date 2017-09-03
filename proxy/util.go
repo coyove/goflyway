@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -32,11 +31,6 @@ var (
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
-
-	primes = []byte{
-		11, 13, 17, 19, 23, 29, 31, 37, 41, 43,
-		47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
-	}
 )
 
 func NewRand() *rand.Rand {
@@ -52,7 +46,7 @@ func RandomKey() string {
 		retB[i] = byte(_rand.Intn(255) + 1)
 	}
 
-	return base64.StdEncoding.EncodeToString(Skip32Encode(G_KeyBytes, retB))
+	return base64.StdEncoding.EncodeToString(AEncrypt(retB))
 }
 
 func ReverseRandomKey(key string) []byte {
@@ -65,7 +59,7 @@ func ReverseRandomKey(key string) []byte {
 		return nil
 	}
 
-	return Skip32Decode(G_KeyBytes, k)
+	return ADecrypt(k)
 }
 
 func processBody(req *http.Request, enc bool) {
@@ -82,9 +76,9 @@ func processBody(req *http.Request, enc bool) {
 
 	for _, c := range req.Cookies() {
 		if enc {
-			c.Value = Skip32EncodeString(G_KeyBytes, c.Value)
+			c.Value = AEncryptString(c.Value)
 		} else {
-			c.Value = Skip32DecodeString(G_KeyBytes, c.Value)
+			c.Value = ADecryptString(c.Value)
 		}
 	}
 
@@ -111,7 +105,7 @@ func SafeGetHeader(req *http.Request, k string) string {
 
 func EncryptRequest(req *http.Request) string {
 	req.Host = EncryptHost(req.Host, "#")
-	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + Skip32EncodeString(G_KeyBytes, req.URL.String()))
+	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + AEncryptString(req.URL.String()))
 
 	rkey := RandomKey()
 	SafeAddHeader(req, rkeyHeader, rkey)
@@ -126,7 +120,7 @@ func EncryptRequest(req *http.Request) string {
 func DecryptRequest(req *http.Request) string {
 	req.Host = DecryptHost(req.Host, "#")
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
-		req.URL, _ = url.Parse(Skip32DecodeString(G_KeyBytes, p[1]))
+		req.URL, _ = url.Parse(ADecryptString(p[1]))
 	}
 
 	rkey := SafeGetHeader(req, rkeyHeader)
@@ -139,7 +133,7 @@ func DecryptRequest(req *http.Request) string {
 }
 
 func EncryptHost(host, mark string) string {
-	return fmt.Sprintf("%x", Skip32Encode(G_KeyBytes, []byte(mark+host))) + ".com"
+	return AEncryptString(mark+host) + ".com"
 }
 
 func DecryptHost(host, mark string) string {
@@ -153,7 +147,7 @@ func DecryptHost(host, mark string) string {
 		return ""
 	}
 
-	h := Skip32Decode(G_KeyBytes, buf)
+	h := ADecrypt(buf)
 	if len(h) == 0 || h[0] != mark[0] {
 		return ""
 	}

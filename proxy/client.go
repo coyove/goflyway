@@ -192,7 +192,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
 	req.Header.Add(dnsHeader, host)
-	req.Header.Add(dnsHeaderID, Skip32EncodeString(G_KeyBytes, *G_Key))
+	req.Header.Add(dnsHeaderID, AEncryptString(*G_Key))
 	resp, err := client.Do(req)
 
 	if err != nil {

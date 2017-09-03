@@ -4,6 +4,8 @@ import (
 	"../logg"
 	"../lru"
 
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -12,6 +14,7 @@ import (
 var (
 	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
 	G_KeyBytes = []byte(*G_Key)
+	G_KeyBlock cipher.Block
 
 	G_Username = flag.String("u", "username", "proxy username")
 	G_Password = flag.String("p", "password", "proxy password")
@@ -95,5 +98,10 @@ func LoadConfig(path string) {
 	G_KeyBytes = []byte(*G_Key)
 	for len(G_KeyBytes) < 32 {
 		G_KeyBytes = append(G_KeyBytes, G_KeyBytes...)
+	}
+
+	G_KeyBlock, _ = aes.NewCipher(G_KeyBytes[:32])
+	if G_KeyBlock == nil {
+		logg.F("cannot create aes cipher")
 	}
 }

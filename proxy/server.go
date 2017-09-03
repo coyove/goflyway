@@ -15,7 +15,7 @@ type ProxyUpstreamHttpServer struct {
 
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" && r.Header.Get(dnsHeader) != "" {
-		if Skip32DecodeString(G_KeyBytes, r.Header.Get(dnsHeaderID)) == *G_Key {
+		if ADecryptString(r.Header.Get(dnsHeaderID)) == *G_Key {
 			w.Write([]byte(lookup.LookupIP(r.Header.Get(dnsHeader))))
 			return
 		}
