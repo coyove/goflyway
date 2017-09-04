@@ -2,6 +2,7 @@ package proxy
 
 import (
 	. "../config"
+	"../counter"
 	"../logg"
 
 	"crypto/tls"
@@ -33,8 +34,16 @@ var (
 )
 
 func NewRand() *rand.Rand {
-	k := int64(binary.BigEndian.Uint64(G_KeyBytes[:8]))
-	return rand.New(rand.NewSource(time.Now().UnixNano() ^ k))
+	var k int64 = int64(binary.BigEndian.Uint64(G_KeyBytes[:8]))
+	var k2 int64
+
+	if *G_HRCounter {
+		k2 = counter.Get()
+	} else {
+		k2 = time.Now().UnixNano()
+	}
+
+	return rand.New(rand.NewSource(k2 ^ k))
 }
 
 func RandomKey() string {

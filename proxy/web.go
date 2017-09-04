@@ -32,12 +32,34 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		tr:nth-child(odd) {
 		   background-color: #e3e4e5;
 		}
+
+		#logo {
+			float: left;
+			padding: 8px;
+			font-size: 60px;
+		}
+
+		#logo span {
+			color: white;
+			text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+		}
+
+		#panel {
+			float: right;
+		}
 	</style>
 	
-	<form method='POST'>
-		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Proxy all traffic including chinese websites</label><br>
-		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify chinese websites using china-list</label><br>
-		<input type='checkbox' name='nopa' {{if .NoPA}}checked{{end}}/><label>Disable proxy authentication</label><br><br>
+	<div id=logo>
+		g<span>o</span>f<span>ly</span>w<span>ay</span> console
+	</div>
+
+	<form id=panel method='POST'>
+		<input type='checkbox' disabled checked>Change key: <input name='key' value='{{.Key}}' style='border:none;padding:0;font:inherit;font-style:italic'/><br>
+		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Proxy all traffic including Chinese websites</label><br>
+		<input type='checkbox' name='hrcounter' {{if .HRCounter}}checked{{end}}/><label>Use high resolution counter in RNG</label><br>
+		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify Chinese websites using china-list</label><br>
+		<input type='checkbox' name='nopa' {{if .NoPA}}checked{{end}}/><label>Disable proxy authentication</label><br>
+		<input type='checkbox' name='noshoco' {{if .NoShoco}}checked{{end}}/><label>Disable shoco compression algorithm</label><br><br>
 		<input type='submit' name='proxy' value='Update Settings'/>
 		<input type='submit' name='clearc' value='Clear DNS Cache'/>
 	</form>
@@ -51,10 +73,16 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			ProxyAll   bool
 			ProxyChina bool
 			NoPA       bool
+			NoShoco    bool
+			HRCounter  bool
+			Key        string
 		}{
 			*G_ProxyAll,
 			*G_ProxyChina,
 			*G_NoPA,
+			*G_NoShoco,
+			*G_HRCounter,
+			*G_Key,
 		})
 
 		w.Write([]byte(`<table><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
@@ -79,6 +107,11 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			*G_ProxyAll = r.FormValue("proxyall") == "on"
 			*G_ProxyChina = r.FormValue("proxyc") == "on"
 			*G_NoPA = r.FormValue("nopa") == "on"
+			*G_NoShoco = r.FormValue("noshoco") == "on"
+			*G_HRCounter = r.FormValue("hrcounter") == "on"
+
+			*G_Key = r.FormValue("key")
+			UpdateKey()
 		}
 
 		http.Redirect(w, r, "/?goflyway-console", 301)

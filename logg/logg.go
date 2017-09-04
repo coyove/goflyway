@@ -64,10 +64,21 @@ func print(l string, params ...interface{}) {
 					return
 				}
 			}
-			l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
+
+			if op.Source == nil && op.Addr == nil {
+				l += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
+			} else if op.Source == nil {
+				l += fmt.Sprintf("[%s]-> %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
+			} else {
+				l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
+			}
 		case *net.DNSError:
 			op := p.(*net.DNSError)
-			l += fmt.Sprintf("lookup: %s, timeout: %v", op.Name, op.IsTimeout)
+			if op.IsTimeout {
+				l += fmt.Sprintf("dns lookup: %s", op.Name)
+			} else {
+				l += fmt.Sprintf("dns lookup: %s, timed out", op.Name)
+			}
 		default:
 			l += fmt.Sprintf("%+v", p)
 		}

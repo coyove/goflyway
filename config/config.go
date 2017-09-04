@@ -20,7 +20,7 @@ var (
 	G_Password = flag.String("p", "password", "proxy password")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
-	G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
+	// G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
 
 	G_Debug      = flag.Bool("debug", false, "debug mode")
 	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
@@ -28,6 +28,7 @@ var (
 	G_NoShoco    = flag.Bool("disable-shoco", false, "disable shoco compression")
 	G_ProxyAll   = flag.Bool("proxy-all", false, "proxy Chinese websites")
 	G_ProxyChina = flag.Bool("china-list", true, "identify Chinese websites using china-list")
+	G_HRCounter  = flag.Bool("hr-counter", true, "use high resolution counter")
 
 	G_RecordLocalhostError         = flag.Bool("rle", false, "log all localhost errors")
 	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
@@ -78,14 +79,15 @@ func LoadConfig(path string) {
 		setString(G_Password, m["password"])
 		setString(G_Local, m["listen"])
 		setString(G_Upstream, m["upstream"])
-		setString(G_Dummies, m["dummies"])
+		// setString(G_Dummies, m["dummies"])
 
 		setBool(G_UnsafeHttp, m["unsafehttp"])
 		setBool(G_SuppressSocketReadWriteError, m["ssrwe"])
 		setBool(G_NoPA, m["disablepa"])
 		setBool(G_NoShoco, m["disableshoco"])
 		setBool(G_ProxyAll, m["proxyall"])
-		setBool(G_ProxyChina, m["proxychina"])
+		setBool(G_ProxyChina, m["chinalist"])
+		setBool(G_HRCounter, m["hrcounter"])
 
 		setInt(G_DNSCacheEntries, m["dnscache"])
 
@@ -95,6 +97,10 @@ func LoadConfig(path string) {
 		}
 	}
 
+	UpdateKey()
+}
+
+func UpdateKey() {
 	G_KeyBytes = []byte(*G_Key)
 	for len(G_KeyBytes) < 32 {
 		G_KeyBytes = append(G_KeyBytes, G_KeyBytes...)
