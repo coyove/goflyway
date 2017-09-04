@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const base35table = "abcdefghijklmnopqrstuvwxyz123456789-"
+const base35table = "abcdfghijklmnopqrtuvwxyz0123456789" // use 'e' for padding, 's' for conjunction
 
 func SplitHostPort(host string) (string, string) {
 	if idx := strings.Index(host, ":"); idx > 0 {
@@ -88,23 +88,23 @@ func Base35Encode(buf []byte) string {
 	for i := 0; i < len(buf); i += 2 {
 		n := int(buf[i])<<8 + int(buf[i+1])
 
-		ret.WriteString(base35table[n%35 : n%35+1])
-		n /= 35
+		ret.WriteString(base35table[n%34 : n%34+1])
+		n /= 34
 
-		ret.WriteString(base35table[n%35 : n%35+1])
-		n /= 35
+		ret.WriteString(base35table[n%34 : n%34+1])
+		n /= 34
 
-		if n < 35 {
+		if n < 34 {
 			// cheers
 			ret.WriteString(base35table[n : n+1])
 		} else {
-			m := n % 35
-			ret.WriteString("-" + base35table[m:m+1])
+			m := n % 34
+			ret.WriteString("s" + base35table[m:m+1])
 		}
 	}
 
 	if padded {
-		ret.WriteString("0")
+		ret.WriteString("e")
 	}
 
 	return ret.String()
@@ -126,17 +126,21 @@ func Base35Decode(text string) []byte {
 
 		b := text[i]
 
-		if b >= 'a' && b <= 'z' {
+		if b >= 'a' && b <= 'd' {
 			return int(b - 'a'), true
-		} else if b > '0' && b <= '9' {
-			return int(b-'1') + 26, true
-		} else if b == '-' {
+		} else if b >= 'f' && b <= 'r' {
+			return int(b-'f') + 4, true
+		} else if b >= 't' && b <= 'z' {
+			return int(b-'t') + 17, true
+		} else if b >= '0' && b <= '9' {
+			return int(b-'0') + 24, true
+		} else if b == 's' {
 			n, ok := _next()
 			if !ok {
 				return 0, false
 			}
-			return n + 35, true
-		} else if b == '0' {
+			return n + 34, true
+		} else if b == 'e' {
 			padded = true
 		}
 
@@ -159,7 +163,7 @@ func Base35Decode(text string) []byte {
 			break
 		}
 
-		n := n3*35*35 + n2*35 + n1
+		n := n3*34*34 + n2*34 + n1
 		b1 := n / 256
 		b2 := n - b1*256
 

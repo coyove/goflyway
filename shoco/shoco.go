@@ -155,6 +155,10 @@ func shoco_decompress(in []byte, out []byte) int {
 
 	for len(in) > 0 {
 		mark = decode_header(in[0])
+		if mark >= len(packs) {
+			return 0
+		}
+
 		if mark < 0 {
 			if current_out_index > len(out) {
 				return len(out)
@@ -194,7 +198,14 @@ func shoco_decompress(in []byte, out []byte) int {
 				offset = packs[mark].offsets[i]
 				mask = uint32(packs[mark].masks[i])
 
-				last_chr = byte(chrs_by_chr_and_successor_id[uint8(last_chr)-uint8(MIN_CHR)][(word>>offset)&mask])
+				chridx := uint8(last_chr) - uint8(MIN_CHR)
+				idx := (word >> offset) & mask
+
+				if last_chr >= MAX_CHR || last_chr < MIN_CHR || idx >= uint32(len(chrs_by_chr_and_successor_id[chridx])) {
+					return 0
+				}
+
+				last_chr = byte(chrs_by_chr_and_successor_id[chridx][idx])
 				out[current_out_index+int(i)] = last_chr
 			}
 
@@ -215,5 +226,10 @@ func Compress(text string) []byte {
 func Decompress(buf []byte) string {
 	out := make([]byte, len(buf)*2)
 	x := shoco_decompress(buf, out)
-	return string(out[:x])
+
+	if x > 0 {
+		return string(out[:x])
+	} else {
+		return ""
+	}
 }

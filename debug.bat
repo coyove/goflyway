@@ -1,2 +1,2 @@
 go build -o goflyway.exe main.go 
-.\goflyway.exe %*
+start cmd /k .\goflyway.exe %*

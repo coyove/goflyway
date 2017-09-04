@@ -11,6 +11,7 @@ func TestHost(t *testing.T) {
 	t.Log("Testing shoco host compressing and decompressing")
 
 	for _, web := range strings.Split(websites, "\n") {
+		t.Log(web, EncryptHost(web, "#"))
 		if DecryptHost(EncryptHost(web, "#"), "#") != web {
 			t.Error("ShocoHost failed", web)
 		}
