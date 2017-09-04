@@ -23,7 +23,6 @@ var (
 
 	rkeyHeader  = "X-Request-ID"
 	rkeyHeader2 = "X-Request-HTTP-ID"
-	dnsHeaderID = "X-Host-Lookup-ID"
 	dnsHeader   = "X-Host-Lookup"
 
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)

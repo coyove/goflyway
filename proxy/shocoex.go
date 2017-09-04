@@ -55,7 +55,7 @@ func DecryptHost(text, mark string) string {
 			buf := Base35Decode(parts[i])
 
 			parts[i] = shoco.Decompress(ADecrypt(buf))
-			if parts[i][0] != mark[0] {
+			if len(parts[i]) == 0 || parts[i][0] != mark[0] {
 				return ""
 			}
 
