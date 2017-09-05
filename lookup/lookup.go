@@ -75,7 +75,7 @@ func IPInLookupTable(ip string, table [][]uint32) bool {
 // if you lookup their IPs outside China, you get foreign IPs based on your VPS's geolocation, which are of course undesired results.
 // Using white list to filter these exceptions
 func IsChineseWebsite(host string) bool {
-	if *G_ProxyAll || !*G_ProxyChina {
+	if *G_ProxyAllTraffic || !*G_UseChinaList {
 		return false
 	}
 
@@ -106,7 +106,7 @@ func IsChineseWebsite(host string) bool {
 }
 
 func IsChineseIP(ip string) bool {
-	if *G_ProxyAll {
+	if *G_ProxyAllTraffic {
 		return false
 	}
 

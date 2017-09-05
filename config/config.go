@@ -12,30 +12,29 @@ import (
 )
 
 var (
-	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
-	G_KeyBytes = []byte(*G_Key)
-	G_KeyBlock cipher.Block
+	G_KeyBytes       []byte
+	G_KeyBlock       cipher.Block
+	G_Cache          *lru.Cache
+	G_RequestDummies *lru.Cache
+)
 
+var (
+	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
 	G_Username = flag.String("u", "username", "proxy username")
 	G_Password = flag.String("p", "password", "proxy password")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
 	// G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
 
-	G_Debug      = flag.Bool("debug", false, "debug mode")
-	G_UnsafeHttp = flag.Bool("disable-sh", false, "do not encrypt http content")
-	G_NoPA       = flag.Bool("disable-pa", false, "disable proxy authentication")
-	G_NoShoco    = flag.Bool("disable-shoco", false, "disable shoco compression")
-	G_ProxyAll   = flag.Bool("proxy-all", false, "proxy Chinese websites")
-	G_ProxyChina = flag.Bool("china-list", true, "identify Chinese websites using china-list")
-	G_HRCounter  = flag.Bool("hr-counter", true, "use high resolution counter")
+	G_Debug            = flag.Bool("debug", false, "debug mode")
+	G_NoAuthentication = flag.Bool("disable-pa", false, "disable proxy authentication")
+	G_NoShoco          = flag.Bool("disable-shoco", false, "disable shoco compression")
+	G_ProxyAllTraffic  = flag.Bool("proxy-all", false, "proxy Chinese websites")
+	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
+	G_HRCounter        = flag.Bool("hr-counter", true, "use high resolution counter")
+	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 
-	G_RecordLocalhostError         = flag.Bool("rle", false, "log all localhost errors")
-	G_SuppressSocketReadWriteError = flag.Bool("ssrwe", false, "suppress socket read/write error")
-	G_DNSCacheEntries              = flag.Int("dns-cache", 1024, "DNS cache size")
-
-	G_Cache          *lru.Cache
-	G_RequestDummies *lru.Cache
+	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
 )
 
 func setString(k *string, v interface{}) {
@@ -81,12 +80,11 @@ func LoadConfig(path string) {
 		setString(G_Upstream, m["upstream"])
 		// setString(G_Dummies, m["dummies"])
 
-		setBool(G_UnsafeHttp, m["unsafehttp"])
-		setBool(G_SuppressSocketReadWriteError, m["ssrwe"])
-		setBool(G_NoPA, m["disablepa"])
+		setBool(G_RecordLocalError, m["localerror"])
+		setBool(G_NoAuthentication, m["disablepa"])
 		setBool(G_NoShoco, m["disableshoco"])
-		setBool(G_ProxyAll, m["proxyall"])
-		setBool(G_ProxyChina, m["chinalist"])
+		setBool(G_ProxyAllTraffic, m["proxyall"])
+		setBool(G_UseChinaList, m["chinalist"])
 		setBool(G_HRCounter, m["hrcounter"])
 
 		setInt(G_DNSCacheEntries, m["dnscache"])

@@ -27,7 +27,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !*G_NoPA && !basicAuth(getAuth(r)) {
+	if !*G_NoAuthentication && !basicAuth(getAuth(r)) {
 		w.Header().Set("Proxy-Authenticate", "Basic realm=zzz")
 		w.WriteHeader(407)
 		return
@@ -144,10 +144,6 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		if *G_UnsafeHttp {
-			rkey = ""
-		}
-
 		nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}).DoCopy()
 		tryClose(resp.Body)
 
@@ -167,7 +163,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 		return lookup.IsPrivateIP(host) || lookup.IsChineseIP(host)
 	}
 
-	if *G_ProxyChina && lookup.IsChineseWebsite(host) {
+	if *G_UseChinaList && lookup.IsChineseWebsite(host) {
 		return true
 	}
 

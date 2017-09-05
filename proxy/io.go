@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	. "../config"
 	"../logg"
 
 	"crypto/cipher"
@@ -19,8 +18,8 @@ func copyAndClose(dst, src *net.TCPConn, key string) {
 		Dst: dst,
 		Src: src,
 		Key: ReverseRandomKey(key),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("[COPY] ~", time.Now().Sub(ts).Seconds(), " - ", err)
+	}).DoCopy(); err != nil {
+		logg.E("[COPY] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
 	dst.CloseWrite()
@@ -34,8 +33,8 @@ func copyOrWarn(dst io.Writer, src io.Reader, key string, wg *sync.WaitGroup) {
 		Dst: dst,
 		Src: src,
 		Key: ReverseRandomKey(key),
-	}).DoCopy(); err != nil && !*G_SuppressSocketReadWriteError {
-		logg.E("[COPYW] ~", time.Now().Sub(ts).Seconds(), " - ", err)
+	}).DoCopy(); err != nil {
+		logg.E("[COPYW] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
 	wg.Done()

@@ -127,11 +127,7 @@ func EncryptRequest(req *http.Request) string {
 
 	rkey := RandomKey()
 	SafeAddHeader(req, rkeyHeader, rkey)
-
-	if !*G_UnsafeHttp {
-		processBody(req, true)
-	}
-
+	processBody(req, true)
 	return rkey
 }
 
@@ -142,60 +138,9 @@ func DecryptRequest(req *http.Request) string {
 	}
 
 	rkey := SafeGetHeader(req, rkeyHeader)
-
-	if !*G_UnsafeHttp {
-		processBody(req, false)
-	}
-
+	processBody(req, false)
 	return rkey
 }
-
-// func EncryptHost(host, mark string) string {
-// 	var buf []byte
-// 	if *G_NoShoco {
-// 		buf = AEncrypt([]byte(mark + host))
-// 	} else {
-// 		buf = AEncrypt(shoco.Compress(mark + host))
-// 	}
-
-// 	t := base32.StdEncoding.EncodeToString(buf)
-// 	for i := 7; i >= 1; i-- {
-// 		if strings.HasSuffix(t, "======="[:i]) {
-// 			return t[:len(t)-i] + base32Paddings[i]
-// 		}
-// 	}
-
-// 	return t + base32Paddings[0]
-// }
-
-// func DecryptHost(host, mark string) string {
-
-// 	for i := 7; i >= 0; i-- {
-// 		if strings.HasSuffix(host, base32Paddings[i]) {
-// 			host = host[:len(host)-len(base32Paddings[i])] + "======="[:i]
-// 			goto next
-// 		}
-// 	}
-
-// 	return ""
-
-// next:
-// 	buf, err := base32.StdEncoding.DecodeString(host)
-// 	if err != nil || len(buf) == 0 {
-// 		return ""
-// 	}
-
-// 	h := ADecrypt(buf)
-// 	if !*G_NoShoco {
-// 		h = []byte(shoco.Decompress(h))
-// 	}
-
-// 	if len(h) == 0 || h[0] != mark[0] {
-// 		return ""
-// 	}
-
-// 	return string(h[1:])
-// }
 
 func copyHeaders(dst, src http.Header) {
 	for k := range dst {

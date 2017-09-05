@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	. "../config"
 	"../logg"
 	"../lookup"
 
@@ -78,10 +77,6 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
-
-		if *G_UnsafeHttp {
-			rkey = ""
-		}
 
 		nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}).DoCopy()
 		tryClose(resp.Body)
