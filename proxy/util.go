@@ -181,17 +181,3 @@ func tryClose(b io.ReadCloser) {
 		logg.W("can't close response body - ", err)
 	}
 }
-
-func bytesStartWith(buf []byte, prefix []byte) bool {
-	if len(prefix) > len(buf) {
-		return false
-	}
-
-	for i := 0; i < len(prefix); i++ {
-		if prefix[i] != buf[i] {
-			return false
-		}
-	}
-
-	return true
-}

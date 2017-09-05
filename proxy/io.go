@@ -3,7 +3,7 @@ package proxy
 import (
 	"../logg"
 
-	"crypto/cipher"
+	"bytes"
 	"io"
 	"net"
 	"net/http"
@@ -76,30 +76,25 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	}()
 
 	buf := make([]byte, 32*1024)
-	cbuf := make([]byte, len(buf))
+	// cbuf := make([]byte, len(buf))
 
-	var ctr cipher.Stream
-	if cc.Key != nil && len(cc.Key) > 0 {
-		ctr = GetStream(cc.Key)
-	}
+	ctr := GetCipherStream(cc.Key)
 
 	for {
-		// ts := time.Now()
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
 
 			if ctr != nil {
-				// if key is not null, do the en/decryption
 				xs := 0
-
-				if bytesStartWith(xbuf, OK200) {
+				if bytes.HasPrefix(xbuf, OK200) {
 					xs = len(OK200)
 				}
 
-				copy(cbuf, xbuf)
-				ctr.XORKeyStream(cbuf[xs:nr], xbuf[xs:])
-				copy(xbuf[xs:], cbuf[xs:nr])
+				// copy(cbuf, xbuf)
+				// ctr.XORKeyStream(cbuf[xs:nr], xbuf[xs:])
+				// copy(xbuf[xs:], cbuf[xs:nr])
+				ctr.XorBuffer(xbuf[xs:])
 			}
 
 			nw, ew := cc.Dst.Write(xbuf)
@@ -110,13 +105,11 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 			if ew != nil {
 				err = ew
-				// logg.W("[IO TIMING 0] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 
 			if nr != nw {
 				err = io.ErrShortWrite
-				// logg.W("[IO TIMING 1] ", time.Now().Sub(ts).Seconds())
 				break
 			}
 		}
@@ -136,24 +129,22 @@ type IOReaderCipher struct {
 	Src io.Reader
 	Key []byte
 
-	ctr cipher.Stream
+	ctr *InplaceCTR
 }
 
 func (rc *IOReaderCipher) Init() *IOReaderCipher {
-	if rc.Key != nil {
-		rc.ctr = GetStream(rc.Key)
-	}
-
+	rc.ctr = GetCipherStream(rc.Key)
 	return rc
 }
 
 func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 	n, err = rc.Src.Read(p)
 	if n > 0 && rc.ctr != nil {
-		cp := make([]byte, n)
-		copy(cp, p[:n])
-		rc.ctr.XORKeyStream(cp, p[:n])
-		copy(p, cp)
+		// cp := make([]byte, n)
+		// copy(cp, p[:n])
+		//rc.ctr.XORKeyStream(cp, p[:n])
+		// copy(p, cp)
+		rc.ctr.XorBuffer(p[:n])
 	}
 
 	return
@@ -162,13 +153,12 @@ func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 func XorWrite(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
 	key := ReverseRandomKey(SafeGetHeader(r, rkeyHeader))
 
-	if key != nil {
-		if ctr := GetStream(key); ctr != nil {
-			cp := make([]byte, len(p))
-			copy(cp, p)
-			ctr.XORKeyStream(cp, p)
-			copy(p, cp)
-		}
+	if ctr := GetCipherStream(key); ctr != nil {
+		// cp := make([]byte, len(p))
+		// copy(cp, p)
+		// ctr.XORKeyStream(cp, p)
+		// copy(p, cp)
+		ctr.XorBuffer(p)
 	}
 
 	w.WriteHeader(code)

@@ -30,13 +30,61 @@ var primes = []int16{
 	1553, 1559, 1567, 1571, 1579, 1583, 1597, 1601, 1607, 1609, 1613, 1619, 1621, 1627, 1637, 1657,
 }
 
-func GetStream(key []byte) cipher.Stream {
+type InplaceCTR struct {
+	b       cipher.Block
+	ctr     []byte
+	out     []byte
+	outUsed int
+}
+
+const streamBufferSize = 512
+
+// From src/crypto/cipher/ctr.go
+func (x *InplaceCTR) XorBuffer(buf []byte) {
+	for i := 0; i < len(buf); i++ {
+		if x.outUsed >= len(x.out)-x.b.BlockSize() {
+			// refill
+			remain := len(x.out) - x.outUsed
+			copy(x.out, x.out[x.outUsed:])
+			x.out = x.out[:cap(x.out)]
+			bs := x.b.BlockSize()
+			for remain <= len(x.out)-bs {
+				x.b.Encrypt(x.out[remain:], x.ctr)
+				remain += bs
+
+				// Increment counter
+				for i := len(x.ctr) - 1; i >= 0; i-- {
+					x.ctr[i]++
+					if x.ctr[i] != 0 {
+						break
+					}
+				}
+			}
+			x.out = x.out[:remain]
+			x.outUsed = 0
+		}
+
+		buf[i] ^= x.out[x.outUsed]
+		x.outUsed++
+	}
+}
+
+func GetCipherStream(key []byte) *InplaceCTR {
+	if key == nil {
+		return nil
+	}
+
 	if len(key) != IV_LENGTH {
 		logg.E("[AES] iv is not 128bit long")
 		return nil
 	}
 
-	return cipher.NewCTR(G_KeyBlock, key)
+	return &InplaceCTR{
+		b:       G_KeyBlock,
+		ctr:     key,
+		out:     make([]byte, 0, streamBufferSize),
+		outUsed: 0,
+	}
 }
 
 func _AXor(blk cipher.Block, iv, buf []byte) []byte {
