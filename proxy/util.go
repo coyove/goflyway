@@ -173,7 +173,7 @@ func basicAuth(token string) bool {
 		return false
 	}
 
-	return string(pa) == *G_Username+":"+*G_Password
+	return string(pa) == *G_Auth
 }
 
 func tryClose(b io.ReadCloser) {

@@ -27,7 +27,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !*G_NoAuthentication && !basicAuth(getAuth(r)) {
+	if *G_Auth != "" && !basicAuth(getAuth(r)) {
 		w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")
 		w.WriteHeader(407)
 		return

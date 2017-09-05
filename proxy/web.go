@@ -58,7 +58,6 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Proxy all traffic including Chinese websites</label><br>
 		<input type='checkbox' name='hrcounter' {{if .HRCounter}}checked{{end}}/><label>Use high resolution counter in RNG</label><br>
 		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify Chinese websites using china-list</label><br>
-		<input type='checkbox' name='nopa' {{if .NoPA}}checked{{end}}/><label>Disable proxy authentication</label><br>
 		<input type='checkbox' name='noshoco' {{if .NoShoco}}checked{{end}}/><label>Disable shoco compression algorithm</label><br><br>
 		<input type='submit' name='proxy' value='Update Settings'/>
 		<input type='submit' name='clearc' value='Clear DNS Cache'/>
@@ -72,14 +71,12 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		webConsoleHTML.Execute(w, struct {
 			ProxyAll   bool
 			ProxyChina bool
-			NoPA       bool
 			NoShoco    bool
 			HRCounter  bool
 			Key        string
 		}{
 			*G_ProxyAllTraffic,
 			*G_UseChinaList,
-			*G_NoAuthentication,
 			*G_NoShoco,
 			*G_HRCounter,
 			*G_Key,
@@ -106,7 +103,6 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("proxy") != "" {
 			*G_ProxyAllTraffic = r.FormValue("proxyall") == "on"
 			*G_UseChinaList = r.FormValue("proxyc") == "on"
-			*G_NoAuthentication = r.FormValue("nopa") == "on"
 			*G_NoShoco = r.FormValue("noshoco") == "on"
 			*G_HRCounter = r.FormValue("hrcounter") == "on"
 

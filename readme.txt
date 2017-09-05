@@ -7,8 +7,8 @@ on your local computer, or if you prefer your VPS, run:
 then at local launch:
         go run main.go -k=<key> -up=<vps ip>:8100
 
-Set your internet proxy to 127.0.0.1:8100, proxy username is "username" and password is "password". If you're using some programs which do not support proxy authentication natively (like Android), using the flag -disable-pa to disable the auth. 
+Set your internet proxy to 127.0.0.1:8100 and enjoy. 
 
-When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will never be faster than those solutions running on their own protocols. However HTTP is much much easier to write and debug, I think this trade-off is absolutely acceptable.
+When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
 
-If you need more speed, try KCPTUN, BBR, ServerSpeeder...
+However HTTP is much much easier to write and debug, I think this trade-off is absolutely acceptable. If you need more speed, try KCPTUN, BBR, ServerSpeeder...

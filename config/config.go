@@ -20,14 +20,12 @@ var (
 
 var (
 	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
-	G_Username = flag.String("u", "username", "proxy username")
-	G_Password = flag.String("p", "password", "proxy password")
+	G_Auth     = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
 	// G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
-	G_NoAuthentication = flag.Bool("disable-pa", false, "disable proxy authentication")
 	G_NoShoco          = flag.Bool("disable-shoco", false, "disable shoco compression")
 	G_ProxyAllTraffic  = flag.Bool("proxy-all", false, "proxy Chinese websites")
 	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
@@ -74,25 +72,18 @@ func LoadConfig(path string) {
 		}
 
 		setString(G_Key, m["key"])
-		setString(G_Username, m["username"])
-		setString(G_Password, m["password"])
+		setString(G_Auth, m["auth"])
 		setString(G_Local, m["listen"])
 		setString(G_Upstream, m["upstream"])
 		// setString(G_Dummies, m["dummies"])
 
 		setBool(G_RecordLocalError, m["localerror"])
-		setBool(G_NoAuthentication, m["disablepa"])
 		setBool(G_NoShoco, m["disableshoco"])
 		setBool(G_ProxyAllTraffic, m["proxyall"])
 		setBool(G_UseChinaList, m["chinalist"])
 		setBool(G_HRCounter, m["hrcounter"])
 
 		setInt(G_DNSCacheEntries, m["dnscache"])
-
-		if *G_Key == "." {
-			// use username/password combination as the key
-			*G_Key = *G_Username + *G_Password
-		}
 	}
 
 	UpdateKey()
