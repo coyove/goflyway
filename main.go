@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"runtime"
 	"strings"
 )
 
@@ -32,12 +33,12 @@ func main() {
 	logg.RecordLocalhostError(*G_RecordLocalError)
 
 	if *G_Key == "0123456789abcdef" {
-		logg.W("[WARNING] you are using the default key (-k key)")
+		logg.W("[WARNING] you are using the default key, please change it by setting -k <key>")
 	}
 
 	G_Cache, G_RequestDummies = lru.NewCache(*G_DNSCacheEntries), lru.NewCache(6)
 
-	if *G_UseChinaList {
+	if *G_UseChinaList && *G_Upstream != "" {
 		buf, _ := ioutil.ReadFile("./chinalist.txt")
 		lookup.ChinaList = make(lookup.China_list_t)
 
@@ -73,6 +74,14 @@ func main() {
 	if *G_Upstream != "" {
 		proxy.StartClient(*G_Local, *G_Upstream)
 	} else {
+		// save some space because server doesn't need lookup
+		lookup.ChinaList = nil
+		lookup.IPv4LookupTable = nil
+		lookup.IPv4PrivateLookupTable = nil
+
+		// global variables are pain in the ass
+		runtime.GC()
+
 		proxy.StartServer(*G_Local)
 	}
 }
