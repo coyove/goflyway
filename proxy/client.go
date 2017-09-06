@@ -62,7 +62,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 			proxyClient.Write(OK200)
-			TwoWayBridge(targetSiteCon, proxyClient, "")
+			TwoWayBridge(targetSiteCon, proxyClient, "", false)
 			return
 		}
 
@@ -85,7 +85,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 		upstreamConn.Write([]byte(payload + "\r\n"))
 
-		TwoWayBridge(proxyClient, upstreamConn, rkey)
+		TwoWayBridge(proxyClient, upstreamConn, rkey, false)
 
 	} else {
 		// normal http requests

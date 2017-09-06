@@ -33,6 +33,8 @@ var (
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 
 	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
+	G_Throttling      = flag.Int("throttling", 0, "traffic throttling, experimental")
+	G_ThrottlingMax   = flag.Int("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
 func setString(k *string, v interface{}) {
@@ -84,6 +86,8 @@ func LoadConfig(path string) {
 		setBool(G_HRCounter, m["hrcounter"])
 
 		setInt(G_DNSCacheEntries, m["dnscache"])
+		setInt(G_Throttling, m["throttling"])
+		setInt(G_ThrottlingMax, m["throttlingmax"])
 	}
 
 	UpdateKey()

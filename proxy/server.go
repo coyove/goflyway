@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	. "../config"
 	"../logg"
 	"../lookup"
 
@@ -43,7 +44,8 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 		downstreamConn.Write(OK200)
-		TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader))
+
+		TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), *G_Throttling > 0)
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
@@ -78,7 +80,12 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}).DoCopy()
+		iocc := &IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}
+		if *G_Throttling > 0 {
+			iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
+		}
+
+		nr, err := iocc.DoCopy()
 		tryClose(resp.Body)
 
 		if err != nil {
