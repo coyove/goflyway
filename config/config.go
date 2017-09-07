@@ -6,7 +6,6 @@ import (
 
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/json"
 	"flag"
 	"io/ioutil"
 )
@@ -19,11 +18,12 @@ var (
 )
 
 var (
+	G_Config = flag.String("c", "", "config file path")
+
 	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
 	G_Auth     = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
 	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local    = flag.String("l", ":8100", "local listening")
-	// G_Dummies  = flag.String("dummy", "china", "dummy hosts, separated by |")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_NoShoco          = flag.Bool("disable-shoco", false, "disable shoco compression")
@@ -37,57 +37,36 @@ var (
 	G_ThrottlingMax   = flag.Int("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
-func setString(k *string, v interface{}) {
-	switch v.(type) {
-	case string:
-		if v.(string) != "" {
-			*k = v.(string)
-		}
-	}
-}
+func LoadConfig() {
+	flag.Parse()
 
-func setBool(k *bool, v interface{}) {
-	switch v.(type) {
-	case bool:
-		*k = v.(bool)
-	}
-}
+	path := *G_Config
 
-func setInt(k *int, v interface{}) {
-	switch v.(type) {
-	case int:
-		*k = v.(int)
-	}
-}
-
-func LoadConfig(path string) {
 	if path != "" {
 		buf, err := ioutil.ReadFile(path)
 		if err != nil {
 			logg.F(err)
 		}
 
-		m := make(map[string]interface{})
-		err = json.Unmarshal(buf, &m)
+		cf, err := ParseConf(string(buf))
 		if err != nil {
 			logg.F(err)
 		}
 
-		setString(G_Key, m["key"])
-		setString(G_Auth, m["auth"])
-		setString(G_Local, m["listen"])
-		setString(G_Upstream, m["upstream"])
-		// setString(G_Dummies, m["dummies"])
+		*G_Key = /*     */ cf.GetString("default", "key", *G_Key)
+		*G_Auth = /*    */ cf.GetString("default", "auth", *G_Auth)
+		*G_Local = /*   */ cf.GetString("default", "listen", *G_Local)
+		*G_Upstream = /**/ cf.GetString("default", "upstream", *G_Upstream)
+		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
+		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
 
-		setBool(G_RecordLocalError, m["localerror"])
-		setBool(G_NoShoco, m["disableshoco"])
-		setBool(G_ProxyAllTraffic, m["proxyall"])
-		setBool(G_UseChinaList, m["chinalist"])
-		setBool(G_HRCounter, m["hrcounter"])
+		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
+		*G_NoShoco = /*    */ cf.GetBool("misc", "disableshoco", *G_NoShoco)
+		*G_HRCounter = /*  */ cf.GetBool("misc", "hirescounter", *G_HRCounter)
+		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
 
-		setInt(G_DNSCacheEntries, m["dnscache"])
-		setInt(G_Throttling, m["throttling"])
-		setInt(G_ThrottlingMax, m["throttlingmax"])
+		*G_Throttling = int(cf.GetInt("experimental", "throttling", int64(*G_Throttling)))
+		*G_ThrottlingMax = int(cf.GetInt("experimental", "throttlingmax", int64(*G_ThrottlingMax)))
 	}
 
 	UpdateKey()

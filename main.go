@@ -7,14 +7,11 @@ import (
 	"./lru"
 	"./proxy"
 
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"runtime"
 	"strings"
 )
-
-var G_Config = flag.String("c", "", "config file path")
 
 func main() {
 	fmt.Println(`     __//                   __ _                           
@@ -27,8 +24,7 @@ func main() {
      " "  cf   |___/             |___/               |___/ 
  `)
 
-	flag.Parse()
-	LoadConfig(*G_Config)
+	LoadConfig()
 
 	logg.RecordLocalhostError(*G_RecordLocalError)
 
