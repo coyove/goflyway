@@ -4,6 +4,7 @@ import (
 	. "../config"
 	"../logg"
 
+	"io/ioutil"
 	"net"
 	"strconv"
 	"strings"
@@ -42,6 +43,31 @@ func init() {
 
 	fill(&IPv4LookupTable, CHN_IP)
 	fill(&IPv4PrivateLookupTable, PRIVATE_IP)
+}
+
+func LoadOrCreateChinaList() {
+	buf, _ := ioutil.ReadFile("./chinalist.txt")
+	ChinaList = make(China_list_t)
+
+	for _, domain := range strings.Split(string(buf), "\n") {
+		subs := strings.Split(strings.Trim(domain, "\r "), ".")
+		if len(subs) == 0 || domain[0] == '#' {
+			continue
+		}
+
+		top := ChinaList
+		for i := len(subs) - 1; i >= 0; i-- {
+			if top[subs[i]] == nil {
+				top[subs[i]] = make(China_list_t)
+			}
+
+			if i == 0 {
+				top[subs[0]].(China_list_t)["_"] = true
+			}
+
+			top = top[subs[i]].(China_list_t)
+		}
+	}
 }
 
 func IPInLookupTable(ip string, table [][]uint32) bool {

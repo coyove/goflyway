@@ -8,9 +8,7 @@ import (
 	"./proxy"
 
 	"fmt"
-	"io/ioutil"
 	"runtime"
-	"strings"
 )
 
 func main() {
@@ -35,28 +33,7 @@ func main() {
 	G_Cache, G_RequestDummies = lru.NewCache(*G_DNSCacheEntries), lru.NewCache(6)
 
 	if *G_UseChinaList && *G_Upstream != "" {
-		buf, _ := ioutil.ReadFile("./chinalist.txt")
-		lookup.ChinaList = make(lookup.China_list_t)
-
-		for _, domain := range strings.Split(string(buf), "\n") {
-			subs := strings.Split(strings.Trim(domain, "\r "), ".")
-			if len(subs) == 0 || domain[0] == '#' {
-				continue
-			}
-
-			top := lookup.ChinaList
-			for i := len(subs) - 1; i >= 0; i-- {
-				if top[subs[i]] == nil {
-					top[subs[i]] = make(lookup.China_list_t)
-				}
-
-				if i == 0 {
-					top[subs[0]].(lookup.China_list_t)["_"] = true
-				}
-
-				top = top[subs[i]].(lookup.China_list_t)
-			}
-		}
+		lookup.LoadOrCreateChinaList()
 	}
 
 	if *G_Debug {
@@ -74,6 +51,7 @@ func main() {
 		lookup.ChinaList = nil
 		lookup.IPv4LookupTable = nil
 		lookup.IPv4PrivateLookupTable = nil
+		lookup.CHN_IP = ""
 
 		// global variables are pain in the ass
 		runtime.GC()
