@@ -51,7 +51,7 @@ func LoadOrCreateChinaList() {
 
 	for _, domain := range strings.Split(string(buf), "\n") {
 		subs := strings.Split(strings.Trim(domain, "\r "), ".")
-		if len(subs) == 0 || domain[0] == '#' {
+		if len(subs) == 0 || len(domain) == 0 || domain[0] == '#' {
 			continue
 		}
 

@@ -27,7 +27,7 @@ func main() {
 	logg.RecordLocalhostError(*G_RecordLocalError)
 
 	if *G_Key == "0123456789abcdef" {
-		logg.W("[WARNING] you are using the default key, please change it by setting -k <key>")
+		logg.W("[WARNING] you are using the default key, please change it by setting -k=KEY")
 	}
 
 	G_Cache, G_RequestDummies = lru.NewCache(*G_DNSCacheEntries), lru.NewCache(6)
