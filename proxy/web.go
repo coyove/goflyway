@@ -77,7 +77,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		}{
 			*G_ProxyAllTraffic,
 			*G_UseChinaList,
-			*G_NoShoco,
+			*G_DisableShoco,
 			*G_HRCounter,
 			*G_Key,
 		})
@@ -103,7 +103,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("proxy") != "" {
 			*G_ProxyAllTraffic = r.FormValue("proxyall") == "on"
 			*G_UseChinaList = r.FormValue("proxyc") == "on"
-			*G_NoShoco = r.FormValue("noshoco") == "on"
+			*G_DisableShoco = r.FormValue("noshoco") == "on"
 			*G_HRCounter = r.FormValue("hrcounter") == "on"
 
 			*G_Key = r.FormValue("key")

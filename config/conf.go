@@ -87,7 +87,9 @@ func ParseConf(str string) (*conf_t, error) {
 
 			case '[':
 				if e := strings.Index(line, "]"); e > 0 {
-					curSection = make(map[string]interface{})
+					if curSection == nil {
+						curSection = make(map[string]interface{})
+					}
 					config[line[1:e]] = curSection
 					break L
 				} else {

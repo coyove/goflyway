@@ -23,7 +23,7 @@ func EncryptHost(text, mark string) string {
 	host, port := SplitHostPort(text)
 
 	enc := func(in string) string {
-		if *G_NoShoco {
+		if *G_DisableShoco {
 			return Base35Encode(AEncrypt([]byte(in)))
 		} else {
 			return Base35Encode(AEncrypt(shoco.Compress(in)))
@@ -59,7 +59,7 @@ func DecryptHost(text, mark string) string {
 		if !tlds[parts[i]] {
 			buf := Base35Decode(parts[i])
 
-			if *G_NoShoco {
+			if *G_DisableShoco {
 				parts[i] = string(ADecrypt(buf))
 			} else {
 				parts[i] = shoco.Decompress(ADecrypt(buf))

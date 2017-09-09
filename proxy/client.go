@@ -22,7 +22,7 @@ type ProxyHttpServer struct {
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/?goflyway-console" {
+	if r.RequestURI == "/?goflyway-console" && !*G_DisableConsole {
 		handleWebConsole(w, r)
 		return
 	}

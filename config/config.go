@@ -26,7 +26,8 @@ var (
 	G_Local    = flag.String("l", ":8100", "local listening")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
-	G_NoShoco          = flag.Bool("disable-shoco", false, "disable shoco compression")
+	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")
+	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
 	G_ProxyAllTraffic  = flag.Bool("proxy-all", false, "proxy Chinese websites")
 	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
 	G_HRCounter        = flag.Bool("hr-counter", true, "use high resolution counter")
@@ -61,8 +62,9 @@ func LoadConfig() {
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
 
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
-		*G_NoShoco = /*    */ cf.GetBool("misc", "disableshoco", *G_NoShoco)
-		*G_HRCounter = /*  */ cf.GetBool("misc", "hirescounter", *G_HRCounter)
+		*G_DisableShoco = cf.GetBool("misc", "disableshoco", *G_DisableShoco)
+		*G_HRCounter = cf.GetBool("misc", "hirescounter", *G_HRCounter)
+		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
 		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
 
 		*G_Throttling = int(cf.GetInt("experimental", "throttling", int64(*G_Throttling)))
