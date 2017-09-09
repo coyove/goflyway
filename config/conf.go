@@ -82,18 +82,21 @@ func ParseConf(str string) (*conf_t, error) {
 	L:
 		for idx < len(line) {
 			c := line[idx]
-			switch c {
-			case '\r', '\n':
 
+			switch c {
 			case '[':
-				if e := strings.Index(line, "]"); e > 0 {
-					if curSection == nil {
-						curSection = make(map[string]interface{})
+				if quote == 0 {
+					if e := strings.Index(line, "]"); e > 0 {
+						if curSection == nil {
+							curSection = make(map[string]interface{})
+						}
+						config[line[1:e]] = curSection
+						break L
+					} else {
+						return nil, fmt.Errorf("invalid section name: %s at line %d", line, ln)
 					}
-					config[line[1:e]] = curSection
-					break L
 				} else {
-					return nil, fmt.Errorf("invalid section name: %s at line %d", line, ln)
+					p.WriteByte(c)
 				}
 			case ' ', '\t':
 				if quote != 0 {
@@ -112,9 +115,15 @@ func ParseConf(str string) (*conf_t, error) {
 			case '#':
 				if quote == 0 {
 					break L
+				} else {
+					p.WriteByte(c)
 				}
 			case '=':
-				p = value
+				if quote == 0 {
+					p = value
+				} else {
+					p.WriteByte(c)
+				}
 			default:
 				p.WriteByte(c)
 			}
@@ -185,6 +194,6 @@ func ParseConf(str string) (*conf_t, error) {
 		}
 
 	}
-
+	fmt.Println(config.GetString("misc", "zzz", ""))
 	return &config, nil
 }

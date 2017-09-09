@@ -17,7 +17,12 @@ go run main.go -k=KEY -up=VPS_IP:8100
 ```
 at local to connect.
 
-Set your internet proxy to `127.0.0.1:8100` and enjoy. 
+Set your internet proxy to `127.0.0.1:8100` and enjoy.
+
+## Console
+There is a simple web console built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
+
+![](https://github.com/coyove/goflyway/blob/master/.misc/console.png?raw=true)
 
 ## Others
 When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
