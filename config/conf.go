@@ -10,6 +10,16 @@ import (
 
 var splitLines = regexp.MustCompile(`\r?\n[\s\t]*`)
 
+type ConfError struct {
+	line  int
+	index int
+	text  string
+}
+
+func (e *ConfError) Error() string {
+	return fmt.Sprintf("unexpected %s at line %d:%d", e.text, e.line, e.index)
+}
+
 type conf_t map[string]map[string]interface{}
 
 func (c *conf_t) getSection(section string) map[string]interface{} {
@@ -69,9 +79,8 @@ func (c *conf_t) GetArray(section, key string) []interface{} {
 func ParseConf(str string) (*conf_t, error) {
 	key, value, value2 := &bytes.Buffer{}, &bytes.Buffer{}, &bytes.Buffer{}
 	config := make(conf_t)
-	config["default"] = make(map[string]interface{})
-
-	var curSection map[string]interface{}
+	curSection := make(map[string]interface{})
+	config["default"] = curSection
 
 	for ln, line := range splitLines.Split(str, -1) {
 		key.Reset()
@@ -93,7 +102,7 @@ func ParseConf(str string) (*conf_t, error) {
 						config[line[1:e]] = curSection
 						break L
 					} else {
-						return nil, fmt.Errorf("invalid section name: %s at line %d", line, ln)
+						return nil, &ConfError{ln, idx, string(c)}
 					}
 				} else {
 					p.WriteByte(c)
@@ -110,7 +119,7 @@ func ParseConf(str string) (*conf_t, error) {
 				} else if quote == c {
 					quote = 0
 				} else {
-					return nil, fmt.Errorf("wrong paired quote: %s at line %d", line, ln)
+					return nil, &ConfError{ln, idx, string(c)}
 				}
 			case '#':
 				if quote == 0 {
@@ -119,10 +128,12 @@ func ParseConf(str string) (*conf_t, error) {
 					p.WriteByte(c)
 				}
 			case '=':
-				if quote == 0 {
+				if quote != 0 {
+					p.WriteByte(c)
+				} else if p != value {
 					p = value
 				} else {
-					p.WriteByte(c)
+					return nil, &ConfError{ln, idx, "="}
 				}
 			default:
 				p.WriteByte(c)
@@ -132,7 +143,7 @@ func ParseConf(str string) (*conf_t, error) {
 		}
 
 		if quote != 0 {
-			return nil, fmt.Errorf("missing closing quote: %s at line %d", string(quote), ln)
+			return nil, &ConfError{ln, idx, string(quote)}
 		}
 
 		k := key.String()
@@ -146,7 +157,7 @@ func ParseConf(str string) (*conf_t, error) {
 		for idx < len(v) {
 			if v[idx] == '\\' {
 				if idx == len(v)-1 {
-					return nil, fmt.Errorf("invalid escape: %s at line %d", value.String(), ln)
+					return nil, &ConfError{ln, idx, value.String()}
 				}
 
 				switch v[idx+1] {
@@ -194,6 +205,6 @@ func ParseConf(str string) (*conf_t, error) {
 		}
 
 	}
-	fmt.Println(config.GetString("misc", "zzz", ""))
+
 	return &config, nil
 }
