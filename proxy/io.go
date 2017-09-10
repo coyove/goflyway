@@ -34,10 +34,6 @@ func getIOCipher(dst io.Writer, src io.Reader, key string, options int) *IOCopyC
 		iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
 	}
 
-	if (options & DO_DROP_OK_200) != 0 {
-		iocc.NoHeader = true
-	}
-
 	return iocc
 }
 
@@ -72,11 +68,7 @@ func TwoWayBridge(target, source net.Conn, key string, options int) {
 		go copyAndClose(targetTCP, sourceTCP, key, options)
 
 		// copy from target, encrypt, to source
-		if (options & DO_BLOCKING) != 0 {
-			copyAndClose(sourceTCP, targetTCP, key, options)
-		} else {
-			go copyAndClose(sourceTCP, targetTCP, key, options)
-		}
+		go copyAndClose(sourceTCP, targetTCP, key, options)
 	} else {
 		go func() {
 			var wg sync.WaitGroup
@@ -98,7 +90,6 @@ type IOCopyCipher struct {
 	Key        []byte
 	Throttling *TokenBucket
 	Partial    bool
-	NoHeader   bool
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
@@ -123,8 +114,13 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 			if ctr != nil {
 				xs := 0
-				if bytes.HasPrefix(xbuf, OK200) {
-					xs = len(OK200)
+				if written == 0 {
+					// ignore the header
+					if bytes.HasPrefix(xbuf, OK_HTTP) {
+						xs = len(OK_HTTP)
+					} else if bytes.HasPrefix(xbuf, OK_SOCKS) {
+						xs = len(OK_SOCKS)
+					}
 				}
 
 				if encrypted+nr > sslRecordMax && cc.Partial {
@@ -136,10 +132,6 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 					encrypted += (nr - xs)
 				}
 
-				if cc.NoHeader {
-					xbuf = xbuf[xs:]
-					nr -= xs
-				}
 			}
 
 		direct_transmission:
@@ -190,10 +182,6 @@ func (rc *IOReaderCipher) Init() *IOReaderCipher {
 func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 	n, err = rc.Src.Read(p)
 	if n > 0 && rc.ctr != nil {
-		// cp := make([]byte, n)
-		// copy(cp, p[:n])
-		//rc.ctr.XORKeyStream(cp, p[:n])
-		// copy(p, cp)
 		rc.ctr.XorBuffer(p[:n])
 	}
 
@@ -204,10 +192,6 @@ func XorWrite(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int
 	key := ReverseRandomKey(SafeGetHeader(r, rkeyHeader))
 
 	if ctr := GetCipherStream(key); ctr != nil {
-		// cp := make([]byte, len(p))
-		// copy(cp, p)
-		// ctr.XORKeyStream(cp, p)
-		// copy(p, cp)
 		ctr.XorBuffer(p)
 	}
 

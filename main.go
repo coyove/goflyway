@@ -39,7 +39,7 @@ func main() {
 	if *G_Debug {
 		logg.L("debug mode on, port 8100 for local redirection, upstream on 8101")
 
-		go proxy.StartClient(":8100", ":8101", "127.0.0.1:8101")
+		go proxy.StartClient(":8100", ":8101", "127.0.0.1:8102")
 		proxy.StartServer(":8102")
 		return
 	}

@@ -15,13 +15,13 @@ type ProxyUpstreamHttpServer struct {
 
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dh := r.Header.Get(dnsHeader); r.Method == "GET" && dh != "" {
-		if x := DecryptHost(dh, "!"); x != "" {
+		if x := DecryptHost(dh, '!'); x != "" {
 			w.Write([]byte(lookup.LookupIP(x)))
 			return
 		}
 	}
 
-	if host := DecryptHost(r.Host, "*"); r.Method == "GET" && host != "" {
+	if host, mark := TryDecryptHost(r.Host); mark == '*' || mark == '$' {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
@@ -43,7 +43,11 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		}
 
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-		downstreamConn.Write(OK200)
+		if mark == '*' {
+			downstreamConn.Write(OK_HTTP)
+		} else {
+			downstreamConn.Write(OK_SOCKS)
+		}
 
 		if *G_Throttling > 0 {
 			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), DO_THROTTLING)

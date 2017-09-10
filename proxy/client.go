@@ -25,8 +25,6 @@ type ProxyHttpServer struct {
 }
 
 func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host string, options int) {
-	host = EncryptHost(host, "*")
-
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 	if err != nil {
 		logg.E("[UPSTREAM] - ", err)
@@ -34,6 +32,13 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	}
 
 	rkey := RandomKey()
+
+	if (options & DO_SOCKS5) != 0 {
+		host = EncryptHost(host, '$')
+	} else {
+		host = EncryptHost(host, '*')
+	}
+
 	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
 
 	G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
@@ -43,12 +48,6 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	})
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-
-	if (options & DO_SOCKS5) != 0 {
-		// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
-		downstreamConn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-	}
-
 	TwoWayBridge(downstreamConn, upstreamConn, rkey, options)
 }
 
@@ -60,11 +59,10 @@ func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host st
 	}
 
 	if (options & DO_SOCKS5) != 0 {
-		// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
-		downstreamConn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+		downstreamConn.Write(OK_SOCKS)
 	} else {
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-		downstreamConn.Write(OK200)
+		downstreamConn.Write(OK_HTTP)
 	}
 
 	TwoWayBridge(downstreamConn, targetSiteConn, "", options)
@@ -212,7 +210,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	// lookup at upstream
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-	req.Header.Add(dnsHeader, EncryptHost(host, "!"))
+	req.Header.Add(dnsHeader, EncryptHost(host, '!'))
 	resp, err := client.Do(req)
 
 	if err != nil {
@@ -234,56 +232,92 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	return lookup.IsChineseIP(string(ipbuf))
 }
 
-func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
-	const (
-		cannotReadBuffer = "[SOCKS] cannot read buffer - "
-		notSocks5        = "[SOCKS] invalid socks version - "
-	)
-
+func authConnection(conn net.Conn) bool {
+	buf := make([]byte, 1+1+255+1+255)
+	var n int
 	var err error
 
-	defer conn.Close()
+	if n, err = io.ReadAtLeast(conn, buf, 2); err != nil {
+		logg.E(cannotReadBuffer, err)
+		return false
+	}
+
+	if buf[0] != 0x01 {
+		return false
+	}
+
+	username_len := int(buf[1])
+	if 2+username_len+1 > n {
+		return false
+	}
+
+	username := string(buf[2 : 2+username_len])
+	password_len := int(buf[2+username_len])
+
+	if 2+username_len+1+password_len > n {
+		return false
+	}
+
+	password := string(buf[2+username_len+1 : 2+username_len+1+password_len])
+
+	return *G_Auth == username+":"+password
+}
+
+func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
+	var err error
+	log_close := func(args ...interface{}) {
+		logg.E(args...)
+		conn.Close()
+	}
 
 	buf := make([]byte, 2)
 	if _, err = io.ReadAtLeast(conn, buf, 2); err != nil {
-		logg.E(cannotReadBuffer, err)
+		log_close(cannotReadBuffer, err)
 		return
 	}
 
 	if buf[0] != socks5Version {
-		logg.E(notSocks5)
+		log_close(notSocks5)
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err = io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		logg.E(cannotReadBuffer, err)
+		log_close(cannotReadBuffer, err)
 		return
 	}
 
-	if *G_Auth == "" {
-		conn.Write([]byte{socks5Version, 0})
-	} else {
-		panic("not implemented in socks")
-	}
+	if *G_Auth != "" {
+		conn.Write([]byte{socks5Version, 0x02}) // username & password auth
 
+		if !authConnection(conn) {
+			conn.Write([]byte{0x01, 0x01})
+			conn.Close()
+			return
+		} else {
+			// auth success
+			conn.Write([]byte{0x1, 0})
+		}
+	} else {
+		conn.Write([]byte{socks5Version, 0})
+	}
 	// handshake over
 	// tunneling start
 	typeBuf, n := make([]byte, 256+3+1+1+2), 0
-	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-		logg.E(cannotReadBuffer, err)
+		log_close(cannotReadBuffer, err)
 		return
 	}
 
 	if typeBuf[0] != socks5Version {
-		logg.E(notSocks5)
+		log_close(notSocks5)
 		return
 	}
 
 	if typeBuf[1] != 0x01 { // 0x01: establish a TCP/IP stream connection
-		logg.E("[SOCKS] invalid command: ", typeBuf[1])
+		log_close("[SOCKS] invalid command: ", typeBuf[1])
 		return
 	}
 
@@ -296,12 +330,12 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	case socksTypeDm:
 		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
 	default:
-		logg.E("[SOCKS] invalid type")
+		log_close("[SOCKS] invalid type")
 		return
 	}
 
 	if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
-		logg.E(cannotReadBuffer, err)
+		log_close(cannotReadBuffer, err)
 		return
 	}
 
@@ -320,9 +354,9 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	host = net.JoinHostPort(host, strconv.Itoa(port))
 
 	if proxy.CanDirectConnect(host) {
-		proxy.DialHostAndBridge(conn, host, DO_DROP_OK_200|DO_BLOCKING|DO_SOCKS5)
+		proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
 	} else {
-		proxy.DialUpstreamAndBridge(conn, host, DO_DROP_OK_200|DO_BLOCKING|DO_SOCKS5)
+		proxy.DialUpstreamAndBridge(conn, host, DO_SOCKS5)
 	}
 }
 

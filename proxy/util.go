@@ -27,20 +27,23 @@ const (
 	socksTypeDm   = 3
 	socksTypeIPv6 = 4
 
-	DO_NOTHING     = 0
-	DO_THROTTLING  = 1
-	DO_DROP_OK_200 = 1 << 1
-	DO_SOCKS5      = 1 << 16
-	DO_BLOCKING    = 1 << 32
+	DO_NOTHING    = 0
+	DO_THROTTLING = 1
+	DO_SOCKS5     = 1 << 16
 
-	base35table = "abcdfghijklmnopqrtuvwxyz0123456789" // use 'e' for padding, 's' for conjunction
-	rkeyHeader  = "X-Request-ID"
-	rkeyHeader2 = "X-Request-HTTP-ID"
-	dnsHeader   = "X-Host-Lookup"
+	base35table      = "abcdfghijklmnopqrtuvwxyz0123456789" // use 'e' for padding, 's' for conjunction
+	rkeyHeader       = "X-Request-ID"
+	rkeyHeader2      = "X-Request-HTTP-ID"
+	dnsHeader        = "X-Host-Lookup"
+	cannotReadBuffer = "[SOCKS] cannot read buffer - "
+	notSocks5        = "[SOCKS] invalid socks version (socks5 only)"
 )
 
 var (
-	OK200   = []byte("HTTP/1.0 200 OK\r\n\r\n")
+	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
+	// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
+	OK_SOCKS = []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
+
 	tlsSkip = &tls.Config{InsecureSkipVerify: true}
 
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
@@ -137,7 +140,7 @@ func SafeGetHeader(req *http.Request, k string) string {
 }
 
 func EncryptRequest(req *http.Request) string {
-	req.Host = EncryptHost(req.Host, "#")
+	req.Host = EncryptHost(req.Host, '#')
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + AEncryptString(req.URL.String()))
 
 	rkey := RandomKey()
@@ -147,7 +150,7 @@ func EncryptRequest(req *http.Request) string {
 }
 
 func DecryptRequest(req *http.Request) string {
-	req.Host = DecryptHost(req.Host, "#")
+	req.Host = DecryptHost(req.Host, '#')
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(ADecryptString(p[1]))
 	}
@@ -205,7 +208,7 @@ func SplitHostPort(host string) (string, string) {
 	}
 }
 
-func EncryptHost(text, mark string) string {
+func EncryptHost(text string, mark byte) string {
 	host, port := SplitHostPort(text)
 
 	enc := func(in string) string {
@@ -217,14 +220,14 @@ func EncryptHost(text, mark string) string {
 	}
 
 	if lookup.IPAddressToInteger(host) != 0 {
-		return enc(mark+host) + port
+		return enc(string(mark)+host) + port
 	}
 
 	parts := strings.Split(host, ".")
 	flag := false
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds[parts[i]] {
-			parts[i] = enc(mark + parts[i])
+			parts[i] = enc(string(mark) + parts[i])
 			flag = true
 			break
 		}
@@ -234,10 +237,19 @@ func EncryptHost(text, mark string) string {
 		return strings.Join(parts, ".") + port
 	}
 
-	return enc(mark+host) + port
+	return enc(string(mark)+host) + port
 }
 
-func DecryptHost(text, mark string) string {
+func DecryptHost(text string, mark byte) string {
+	host, m := TryDecryptHost(text)
+	if m != mark {
+		return ""
+	} else {
+		return host
+	}
+}
+
+func TryDecryptHost(text string) (h string, m byte) {
 	host, port := SplitHostPort(text)
 	parts := strings.Split(host, ".")
 
@@ -250,16 +262,18 @@ func DecryptHost(text, mark string) string {
 			} else {
 				parts[i] = shoco.Decompress(ADecrypt(buf))
 			}
-			if len(parts[i]) == 0 || parts[i][0] != mark[0] {
-				return ""
-			}
 
+			if len(parts[i]) == 0 {
+				return text, 0
+			} else {
+				m = parts[i][0]
+			}
 			parts[i] = parts[i][1:]
 			break
 		}
 	}
 
-	return strings.Join(parts, ".") + port
+	return strings.Join(parts, ".") + port, m
 }
 
 func Base35Encode(buf []byte) string {
