@@ -80,10 +80,8 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := &IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}
-		if *G_Throttling > 0 {
-			iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
-		}
+		iocc := getIOCipher(w, resp.Body, rkey, *G_Throttling > 0)
+		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()
 		tryClose(resp.Body)

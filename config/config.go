@@ -32,6 +32,7 @@ var (
 	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
 	G_HRCounter        = flag.Bool("hr-counter", true, "use high resolution counter")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
+	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
 
 	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
 	G_Throttling      = flag.Int("throttling", 0, "traffic throttling, experimental")
@@ -66,6 +67,7 @@ func LoadConfig() {
 		*G_HRCounter = cf.GetBool("misc", "hirescounter", *G_HRCounter)
 		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
 		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
+		*G_PartialEncrypt = cf.GetBool("misc", "partial", *G_PartialEncrypt)
 
 		*G_Throttling = int(cf.GetInt("experimental", "throttling", int64(*G_Throttling)))
 		*G_ThrottlingMax = int(cf.GetInt("experimental", "throttlingmax", int64(*G_ThrottlingMax)))

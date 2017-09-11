@@ -144,7 +144,10 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		nr, err := (&IOCopyCipher{Dst: w, Src: resp.Body, Key: ReverseRandomKey(rkey)}).DoCopy()
+		iocc := getIOCipher(w, resp.Body, rkey, *G_Throttling > 0)
+		iocc.Partial = false
+
+		nr, err := iocc.DoCopy()
 		tryClose(resp.Body)
 
 		if err != nil {

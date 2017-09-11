@@ -12,15 +12,27 @@ import (
 	"time"
 )
 
-func copyAndClose(dst, src *net.TCPConn, key string, throttle bool) {
-	ts := time.Now()
+const sslRecordMax = 18 * 1024 // 18kb
 
-	iocc := &IOCopyCipher{Dst: dst, Src: src, Key: ReverseRandomKey(key)}
+func getIOCipher(dst io.Writer, src io.Reader, key string, throttle bool) *IOCopyCipher {
+	iocc := &IOCopyCipher{
+		Dst:     dst,
+		Src:     src,
+		Key:     ReverseRandomKey(key),
+		Partial: *G_PartialEncrypt,
+	}
+
 	if throttle {
 		iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
 	}
 
-	if _, err := iocc.DoCopy(); err != nil {
+	return iocc
+}
+
+func copyAndClose(dst, src *net.TCPConn, key string, throttle bool) {
+	ts := time.Now()
+
+	if _, err := getIOCipher(dst, src, key, throttle).DoCopy(); err != nil {
 		logg.E("[COPY] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
@@ -31,12 +43,7 @@ func copyAndClose(dst, src *net.TCPConn, key string, throttle bool) {
 func copyOrWarn(dst io.Writer, src io.Reader, key string, throttle bool, wg *sync.WaitGroup) {
 	ts := time.Now()
 
-	iocc := &IOCopyCipher{Dst: dst, Src: src, Key: ReverseRandomKey(key)}
-	if throttle {
-		iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
-	}
-
-	if _, err := iocc.DoCopy(); err != nil {
+	if _, err := getIOCipher(dst, src, key, throttle).DoCopy(); err != nil {
 		logg.E("[COPYW] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
@@ -70,11 +77,11 @@ func TwoWayBridge(target, source net.Conn, key string, throttleTargetToSource bo
 }
 
 type IOCopyCipher struct {
-	Dst io.Writer
-	Src io.Reader
-	Key []byte
-
+	Dst        io.Writer
+	Src        io.Reader
+	Key        []byte
 	Throttling *TokenBucket
+	Partial    bool
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
@@ -85,14 +92,17 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	}()
 
 	buf := make([]byte, 32*1024)
-	// cbuf := make([]byte, len(buf))
-
 	ctr := GetCipherStream(cc.Key)
+	encrypted := 0
 
 	for {
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
+
+			if cc.Partial && encrypted == sslRecordMax {
+				goto direct_transmission
+			}
 
 			if ctr != nil {
 				xs := 0
@@ -100,12 +110,17 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 					xs = len(OK200)
 				}
 
-				// copy(cbuf, xbuf)
-				// ctr.XORKeyStream(cbuf[xs:nr], xbuf[xs:])
-				// copy(xbuf[xs:], cbuf[xs:nr])
-				ctr.XorBuffer(xbuf[xs:])
+				if encrypted+nr > sslRecordMax && cc.Partial {
+					ctr.XorBuffer(xbuf[:sslRecordMax-encrypted])
+					encrypted = sslRecordMax
+					// we are done, the traffic coming later will be transfered as is
+				} else {
+					ctr.XorBuffer(xbuf[xs:])
+					encrypted += (nr - xs)
+				}
 			}
 
+		direct_transmission:
 			if cc.Throttling != nil {
 				cc.Throttling.Consume(int64(len(xbuf)))
 			}
