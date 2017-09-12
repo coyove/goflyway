@@ -4,6 +4,7 @@ import (
 	. "../config"
 	"../logg"
 
+	"fmt"
 	"io/ioutil"
 	"net"
 	"strconv"
@@ -174,6 +175,34 @@ func IPAddressToInteger(ip string) int {
 	}
 
 	return np
+}
+
+func BytesToIPv4(buf []byte) string {
+	if len(buf) != net.IPv4len {
+		return ""
+	}
+
+	return fmt.Sprintf("%d.%d.%d.%d", buf[0], buf[1], buf[2], buf[3])
+}
+
+func BytesToIPv6(buf []byte) string {
+	if len(buf) != net.IPv6len {
+		return ""
+	}
+
+	hex := func(b byte) string {
+		h := strconv.FormatInt(int64(b), 16)
+		if len(h) == 1 {
+			h = "0" + h
+		}
+		return h
+	}
+
+	return fmt.Sprintf("[%s%s:%s%s:%s%s:%s%s:%s%s:%s%s:%s%s:%s%s]",
+		hex(buf[0]), hex(buf[1]), hex(buf[2]), hex(buf[3]),
+		hex(buf[4]), hex(buf[5]), hex(buf[6]), hex(buf[7]),
+		hex(buf[8]), hex(buf[9]), hex(buf[10]), hex(buf[11]),
+		hex(buf[12]), hex(buf[13]), hex(buf[14]), hex(buf[15]))
 }
 
 func LookupIPInt(host string) int {

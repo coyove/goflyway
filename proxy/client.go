@@ -6,11 +6,14 @@ import (
 	"../lookup"
 	"../lru"
 
+	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +22,52 @@ type ProxyHttpServer struct {
 	Tr       *http.Transport
 	TrDirect *http.Transport
 	Upstream string
+}
+
+func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host string, options int) {
+	host = EncryptHost(host, "*")
+
+	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
+	if err != nil {
+		logg.E("[UPSTREAM] - ", err)
+		return
+	}
+
+	rkey := RandomKey()
+	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
+
+	G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
+		if v.(string) != "" {
+			payload += k.(string) + ": " + v.(string) + "\r\n"
+		}
+	})
+
+	upstreamConn.Write([]byte(payload + "\r\n"))
+
+	if (options & DO_SOCKS5) != 0 {
+		// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
+		downstreamConn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	}
+
+	TwoWayBridge(downstreamConn, upstreamConn, rkey, options)
+}
+
+func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
+	targetSiteConn, err := net.Dial("tcp", host)
+	if err != nil {
+		logg.E("[HOST] - ", err)
+		return
+	}
+
+	if (options & DO_SOCKS5) != 0 {
+		// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
+		downstreamConn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	} else {
+		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
+		downstreamConn.Write(OK200)
+	}
+
+	TwoWayBridge(downstreamConn, targetSiteConn, "", options)
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,39 +103,10 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if proxy.CanDirectConnect(host) {
-			targetSiteCon, err := net.Dial("tcp", host)
-			if err != nil {
-				logg.E("[HOST] - ", err)
-				return
-			}
-
-			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-			proxyClient.Write(OK200)
-			TwoWayBridge(targetSiteCon, proxyClient, "", false)
-			return
+			proxy.DialHostAndBridge(proxyClient, host, DO_NOTHING)
+		} else {
+			proxy.DialUpstreamAndBridge(proxyClient, host, DO_NOTHING)
 		}
-
-		host = EncryptHost(host, "*")
-
-		upstreamConn, err := net.Dial("tcp", proxy.Upstream)
-		if err != nil {
-			logg.E("[UPSTREAM] - ", err)
-			return
-		}
-
-		rkey := RandomKey()
-		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
-
-		G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
-			if v.(string) != "" {
-				payload += k.(string) + ": " + v.(string) + "\r\n"
-			}
-		})
-
-		upstreamConn.Write([]byte(payload + "\r\n"))
-
-		TwoWayBridge(proxyClient, upstreamConn, rkey, false)
-
 	} else {
 		// normal http requests
 		var err error
@@ -144,7 +164,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := getIOCipher(w, resp.Body, rkey, *G_Throttling > 0)
+		iocc := getIOCipherSimple(w, resp.Body, rkey, *G_Throttling > 0)
 		iocc.Partial = false
 
 		nr, err := iocc.DoCopy()
@@ -214,7 +234,99 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	return lookup.IsChineseIP(string(ipbuf))
 }
 
-func StartClient(localaddr, upstream string) {
+func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
+	const (
+		cannotReadBuffer = "[SOCKS] cannot read buffer - "
+		notSocks5        = "[SOCKS] invalid socks version - "
+	)
+
+	var err error
+
+	defer conn.Close()
+
+	buf := make([]byte, 2)
+	if _, err = io.ReadAtLeast(conn, buf, 2); err != nil {
+		logg.E(cannotReadBuffer, err)
+		return
+	}
+
+	if buf[0] != socks5Version {
+		logg.E(notSocks5)
+		return
+	}
+
+	numMethods := int(buf[1])
+	methods := make([]byte, numMethods)
+	if _, err = io.ReadAtLeast(conn, methods, numMethods); err != nil {
+		logg.E(cannotReadBuffer, err)
+		return
+	}
+
+	if *G_Auth == "" {
+		conn.Write([]byte{socks5Version, 0})
+	} else {
+		panic("not implemented in socks")
+	}
+
+	// handshake over
+	// tunneling start
+	typeBuf, n := make([]byte, 256+3+1+1+2), 0
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
+		logg.E(cannotReadBuffer, err)
+		return
+	}
+
+	if typeBuf[0] != socks5Version {
+		logg.E(notSocks5)
+		return
+	}
+
+	if typeBuf[1] != 0x01 { // 0x01: establish a TCP/IP stream connection
+		logg.E("[SOCKS] invalid command: ", typeBuf[1])
+		return
+	}
+
+	reqLen := -1
+	switch typeBuf[3] {
+	case socksTypeIPv4:
+		reqLen = 3 + 1 + net.IPv4len + 2
+	case socksTypeIPv6:
+		reqLen = 3 + 1 + net.IPv6len + 2
+	case socksTypeDm:
+		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
+	default:
+		logg.E("[SOCKS] invalid type")
+		return
+	}
+
+	if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
+		logg.E(cannotReadBuffer, err)
+		return
+	}
+
+	rawaddr := typeBuf[3 : reqLen-2]
+	host, port := "", int(binary.BigEndian.Uint16(typeBuf[reqLen-2:]))
+
+	switch typeBuf[3] {
+	case socksTypeIPv4:
+		host = lookup.BytesToIPv4(rawaddr[1:])
+	case socksTypeIPv6:
+		host = lookup.BytesToIPv6(rawaddr[1:])
+	default:
+		host = string(rawaddr[2:])
+	}
+
+	host = net.JoinHostPort(host, strconv.Itoa(port))
+
+	if proxy.CanDirectConnect(host) {
+		proxy.DialHostAndBridge(conn, host, DO_DROP_OK_200|DO_BLOCKING|DO_SOCKS5)
+	} else {
+		proxy.DialUpstreamAndBridge(conn, host, DO_DROP_OK_200|DO_BLOCKING|DO_SOCKS5)
+	}
+}
+
+func StartClient(localaddr, slocaladdr, upstream string) {
 	upstreamUrl, err := url.Parse("http://" + upstream)
 	if err != nil {
 		logg.F(err)
@@ -229,6 +341,22 @@ func StartClient(localaddr, upstream string) {
 		Upstream: upstream,
 	}
 
-	logg.L("listening on ", localaddr, ", upstream is ", upstream)
+	if socks5Listener, err := net.Listen("tcp", *G_SocksProxy); err != nil {
+		logg.E(err)
+	} else {
+		logg.L("socks5 proxy at ", slocaladdr)
+		go func() {
+			for {
+				conn, err := socks5Listener.Accept()
+				if err != nil {
+					logg.E("[SOCKS] ", err)
+					continue
+				}
+				go proxy.HandleSocks(conn)
+			}
+		}()
+	}
+
+	logg.L("http proxy at ", localaddr, ", upstream is ", upstream)
 	logg.F(http.ListenAndServe(localaddr, proxy))
 }

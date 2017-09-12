@@ -14,7 +14,15 @@ import (
 
 const sslRecordMax = 18 * 1024 // 18kb
 
-func getIOCipher(dst io.Writer, src io.Reader, key string, throttle bool) *IOCopyCipher {
+func getIOCipherSimple(dst io.Writer, src io.Reader, key string, throttle bool) *IOCopyCipher {
+	if throttle {
+		return getIOCipher(dst, src, key, DO_THROTTLING)
+	} else {
+		return getIOCipher(dst, src, key, DO_NOTHING)
+	}
+}
+
+func getIOCipher(dst io.Writer, src io.Reader, key string, options int) *IOCopyCipher {
 	iocc := &IOCopyCipher{
 		Dst:     dst,
 		Src:     src,
@@ -22,17 +30,21 @@ func getIOCipher(dst io.Writer, src io.Reader, key string, throttle bool) *IOCop
 		Partial: *G_PartialEncrypt,
 	}
 
-	if throttle {
+	if (options & DO_THROTTLING) != 0 {
 		iocc.Throttling = NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
+	}
+
+	if (options & DO_DROP_OK_200) != 0 {
+		iocc.NoHeader = true
 	}
 
 	return iocc
 }
 
-func copyAndClose(dst, src *net.TCPConn, key string, throttle bool) {
+func copyAndClose(dst, src *net.TCPConn, key string, options int) {
 	ts := time.Now()
 
-	if _, err := getIOCipher(dst, src, key, throttle).DoCopy(); err != nil {
+	if _, err := getIOCipher(dst, src, key, options).DoCopy(); err != nil {
 		logg.E("[COPY] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
@@ -40,34 +52,38 @@ func copyAndClose(dst, src *net.TCPConn, key string, throttle bool) {
 	src.CloseRead()
 }
 
-func copyOrWarn(dst io.Writer, src io.Reader, key string, throttle bool, wg *sync.WaitGroup) {
+func copyOrWarn(dst io.Writer, src io.Reader, key string, options int, wg *sync.WaitGroup) {
 	ts := time.Now()
 
-	if _, err := getIOCipher(dst, src, key, throttle).DoCopy(); err != nil {
+	if _, err := getIOCipher(dst, src, key, options).DoCopy(); err != nil {
 		logg.E("[COPYW] ", time.Now().Sub(ts).Seconds(), "s - ", err)
 	}
 
 	wg.Done()
 }
 
-func TwoWayBridge(target, source net.Conn, key string, throttleTargetToSource bool) {
+func TwoWayBridge(target, source net.Conn, key string, options int) {
 
 	targetTCP, targetOK := target.(*net.TCPConn)
 	sourceTCP, sourceOK := source.(*net.TCPConn)
 
 	if targetOK && sourceOK {
 		// copy from source, decrypt, to target
-		go copyAndClose(targetTCP, sourceTCP, key, false)
+		go copyAndClose(targetTCP, sourceTCP, key, options)
 
 		// copy from target, encrypt, to source
-		go copyAndClose(sourceTCP, targetTCP, key, throttleTargetToSource)
+		if (options & DO_BLOCKING) != 0 {
+			copyAndClose(sourceTCP, targetTCP, key, options)
+		} else {
+			go copyAndClose(sourceTCP, targetTCP, key, options)
+		}
 	} else {
 		go func() {
 			var wg sync.WaitGroup
 
 			wg.Add(2)
-			go copyOrWarn(target, source, key, false, &wg)
-			go copyOrWarn(source, target, key, throttleTargetToSource, &wg)
+			go copyOrWarn(target, source, key, options, &wg)
+			go copyOrWarn(source, target, key, options, &wg)
 			wg.Wait()
 
 			source.Close()
@@ -82,6 +98,7 @@ type IOCopyCipher struct {
 	Key        []byte
 	Throttling *TokenBucket
 	Partial    bool
+	NoHeader   bool
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
@@ -117,6 +134,11 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 				} else {
 					ctr.XorBuffer(xbuf[xs:])
 					encrypted += (nr - xs)
+				}
+
+				if cc.NoHeader {
+					xbuf = xbuf[xs:]
+					nr -= xs
 				}
 			}
 

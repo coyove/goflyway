@@ -20,10 +20,11 @@ var (
 var (
 	G_Config = flag.String("c", "", "config file path")
 
-	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
-	G_Auth     = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	G_Local    = flag.String("l", ":8100", "local listening")
+	G_Key        = flag.String("k", "0123456789abcdef", "key, important")
+	G_Auth       = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	G_Upstream   = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
+	G_Local      = flag.String("l", ":8100", "local listening port")
+	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")
@@ -55,10 +56,11 @@ func LoadConfig() {
 			logg.F(err)
 		}
 
-		*G_Key = /*     */ cf.GetString("default", "key", *G_Key)
-		*G_Auth = /*    */ cf.GetString("default", "auth", *G_Auth)
-		*G_Local = /*   */ cf.GetString("default", "listen", *G_Local)
-		*G_Upstream = /**/ cf.GetString("default", "upstream", *G_Upstream)
+		*G_Key = cf.GetString("default", "key", *G_Key)
+		*G_Auth = cf.GetString("default", "auth", *G_Auth)
+		*G_Local = cf.GetString("default", "listen", *G_Local)
+		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
+		*G_SocksProxy = cf.GetString("default", "socks5", *G_SocksProxy)
 		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
 

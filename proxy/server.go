@@ -45,7 +45,11 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 		downstreamConn.Write(OK200)
 
-		TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), *G_Throttling > 0)
+		if *G_Throttling > 0 {
+			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), DO_THROTTLING)
+		} else {
+			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), DO_NOTHING)
+		}
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
@@ -80,7 +84,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := getIOCipher(w, resp.Body, rkey, *G_Throttling > 0)
+		iocc := getIOCipherSimple(w, resp.Body, rkey, *G_Throttling > 0)
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()
