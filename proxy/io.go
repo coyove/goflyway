@@ -189,7 +189,7 @@ func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
 }
 
 func XorWrite(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	key := ReverseRandomKey(SafeGetHeader(r, rkeyHeader))
+	key := ReverseRandomKey(SafeGetHeader(r, RKEY_HEADER))
 
 	if ctr := GetCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)

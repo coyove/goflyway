@@ -14,14 +14,14 @@ type ProxyUpstreamHttpServer struct {
 }
 
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if dh := r.Header.Get(dnsHeader); r.Method == "GET" && dh != "" {
+	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
 		if x := DecryptHost(dh, '!'); x != "" {
 			w.Write([]byte(lookup.LookupIP(x)))
 			return
 		}
 	}
 
-	if host, mark := TryDecryptHost(r.Host); mark == '*' || mark == '$' {
+	if host, mark := TryDecryptHost(r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
@@ -43,16 +43,16 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		}
 
 		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-		if mark == '*' {
+		if mark == HOST_HTTP_CONNECT {
 			downstreamConn.Write(OK_HTTP)
 		} else {
 			downstreamConn.Write(OK_SOCKS)
 		}
 
 		if *G_Throttling > 0 {
-			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), DO_THROTTLING)
+			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), DO_THROTTLING)
 		} else {
-			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(rkeyHeader), DO_NOTHING)
+			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), DO_NOTHING)
 		}
 	} else {
 		// normal http requests

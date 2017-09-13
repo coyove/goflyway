@@ -34,12 +34,12 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	rkey := RandomKey()
 
 	if (options & DO_SOCKS5) != 0 {
-		host = EncryptHost(host, '$')
+		host = EncryptHost(host, HOST_SOCKS_CONNECT)
 	} else {
-		host = EncryptHost(host, '*')
+		host = EncryptHost(host, HOST_HTTP_CONNECT)
 	}
 
-	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, rkeyHeader, rkey)
+	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, RKEY_HEADER, rkey)
 
 	G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
 		if v.(string) != "" {
@@ -210,7 +210,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	// lookup at upstream
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-	req.Header.Add(dnsHeader, EncryptHost(host, '!'))
+	req.Header.Add(DNS_HEADER, EncryptHost(host, '!'))
 	resp, err := client.Do(req)
 
 	if err != nil {
@@ -238,7 +238,7 @@ func authConnection(conn net.Conn) bool {
 	var err error
 
 	if n, err = io.ReadAtLeast(conn, buf, 2); err != nil {
-		logg.E(cannotReadBuffer, err)
+		logg.E(CANNOT_READ_BUF, err)
 		return false
 	}
 
@@ -272,19 +272,19 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 
 	buf := make([]byte, 2)
 	if _, err = io.ReadAtLeast(conn, buf, 2); err != nil {
-		log_close(cannotReadBuffer, err)
+		log_close(CANNOT_READ_BUF, err)
 		return
 	}
 
 	if buf[0] != socks5Version {
-		log_close(notSocks5)
+		log_close(NOT_SOCKS5)
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err = io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		log_close(cannotReadBuffer, err)
+		log_close(CANNOT_READ_BUF, err)
 		return
 	}
 
@@ -307,12 +307,12 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	typeBuf, n := make([]byte, 256+3+1+1+2), 0
 	// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-		log_close(cannotReadBuffer, err)
+		log_close(CANNOT_READ_BUF, err)
 		return
 	}
 
 	if typeBuf[0] != socks5Version {
-		log_close(notSocks5)
+		log_close(NOT_SOCKS5)
 		return
 	}
 
@@ -335,7 +335,7 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	}
 
 	if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
-		log_close(cannotReadBuffer, err)
+		log_close(CANNOT_READ_BUF, err)
 		return
 	}
 

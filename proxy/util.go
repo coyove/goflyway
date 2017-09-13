@@ -7,8 +7,8 @@ import (
 	"../lookup"
 	"../shoco"
 
-	"bytes"
 	"crypto/tls"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
 	"io"
@@ -31,12 +31,15 @@ const (
 	DO_THROTTLING = 1
 	DO_SOCKS5     = 1 << 16
 
-	base35table      = "abcdfghijklmnopqrtuvwxyz0123456789" // use 'e' for padding, 's' for conjunction
-	rkeyHeader       = "X-Request-ID"
-	rkeyHeader2      = "X-Request-HTTP-ID"
-	dnsHeader        = "X-Host-Lookup"
-	cannotReadBuffer = "[SOCKS] cannot read buffer - "
-	notSocks5        = "[SOCKS] invalid socks version (socks5 only)"
+	HOST_HTTP_CONNECT  = '*'
+	HOST_HTTP_FORWARD  = '#'
+	HOST_SOCKS_CONNECT = '$'
+
+	RKEY_HEADER     = "X-Request-ID"
+	RKEY_HEADER2    = "X-Request-HTTP-ID"
+	DNS_HEADER      = "X-Host-Lookup"
+	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
+	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
 )
 
 var (
@@ -49,6 +52,9 @@ var (
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
+
+	base32Encoding = base32.NewEncoding("0123456789abcdfgijklmnopqsuvwxyz")
+	base32Replace  = []string{"th", "er", "t", "h", "e", "r"}
 )
 
 func NewRand() *rand.Rand {
@@ -105,9 +111,9 @@ func processBody(req *http.Request, enc bool) {
 		add("Connection")
 
 		rkey = RandomKey()
-		SafeAddHeader(req, rkeyHeader2, rkey)
+		SafeAddHeader(req, RKEY_HEADER2, rkey)
 	} else {
-		rkey = SafeGetHeader(req, rkeyHeader2)
+		rkey = SafeGetHeader(req, RKEY_HEADER2)
 	}
 
 	for _, c := range req.Cookies() {
@@ -140,22 +146,22 @@ func SafeGetHeader(req *http.Request, k string) string {
 }
 
 func EncryptRequest(req *http.Request) string {
-	req.Host = EncryptHost(req.Host, '#')
+	req.Host = EncryptHost(req.Host, HOST_HTTP_FORWARD)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + AEncryptString(req.URL.String()))
 
 	rkey := RandomKey()
-	SafeAddHeader(req, rkeyHeader, rkey)
+	SafeAddHeader(req, RKEY_HEADER, rkey)
 	processBody(req, true)
 	return rkey
 }
 
 func DecryptRequest(req *http.Request) string {
-	req.Host = DecryptHost(req.Host, '#')
+	req.Host = DecryptHost(req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(ADecryptString(p[1]))
 	}
 
-	rkey := SafeGetHeader(req, rkeyHeader)
+	rkey := SafeGetHeader(req, RKEY_HEADER)
 	processBody(req, false)
 	return rkey
 }
@@ -213,9 +219,9 @@ func EncryptHost(text string, mark byte) string {
 
 	enc := func(in string) string {
 		if *G_DisableShoco {
-			return Base35Encode(AEncrypt([]byte(in)))
+			return Base32Encode(AEncrypt([]byte(in)))
 		} else {
-			return Base35Encode(AEncrypt(shoco.Compress(in)))
+			return Base32Encode(AEncrypt(shoco.Compress(in)))
 		}
 	}
 
@@ -255,7 +261,7 @@ func TryDecryptHost(text string) (h string, m byte) {
 
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds[parts[i]] {
-			buf := Base35Decode(parts[i])
+			buf := Base32Decode(parts[i])
 
 			if *G_DisableShoco {
 				parts[i] = string(ADecrypt(buf))
@@ -276,104 +282,30 @@ func TryDecryptHost(text string) (h string, m byte) {
 	return strings.Join(parts, ".") + port, m
 }
 
-func Base35Encode(buf []byte) string {
-	ret := bytes.Buffer{}
-	padded := false
+func Base32Encode(buf []byte) string {
+	str := base32Encoding.EncodeToString(buf)
+	idx := strings.Index(str, "=")
 
-	if len(buf)%2 != 0 {
-		buf = append(buf, 0)
-		padded = true
+	if idx == -1 {
+		return str
 	}
 
-	for i := 0; i < len(buf); i += 2 {
-		n := int(buf[i])<<8 + int(buf[i+1])
-
-		ret.WriteString(base35table[n%34 : n%34+1])
-		n /= 34
-
-		ret.WriteString(base35table[n%34 : n%34+1])
-		n /= 34
-
-		if n < 34 {
-			// cheers
-			ret.WriteString(base35table[n : n+1])
-		} else {
-			m := n % 34
-			ret.WriteString("s" + base35table[m:m+1])
-		}
-	}
-
-	if padded {
-		ret.WriteString("e")
-	}
-
-	return ret.String()
+	return str[:idx] + base32Replace[len(str)-idx-1]
 }
 
-func Base35Decode(text string) []byte {
-	ret := bytes.Buffer{}
-	padded := false
+func Base32Decode(text string) []byte {
+	const paddings = "======"
 
-	i := -1
-
-	var _next func() (int, bool)
-	_next = func() (int, bool) {
-		i++
-
-		if i >= len(text) {
-			return 0, false
+	for i := 0; i < len(base32Replace); i++ {
+		if strings.HasSuffix(text, base32Replace[i]) {
+			text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
+			break
 		}
-
-		b := text[i]
-
-		if b >= 'a' && b <= 'd' {
-			return int(b - 'a'), true
-		} else if b >= 'f' && b <= 'r' {
-			return int(b-'f') + 4, true
-		} else if b >= 't' && b <= 'z' {
-			return int(b-'t') + 17, true
-		} else if b >= '0' && b <= '9' {
-			return int(b-'0') + 24, true
-		} else if b == 's' {
-			n, ok := _next()
-			if !ok {
-				return 0, false
-			}
-			return n + 34, true
-		} else if b == 'e' {
-			padded = true
-		}
-
-		return 0, false
 	}
 
-	for {
-		var ok bool
-		var n1, n2, n3 int
-
-		if n1, ok = _next(); !ok {
-			break
-		}
-
-		if n2, ok = _next(); !ok {
-			break
-		}
-
-		if n3, ok = _next(); !ok {
-			break
-		}
-
-		n := n3*34*34 + n2*34 + n1
-		b1 := n / 256
-		b2 := n - b1*256
-
-		ret.WriteByte(byte(b1))
-		ret.WriteByte(byte(b2))
-	}
-
-	buf := ret.Bytes()
-	if padded && len(buf) > 0 {
-		buf = buf[:len(buf)-1]
+	buf, err := base32Encoding.DecodeString(text)
+	if err != nil {
+		return []byte{}
 	}
 
 	return buf

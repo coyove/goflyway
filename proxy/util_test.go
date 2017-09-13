@@ -2,26 +2,71 @@ package proxy
 
 import (
 	"../config"
+	"encoding/base32"
 	"strings"
 	"testing"
 )
 
 func TestHost(t *testing.T) {
-	config.LoadConfig("")
+	config.LoadConfig()
 	t.Log("Testing shoco host compressing and decompressing")
 
 	for _, web := range strings.Split(websites, "\n") {
-		t.Log(web, EncryptHost(web, "#"))
-		if DecryptHost(EncryptHost(web, "#"), "#") != web {
+		t.Log(web, EncryptHost(web, HOST_HTTP_FORWARD))
+		if DecryptHost(EncryptHost(web, HOST_HTTP_FORWARD), HOST_HTTP_FORWARD) != web {
 			t.Error("ShocoHost failed", web)
 		}
 	}
 
 	for _, web := range strings.Split(websites, "\n") {
-		if DecryptHost(EncryptHost(web, "#"), "*") == web {
-			t.Error("ShocoHost failed", web, EncryptHost(web, "#"))
+		if DecryptHost(EncryptHost(web, HOST_HTTP_FORWARD), HOST_HTTP_CONNECT) == web {
+			t.Error("ShocoHost failed", web, EncryptHost(web, HOST_HTTP_FORWARD))
 		}
 	}
+}
+
+func TestBase32AnsBase32(t *testing.T) {
+	config.LoadConfig()
+	t.Log("Testing Base32 and base32")
+
+	r := NewRand()
+
+	gen := func(length int) []byte {
+		buf := make([]byte, length)
+		for i := 0; i < length; i++ {
+			buf[i] = byte(r.Intn(256))
+		}
+		return buf
+	}
+
+	_base32 := func(in []byte) string {
+		str := base32.NewEncoding("0123456789abcdfgijklmnopqsuvwxyz").EncodeToString(in)
+		str = strings.Replace(str, "======", "t", -1)
+		str = strings.Replace(str, "=====", "h", -1)
+		str = strings.Replace(str, "====", "e", -1)
+		str = strings.Replace(str, "===", "r", -1)
+		str = strings.Replace(str, "==", "th", -1)
+		str = strings.Replace(str, "=", "er", -1)
+		return str
+	}
+
+	const COUNT = 100000
+	test := func(length int) {
+		b32, b35 := 0, 0
+		for i := 0; i < COUNT; i++ {
+			buf := gen(length)
+			b32 += len(_base32(buf))
+			b35 += len(Base32Encode(buf))
+		}
+
+		t.Log(length, float64(b32)/float64(b35))
+	}
+
+	for i := 1; i <= 8; i++ {
+		test(i)
+	}
+	b := gen(9)
+	t.Log(_base32(b), Base32Encode(b))
 }
 
 const websites = `google.com
