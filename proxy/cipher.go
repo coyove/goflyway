@@ -1,15 +1,27 @@
 package proxy
 
 import (
-	. "../config"
+	"../counter"
 	"../logg"
 
+	"bytes"
+	"crypto/aes"
 	"crypto/cipher"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
+	"math/rand"
+	"net"
+	"sync"
+	"time"
 )
 
-const IV_LENGTH = 16
+const (
+	IV_LENGTH          = 16
+	SSL_RECORD_MAX     = 18 * 1024 // 18kb
+	STREAM_BUFFER_SIZE = 512
+)
 
 var primes = []int16{
 	11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
@@ -30,14 +42,21 @@ var primes = []int16{
 	1553, 1559, 1567, 1571, 1579, 1583, 1597, 1601, 1607, 1609, 1613, 1619, 1621, 1627, 1637, 1657,
 }
 
+type GCipher struct {
+	Key       []byte
+	KeyString string
+	Block     cipher.Block
+	Hires     bool
+	Partial   bool
+	Shoco     bool
+}
+
 type InplaceCTR struct {
 	b       cipher.Block
 	ctr     []byte
 	out     []byte
 	outUsed int
 }
-
-const streamBufferSize = 512
 
 // From src/crypto/cipher/ctr.go
 func (x *InplaceCTR) XorBuffer(buf []byte) {
@@ -69,24 +88,6 @@ func (x *InplaceCTR) XorBuffer(buf []byte) {
 	}
 }
 
-func GetCipherStream(key []byte) *InplaceCTR {
-	if key == nil {
-		return nil
-	}
-
-	if len(key) != IV_LENGTH {
-		logg.E("[AES] iv is not 128bit long")
-		return nil
-	}
-
-	return &InplaceCTR{
-		b:       G_KeyBlock,
-		ctr:     key,
-		out:     make([]byte, 0, streamBufferSize),
-		outUsed: 0,
-	}
-}
-
 func _AXor(blk cipher.Block, iv, buf []byte) []byte {
 	bsize := blk.BlockSize()
 	x := make([]byte, len(buf)/bsize*bsize+bsize)
@@ -108,11 +109,40 @@ func _AXor(blk cipher.Block, iv, buf []byte) []byte {
 	return buf
 }
 
-func generateIV(s, s2 byte) []byte {
+func (gc *GCipher) GetCipherStream(key []byte) *InplaceCTR {
+	if key == nil {
+		return nil
+	}
+
+	if len(key) != IV_LENGTH {
+		logg.E("[AES] iv is not 128bit long")
+		return nil
+	}
+
+	return &InplaceCTR{
+		b:       gc.Block,
+		ctr:     key,
+		out:     make([]byte, 0, STREAM_BUFFER_SIZE),
+		outUsed: 0,
+	}
+}
+
+func (gc *GCipher) New() (err error) {
+	gc.Key = []byte(gc.KeyString)
+
+	for len(gc.Key) < 32 {
+		gc.Key = append(gc.Key, gc.Key...)
+	}
+
+	gc.Block, err = aes.NewCipher(gc.Key[:32])
+	return
+}
+
+func (gc *GCipher) GenerateIV(s, s2 byte) []byte {
 	ret := make([]byte, IV_LENGTH)
 
 	var mul uint32 = uint32(primes[s]) * uint32(primes[s2])
-	var seed uint32 = binary.LittleEndian.Uint32(G_KeyBytes[:4])
+	var seed uint32 = binary.LittleEndian.Uint32(gc.Key[:4])
 
 	for i := 0; i < IV_LENGTH/4; i++ {
 		seed = (mul * seed) % 0x7fffffff
@@ -122,30 +152,240 @@ func generateIV(s, s2 byte) []byte {
 	return ret
 }
 
-func AEncrypt(buf []byte) []byte {
-	r := NewRand()
+func (gc *GCipher) AEncrypt(buf []byte) []byte {
+	r := gc.NewRand()
 	b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
-	return append(_AXor(G_KeyBlock, generateIV(b, b2), buf), b, b2)
+	return append(_AXor(gc.Block, gc.GenerateIV(b, b2), buf), b, b2)
 }
 
-func ADecrypt(buf []byte) []byte {
+func (gc *GCipher) ADecrypt(buf []byte) []byte {
 	if len(buf) < 2 {
 		return buf
 	}
 
 	b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
-	return _AXor(G_KeyBlock, generateIV(b, b2), buf[:len(buf)-2])
+	return _AXor(gc.Block, gc.GenerateIV(b, b2), buf[:len(buf)-2])
 }
 
-func AEncryptString(text string) string {
-	return hex.EncodeToString(AEncrypt([]byte(text)))
+func (gc *GCipher) AEncryptString(text string) string {
+	return hex.EncodeToString(gc.AEncrypt([]byte(text)))
 }
 
-func ADecryptString(text string) string {
+func (gc *GCipher) ADecryptString(text string) string {
 	buf, err := hex.DecodeString(text)
 	if err != nil {
 		return ""
 	}
 
-	return string(ADecrypt(buf))
+	return string(gc.ADecrypt(buf))
+}
+
+func (gc *GCipher) NewRand() *rand.Rand {
+	var k int64 = int64(binary.BigEndian.Uint64(gc.Key[:8]))
+	var k2 int64
+
+	if gc.Hires {
+		k2 = counter.Get()
+	} else {
+		k2 = time.Now().UnixNano()
+	}
+
+	return rand.New(rand.NewSource(k2 ^ k))
+}
+
+func (gc *GCipher) RandomKey() string {
+	_rand := gc.NewRand()
+	retB := make([]byte, 16)
+
+	for i := 0; i < 16; i++ {
+		retB[i] = byte(_rand.Intn(255) + 1)
+	}
+
+	return base64.StdEncoding.EncodeToString(gc.AEncrypt(retB))
+}
+
+func (gc *GCipher) ReverseRandomKey(key string) []byte {
+	if key == "" {
+		return nil
+	}
+
+	k, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		return nil
+	}
+
+	return gc.ADecrypt(k)
+}
+
+type IOConfig struct {
+	Bucket *TokenBucket
+}
+
+func (gc *GCipher) TwoWayBridge(target, source net.Conn, key string, options *IOConfig) {
+
+	targetTCP, targetOK := target.(*net.TCPConn)
+	sourceTCP, sourceOK := source.(*net.TCPConn)
+
+	if targetOK && sourceOK {
+		// copy from source, decrypt, to target
+		go gc.ioCopyAndClose(targetTCP, sourceTCP, key, options)
+
+		// copy from target, encrypt, to source
+		go gc.ioCopyAndClose(sourceTCP, targetTCP, key, options)
+	} else {
+		go func() {
+			var wg sync.WaitGroup
+
+			wg.Add(2)
+			go gc.ioCopyOrWarn(target, source, key, options, &wg)
+			go gc.ioCopyOrWarn(source, target, key, options, &wg)
+			wg.Wait()
+
+			source.Close()
+			target.Close()
+		}()
+	}
+}
+
+func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key string, options *IOConfig) *IOCopyCipher {
+	iocc := &IOCopyCipher{
+		Dst:     dst,
+		Src:     src,
+		Key:     gc.ReverseRandomKey(key),
+		Partial: gc.Partial,
+		Cipher:  gc,
+	}
+
+	if options != nil {
+		iocc.Throttling = options.Bucket // NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
+	}
+
+	return iocc
+}
+
+func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key string, options *IOConfig) {
+	ts := time.Now()
+
+	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
+		logg.E("[COPY] ", time.Now().Sub(ts).Seconds(), "s - ", err)
+	}
+
+	dst.CloseWrite()
+	src.CloseRead()
+}
+
+func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key string, options *IOConfig, wg *sync.WaitGroup) {
+	ts := time.Now()
+
+	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
+		logg.E("[COPYW] ", time.Now().Sub(ts).Seconds(), "s - ", err)
+	}
+
+	wg.Done()
+}
+
+type IOCopyCipher struct {
+	Dst        io.Writer
+	Src        io.Reader
+	Key        []byte
+	Throttling *TokenBucket
+	Partial    bool
+	Cipher     *GCipher
+}
+
+func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logg.E("[WTF] - ", r)
+		}
+	}()
+
+	buf := make([]byte, 32*1024)
+	ctr := cc.Cipher.GetCipherStream(cc.Key)
+	encrypted := 0
+
+	for {
+		nr, er := cc.Src.Read(buf)
+		if nr > 0 {
+			xbuf := buf[0:nr]
+
+			if cc.Partial && encrypted == SSL_RECORD_MAX {
+				goto direct_transmission
+			}
+
+			if ctr != nil {
+				xs := 0
+				if written == 0 {
+					// ignore the header
+					if bytes.HasPrefix(xbuf, OK_HTTP) {
+						xs = len(OK_HTTP)
+					} else if bytes.HasPrefix(xbuf, OK_SOCKS) {
+						xs = len(OK_SOCKS)
+					}
+				}
+
+				if encrypted+nr > SSL_RECORD_MAX && cc.Partial {
+					ctr.XorBuffer(xbuf[:SSL_RECORD_MAX-encrypted])
+					encrypted = SSL_RECORD_MAX
+					// we are done, the traffic coming later will be transfered as is
+				} else {
+					ctr.XorBuffer(xbuf[xs:])
+					encrypted += (nr - xs)
+				}
+
+			}
+
+		direct_transmission:
+			if cc.Throttling != nil {
+				cc.Throttling.Consume(int64(len(xbuf)))
+			}
+
+			nw, ew := cc.Dst.Write(xbuf)
+
+			if nw > 0 {
+				written += int64(nw)
+			}
+
+			if ew != nil {
+				err = ew
+				break
+			}
+
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+	}
+
+	return written, err
+}
+
+type IOReaderCipher struct {
+	Src    io.Reader
+	Key    []byte
+	Cipher *GCipher
+
+	ctr *InplaceCTR
+}
+
+func (rc *IOReaderCipher) Init() *IOReaderCipher {
+	rc.ctr = rc.Cipher.GetCipherStream(rc.Key)
+	return rc
+}
+
+func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
+	n, err = rc.Src.Read(p)
+	if n > 0 && rc.ctr != nil {
+		rc.ctr.XorBuffer(p[:n])
+	}
+
+	return
 }

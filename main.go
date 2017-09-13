@@ -30,22 +30,46 @@ func main() {
 		logg.W("[WARNING] you are using the default key, please change it by setting -k=KEY")
 	}
 
-	G_Cache, G_RequestDummies = lru.NewCache(*G_DNSCacheEntries), lru.NewCache(6)
-
 	if *G_UseChinaList && *G_Upstream != "" {
 		lookup.LoadOrCreateChinaList()
 	}
 
-	if *G_Debug {
-		logg.L("debug mode on, port 8100 for local redirection, upstream on 8101")
+	cipher := &proxy.GCipher{
+		KeyString: *G_Key,
+		Hires:     *G_HRCounter,
+		Partial:   *G_PartialEncrypt,
+		Shoco:     !*G_DisableShoco,
+	}
+	cipher.New()
 
-		go proxy.StartClient(":8100", ":8101", "127.0.0.1:8102")
-		proxy.StartServer(":8102")
+	cc := &proxy.ClientConfig{
+		DNSCache:        lru.NewCache(*G_DNSCacheEntries),
+		Dummies:         lru.NewCache(6),
+		ProxyAllTraffic: *G_ProxyAllTraffic,
+		UseChinaList:    *G_UseChinaList,
+		DisableConsole:  *G_DisableConsole,
+		UserAuth:        *G_Auth,
+		Upstream:        *G_Upstream,
+		GCipher:         cipher,
+	}
+
+	sc := &proxy.ServerConfig{
+		GCipher:       cipher,
+		Throttling:    int64(*G_Throttling),
+		ThrottlingMax: int64(*G_ThrottlingMax),
+	}
+
+	if *G_Debug {
+		logg.L("debug mode on, port 8100 for local redirection, upstream on 8102")
+
+		cc.Upstream = "127.0.0.1:8102"
+		go proxy.StartClient(":8100", ":8101", cc)
+		proxy.StartServer(":8102", sc)
 		return
 	}
 
 	if *G_Upstream != "" {
-		proxy.StartClient(*G_Local, *G_SocksProxy, *G_Upstream)
+		proxy.StartClient(*G_Local, *G_SocksProxy, cc)
 	} else {
 		// save some space because server doesn't need lookup
 		lookup.ChinaList = nil
@@ -56,6 +80,6 @@ func main() {
 		// global variables are pain in the ass
 		runtime.GC()
 
-		proxy.StartServer(*G_Local)
+		proxy.StartServer(*G_Local, sc)
 	}
 }

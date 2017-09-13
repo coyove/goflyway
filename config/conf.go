@@ -96,9 +96,7 @@ func ParseConf(str string) (*conf_t, error) {
 			case '[':
 				if quote == 0 {
 					if e := strings.Index(line, "]"); e > 0 {
-						if curSection == nil {
-							curSection = make(map[string]interface{})
-						}
+						curSection = make(map[string]interface{})
 						config[line[1:e]] = curSection
 						break L
 					} else {
@@ -113,7 +111,7 @@ func ParseConf(str string) (*conf_t, error) {
 				}
 			case '\'', '"':
 				if idx > 0 && line[idx-1] == '\\' {
-					p.WriteByte(c)
+					// escape
 				} else if quote == 0 {
 					quote = c
 				} else if quote == c {
@@ -121,6 +119,8 @@ func ParseConf(str string) (*conf_t, error) {
 				} else {
 					return nil, &ConfError{ln, idx, string(c)}
 				}
+
+				p.WriteByte(c)
 			case '#':
 				if quote == 0 {
 					break L
@@ -197,6 +197,10 @@ func ParseConf(str string) (*conf_t, error) {
 		case "off", "no", "false":
 			_append(false)
 		default:
+			if len(v2) >= 2 && (v2[0] == '\'' || v2[0] == '"') {
+				v2 = v2[1 : len(v2)-1]
+			}
+
 			if num, err := strconv.ParseFloat(v2, 64); err == nil {
 				_append(num)
 			} else {

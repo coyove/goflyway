@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	. "../config"
 	"../logg"
 	"../lookup"
 
@@ -9,29 +8,54 @@ import (
 	"net/http"
 )
 
+type ServerConfig struct {
+	Throttling    int64
+	ThrottlingMax int64
+
+	*GCipher
+}
+
 type ProxyUpstreamHttpServer struct {
 	Tr *http.Transport
+
+	*ServerConfig
+}
+
+func (proxy *ProxyUpstreamHttpServer) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
+	key := proxy.GCipher.ReverseRandomKey(SafeGetHeader(r, RKEY_HEADER))
+
+	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
+		ctr.XorBuffer(p)
+	}
+
+	w.WriteHeader(code)
+	return w.Write(p)
 }
 
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
-		if x := DecryptHost(dh, '!'); x != "" {
+		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
 			w.Write([]byte(lookup.LookupIP(x)))
 			return
 		}
 	}
 
-	if host, mark := TryDecryptHost(r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
+	var auth string
+	if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
+		logg.L(auth)
+	}
+
+	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
-			XorWrite(w, r, []byte("webserver doesn't support hijacking"), http.StatusInternalServerError)
+			proxy.Write(w, r, []byte("webserver doesn't support hijacking"), http.StatusInternalServerError)
 			return
 		}
 
 		downstreamConn, _, err := hij.Hijack()
 		if err != nil {
-			XorWrite(w, r, []byte(err.Error()), http.StatusInternalServerError)
+			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
 
@@ -49,20 +73,21 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 			downstreamConn.Write(OK_SOCKS)
 		}
 
-		if *G_Throttling > 0 {
-			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), DO_THROTTLING)
-		} else {
-			TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), DO_NOTHING)
+		var ioc *IOConfig
+		if proxy.Throttling > 0 {
+			ioc = &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
 		}
+
+		proxy.GCipher.TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), ioc)
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
-			XorWrite(w, r, []byte("abspath only"), http.StatusInternalServerError)
+			proxy.Write(w, r, []byte("abspath only"), http.StatusInternalServerError)
 			return
 		}
 
 		// decrypt req from inside GFW
-		rkey := DecryptRequest(r)
+		rkey := proxy.DecryptRequest(r)
 
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
@@ -70,7 +95,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		resp, err := proxy.Tr.RoundTrip(r)
 		if err != nil {
 			logg.E("[HTTP] - ", r.URL, " - ", err)
-			XorWrite(w, r, []byte(err.Error()), http.StatusInternalServerError)
+			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
 
@@ -88,7 +113,13 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := getIOCipherSimple(w, resp.Body, rkey, *G_Throttling > 0)
+		var iocc *IOCopyCipher
+		if proxy.Throttling > 0 {
+			iocc = proxy.GCipher.WrapIO(w, resp.Body, rkey, &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)})
+		} else {
+			iocc = proxy.GCipher.WrapIO(w, resp.Body, rkey, nil)
+		}
+
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()
@@ -100,9 +131,10 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 	}
 }
 
-func StartServer(addr string) {
+func StartServer(addr string, config *ServerConfig) {
 	proxy := &ProxyUpstreamHttpServer{
-		Tr: &http.Transport{TLSClientConfig: tlsSkip},
+		Tr:           &http.Transport{TLSClientConfig: tlsSkip},
+		ServerConfig: config,
 	}
 
 	logg.L("listening on ", addr)

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	. "../config"
 	"../logg"
 	"../lookup"
 	"../lru"
@@ -18,37 +17,56 @@ import (
 	"time"
 )
 
+type ClientConfig struct {
+	Upstream        string
+	DNSCache        *lru.Cache
+	Dummies         *lru.Cache
+	ProxyAllTraffic bool
+	UseChinaList    bool
+	DisableConsole  bool
+	UserAuth        string
+
+	*GCipher
+}
+
 type ProxyHttpServer struct {
 	Tr       *http.Transport
 	TrDirect *http.Transport
-	Upstream string
+
+	*ClientConfig
 }
 
-func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host string, options int) {
+var GClientProxy *ProxyHttpServer
+
+func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 	if err != nil {
 		logg.E("[UPSTREAM] - ", err)
 		return
 	}
 
-	rkey := RandomKey()
+	rkey := proxy.GCipher.RandomKey()
 
 	if (options & DO_SOCKS5) != 0 {
-		host = EncryptHost(host, HOST_SOCKS_CONNECT)
+		host = EncryptHost(proxy.GCipher, host, HOST_SOCKS_CONNECT)
 	} else {
-		host = EncryptHost(host, HOST_HTTP_CONNECT)
+		host = EncryptHost(proxy.GCipher, host, HOST_HTTP_CONNECT)
 	}
 
 	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, RKEY_HEADER, rkey)
 
-	G_RequestDummies.Info(func(k lru.Key, v interface{}, h int64) {
+	proxy.Dummies.Info(func(k lru.Key, v interface{}, h int64) {
 		if v.(string) != "" {
 			payload += k.(string) + ": " + v.(string) + "\r\n"
 		}
 	})
 
+	if auth != "" {
+		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.AEncryptString(auth))
+	}
+
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	TwoWayBridge(downstreamConn, upstreamConn, rkey, options)
+	proxy.GCipher.TwoWayBridge(downstreamConn, upstreamConn, rkey, nil)
 }
 
 func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
@@ -65,19 +83,22 @@ func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host st
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	TwoWayBridge(downstreamConn, targetSiteConn, "", options)
+	proxy.GCipher.TwoWayBridge(downstreamConn, targetSiteConn, "", nil)
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/?goflyway-console" && !*G_DisableConsole {
+	if r.RequestURI == "/?goflyway-console" && !proxy.DisableConsole {
 		handleWebConsole(w, r)
 		return
 	}
 
-	if *G_Auth != "" && !basicAuth(getAuth(r)) {
-		w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")
-		w.WriteHeader(407)
-		return
+	var auth string
+	if proxy.UserAuth != "" {
+		if auth = proxy.basicAuth(getAuth(r)); auth == "" {
+			w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")
+			w.WriteHeader(407)
+			return
+		}
 	}
 
 	if r.Method == "CONNECT" {
@@ -103,13 +124,12 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		if proxy.CanDirectConnect(host) {
 			proxy.DialHostAndBridge(proxyClient, host, DO_NOTHING)
 		} else {
-			proxy.DialUpstreamAndBridge(proxyClient, host, DO_NOTHING)
+			proxy.DialUpstreamAndBridge(proxyClient, host, auth, DO_NOTHING)
 		}
 	} else {
 		// normal http requests
 		var err error
 		var rkey string
-		// log.Println(proxy.Upstream, "got request", r.URL.Path, r.Host, r.Method, r.URL.String())
 
 		if !r.URL.IsAbs() {
 			http.Error(w, "abspath only", http.StatusInternalServerError)
@@ -122,11 +142,14 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		if proxy.CanDirectConnect(r.Host) {
 			direct = true
 		} else {
-			rkey = EncryptRequest(r)
+			rkey = proxy.EncryptRequest(r)
 		}
 
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
+		if auth != "" {
+			SafeAddHeader(r, AUTH_HEADER, auth)
+		}
 
 		var resp *http.Response
 
@@ -162,7 +185,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := getIOCipherSimple(w, resp.Body, rkey, *G_Throttling > 0)
+		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkey, nil)
 		iocc.Partial = false
 
 		nr, err := iocc.DoCopy()
@@ -180,37 +203,41 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 		host = strings.Split(host, ":")[0]
 	}
 
-	if lookup.IPAddressToInteger(host) != 0 { // host is just an ip
-		return lookup.IsPrivateIP(host) || lookup.IsChineseIP(host)
+	isChineseIP := func(ip string) bool {
+		if proxy.ProxyAllTraffic {
+			return false
+		}
+
+		return lookup.IsChineseIP(ip)
 	}
 
-	if *G_UseChinaList && lookup.IsChineseWebsite(host) {
-		return true
+	if lookup.IsChineseWebsite(host) {
+		return !proxy.ProxyAllTraffic
 	}
 
-	if ip, ok := G_Cache.Get(host); ok && ip.(string) != "" { // we have cached the host
-		return lookup.IsPrivateIP(ip.(string)) || lookup.IsChineseIP(ip.(string))
+	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
+		return lookup.IsPrivateIP(ip.(string)) || isChineseIP(ip.(string))
 	}
 
 	// lookup at local in case host points to a private ip
 	ip := lookup.LookupIP(host)
 	if lookup.IsPrivateIP(ip) {
-		G_Cache.Add(host, ip)
+		proxy.DNSCache.Add(host, ip)
 		return true
 	}
 
 	// if it is a foreign ip, just return false
 	// but if it is a chinese ip, we withhold and query the upstream to double check
-	maybeChinese := lookup.IsChineseIP(ip)
+	maybeChinese := isChineseIP(ip)
 	if !maybeChinese {
-		G_Cache.Add(host, ip)
+		proxy.DNSCache.Add(host, ip)
 		return false
 	}
 
 	// lookup at upstream
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-	req.Header.Add(DNS_HEADER, EncryptHost(host, '!'))
+	req.Header.Add(DNS_HEADER, EncryptHost(proxy.GCipher, host, HOST_DOMAIN_LOOKUP))
 	resp, err := client.Do(req)
 
 	if err != nil {
@@ -228,39 +255,39 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 		return maybeChinese
 	}
 
-	G_Cache.Add(host, string(ipbuf))
-	return lookup.IsChineseIP(string(ipbuf))
+	proxy.DNSCache.Add(host, string(ipbuf))
+	return isChineseIP(string(ipbuf))
 }
 
-func authConnection(conn net.Conn) bool {
+func (proxy *ProxyHttpServer) authConnection(conn net.Conn) (string, bool) {
 	buf := make([]byte, 1+1+255+1+255)
 	var n int
 	var err error
 
 	if n, err = io.ReadAtLeast(conn, buf, 2); err != nil {
 		logg.E(CANNOT_READ_BUF, err)
-		return false
+		return "", false
 	}
 
 	if buf[0] != 0x01 {
-		return false
+		return "", false
 	}
 
 	username_len := int(buf[1])
 	if 2+username_len+1 > n {
-		return false
+		return "", false
 	}
 
 	username := string(buf[2 : 2+username_len])
 	password_len := int(buf[2+username_len])
 
 	if 2+username_len+1+password_len > n {
-		return false
+		return "", false
 	}
 
 	password := string(buf[2+username_len+1 : 2+username_len+1+password_len])
-
-	return *G_Auth == username+":"+password
+	pu := username + ":" + password
+	return pu, proxy.UserAuth == pu
 }
 
 func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
@@ -288,10 +315,15 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 		return
 	}
 
-	if *G_Auth != "" {
+	var (
+		auth string
+		ok   bool
+	)
+
+	if proxy.UserAuth != "" {
 		conn.Write([]byte{socks5Version, 0x02}) // username & password auth
 
-		if !authConnection(conn) {
+		if auth, ok = proxy.authConnection(conn); !ok {
 			conn.Write([]byte{0x01, 0x01})
 			conn.Close()
 			return
@@ -356,26 +388,16 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	if proxy.CanDirectConnect(host) {
 		proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
 	} else {
-		proxy.DialUpstreamAndBridge(conn, host, DO_SOCKS5)
+		proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 	}
 }
 
-func StartClient(localaddr, slocaladdr, upstream string) {
-	upstreamUrl, err := url.Parse("http://" + upstream)
-	if err != nil {
-		logg.F(err)
+func startSocks5(slocaladdr string) {
+	if slocaladdr == "0" {
+		return
 	}
 
-	proxy := &ProxyHttpServer{
-		Tr: &http.Transport{
-			TLSClientConfig: tlsSkip,
-			Proxy:           http.ProxyURL(upstreamUrl),
-		},
-		TrDirect: &http.Transport{TLSClientConfig: tlsSkip},
-		Upstream: upstream,
-	}
-
-	if socks5Listener, err := net.Listen("tcp", *G_SocksProxy); err != nil {
+	if socks5Listener, err := net.Listen("tcp", slocaladdr); err != nil {
 		logg.E(err)
 	} else {
 		logg.L("socks5 proxy at ", slocaladdr)
@@ -386,11 +408,28 @@ func StartClient(localaddr, slocaladdr, upstream string) {
 					logg.E("[SOCKS] ", err)
 					continue
 				}
-				go proxy.HandleSocks(conn)
+				go GClientProxy.HandleSocks(conn)
 			}
 		}()
 	}
+}
 
-	logg.L("http proxy at ", localaddr, ", upstream is ", upstream)
-	logg.F(http.ListenAndServe(localaddr, proxy))
+func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
+	upstreamUrl, err := url.Parse("http://" + config.Upstream)
+	if err != nil {
+		logg.F(err)
+	}
+
+	GClientProxy = &ProxyHttpServer{
+		Tr: &http.Transport{
+			TLSClientConfig: tlsSkip,
+			Proxy:           http.ProxyURL(upstreamUrl),
+		},
+		TrDirect:     &http.Transport{TLSClientConfig: tlsSkip},
+		ClientConfig: config,
+	}
+
+	startSocks5(slocaladdr)
+	logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
+	logg.F(http.ListenAndServe(localaddr, GClientProxy))
 }

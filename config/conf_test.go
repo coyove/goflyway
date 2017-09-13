@@ -13,9 +13,10 @@ func TestConfParsing(t *testing.T) {
 	b=1
 	c
 	d=#comment2
-	[section1]
+	[section]
 	e f = 12
-	g=on`
+	g=on
+	a='on'`
 
 	throw := func() { t.Error("Error parsing:", text) }
 
@@ -41,6 +42,10 @@ func TestConfParsing(t *testing.T) {
 	}
 
 	if cf.GetBool("section", "g", false) != true {
+		throw()
+	}
+
+	if cf.GetString("section", "a", "") != "on" {
 		throw()
 	}
 

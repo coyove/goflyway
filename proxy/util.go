@@ -1,24 +1,18 @@
 package proxy
 
 import (
-	. "../config"
-	"../counter"
 	"../logg"
 	"../lookup"
-	"../shoco"
 
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
-	"time"
 )
 
 const (
@@ -34,10 +28,11 @@ const (
 	HOST_HTTP_CONNECT  = '*'
 	HOST_HTTP_FORWARD  = '#'
 	HOST_SOCKS_CONNECT = '$'
+	HOST_DOMAIN_LOOKUP = '!'
 
 	RKEY_HEADER     = "X-Request-ID"
-	RKEY_HEADER2    = "X-Request-HTTP-ID"
 	DNS_HEADER      = "X-Host-Lookup"
+	AUTH_HEADER     = "X-Authorization"
 	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
 	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
 )
@@ -57,76 +52,6 @@ var (
 	base32Replace  = []string{"th", "er", "t", "h", "e", "r"}
 )
 
-func NewRand() *rand.Rand {
-	var k int64 = int64(binary.BigEndian.Uint64(G_KeyBytes[:8]))
-	var k2 int64
-
-	if *G_HRCounter {
-		k2 = counter.Get()
-	} else {
-		k2 = time.Now().UnixNano()
-	}
-
-	return rand.New(rand.NewSource(k2 ^ k))
-}
-
-func RandomKey() string {
-	_rand := NewRand()
-	retB := make([]byte, 16)
-
-	for i := 0; i < 16; i++ {
-		retB[i] = byte(_rand.Intn(255) + 1)
-	}
-
-	return base64.StdEncoding.EncodeToString(AEncrypt(retB))
-}
-
-func ReverseRandomKey(key string) []byte {
-	if key == "" {
-		return nil
-	}
-
-	k, err := base64.StdEncoding.DecodeString(key)
-	if err != nil {
-		return nil
-	}
-
-	return ADecrypt(k)
-}
-
-func processBody(req *http.Request, enc bool) {
-	var rkey string
-	if enc {
-		add := func(field string) {
-			if x := req.Header.Get(field); x != "" {
-				G_RequestDummies.Add(field, x)
-			}
-		}
-
-		add("Accept-Language")
-		add("User-Agent")
-		add("Referer")
-		add("Cache-Control")
-		add("Accept-Encoding")
-		add("Connection")
-
-		rkey = RandomKey()
-		SafeAddHeader(req, RKEY_HEADER2, rkey)
-	} else {
-		rkey = SafeGetHeader(req, RKEY_HEADER2)
-	}
-
-	for _, c := range req.Cookies() {
-		if enc {
-			c.Value = AEncryptString(c.Value)
-		} else {
-			c.Value = ADecryptString(c.Value)
-		}
-	}
-
-	req.Body = ioutil.NopCloser((&IOReaderCipher{Src: req.Body, Key: ReverseRandomKey(rkey)}).Init())
-}
-
 func SafeAddHeader(req *http.Request, k, v string) {
 	if orig := req.Header.Get(k); orig != "" {
 		req.Header.Set(k, v+" "+orig)
@@ -145,24 +70,74 @@ func SafeGetHeader(req *http.Request, k string) string {
 	return v
 }
 
-func EncryptRequest(req *http.Request) string {
-	req.Host = EncryptHost(req.Host, HOST_HTTP_FORWARD)
-	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + AEncryptString(req.URL.String()))
+func (proxy *ProxyHttpServer) basicAuth(token string) string {
+	parts := strings.Split(token, " ")
+	if len(parts) != 2 {
+		return ""
+	}
 
-	rkey := RandomKey()
+	pa, err := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return ""
+	}
+
+	if s := string(pa); s == proxy.UserAuth {
+		return s
+	} else {
+		return ""
+	}
+}
+
+func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
+	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.AEncryptString(req.URL.String()))
+
+	rkey := proxy.GCipher.RandomKey()
 	SafeAddHeader(req, RKEY_HEADER, rkey)
-	processBody(req, true)
+
+	add := func(field string) {
+		if x := req.Header.Get(field); x != "" {
+			proxy.Dummies.Add(field, x)
+		}
+	}
+
+	add("Accept-Language")
+	add("User-Agent")
+	add("Referer")
+	add("Cache-Control")
+	add("Accept-Encoding")
+	add("Connection")
+
+	for _, c := range req.Cookies() {
+		c.Value = proxy.GCipher.AEncryptString(c.Value)
+	}
+
+	req.Body = ioutil.NopCloser((&IOReaderCipher{
+		Src:    req.Body,
+		Key:    proxy.GCipher.ReverseRandomKey(rkey),
+		Cipher: proxy.GCipher,
+	}).Init())
+
 	return rkey
 }
 
-func DecryptRequest(req *http.Request) string {
-	req.Host = DecryptHost(req.Host, HOST_HTTP_FORWARD)
+func (proxy *ProxyUpstreamHttpServer) DecryptRequest(req *http.Request) string {
+	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
-		req.URL, _ = url.Parse(ADecryptString(p[1]))
+		req.URL, _ = url.Parse(proxy.GCipher.ADecryptString(p[1]))
 	}
 
 	rkey := SafeGetHeader(req, RKEY_HEADER)
-	processBody(req, false)
+
+	for _, c := range req.Cookies() {
+		c.Value = proxy.GCipher.ADecryptString(c.Value)
+	}
+
+	req.Body = ioutil.NopCloser((&IOReaderCipher{
+		Src:    req.Body,
+		Key:    proxy.GCipher.ReverseRandomKey(rkey),
+		Cipher: proxy.GCipher,
+	}).Init())
 	return rkey
 }
 
@@ -180,24 +155,10 @@ func copyHeaders(dst, src http.Header) {
 func getAuth(r *http.Request) string {
 	pa := r.Header.Get("Proxy-Authorization")
 	if pa == "" {
-		pa = r.Header.Get("X-Authorization")
+		pa = r.Header.Get(AUTH_HEADER)
 	}
 
 	return pa
-}
-
-func basicAuth(token string) bool {
-	parts := strings.Split(token, " ")
-	if len(parts) != 2 {
-		return false
-	}
-
-	pa, err := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return false
-	}
-
-	return string(pa) == *G_Auth
 }
 
 func tryClose(b io.ReadCloser) {
@@ -214,14 +175,14 @@ func SplitHostPort(host string) (string, string) {
 	}
 }
 
-func EncryptHost(text string, mark byte) string {
+func EncryptHost(c *GCipher, text string, mark byte) string {
 	host, port := SplitHostPort(text)
 
 	enc := func(in string) string {
-		if *G_DisableShoco {
-			return Base32Encode(AEncrypt([]byte(in)))
+		if !c.Shoco {
+			return Base32Encode(c.AEncrypt([]byte(in)))
 		} else {
-			return Base32Encode(AEncrypt(shoco.Compress(in)))
+			return Base32Encode(c.AEncrypt(shocoCompress(in)))
 		}
 	}
 
@@ -246,8 +207,8 @@ func EncryptHost(text string, mark byte) string {
 	return enc(string(mark)+host) + port
 }
 
-func DecryptHost(text string, mark byte) string {
-	host, m := TryDecryptHost(text)
+func DecryptHost(c *GCipher, text string, mark byte) string {
+	host, m := TryDecryptHost(c, text)
 	if m != mark {
 		return ""
 	} else {
@@ -255,7 +216,7 @@ func DecryptHost(text string, mark byte) string {
 	}
 }
 
-func TryDecryptHost(text string) (h string, m byte) {
+func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 	host, port := SplitHostPort(text)
 	parts := strings.Split(host, ".")
 
@@ -263,10 +224,10 @@ func TryDecryptHost(text string) (h string, m byte) {
 		if !tlds[parts[i]] {
 			buf := Base32Decode(parts[i])
 
-			if *G_DisableShoco {
-				parts[i] = string(ADecrypt(buf))
+			if !c.Shoco {
+				parts[i] = string(c.ADecrypt(buf))
 			} else {
-				parts[i] = shoco.Decompress(ADecrypt(buf))
+				parts[i] = shocoDecompress(c.ADecrypt(buf))
 			}
 
 			if len(parts[i]) == 0 {

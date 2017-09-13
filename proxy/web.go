@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	. "../config"
 	"../lru"
 
 	"fmt"
@@ -75,17 +74,17 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			HRCounter  bool
 			Key        string
 		}{
-			*G_ProxyAllTraffic,
-			*G_UseChinaList,
-			*G_DisableShoco,
-			*G_HRCounter,
-			*G_Key,
+			GClientProxy.ProxyAllTraffic,
+			GClientProxy.UseChinaList,
+			!GClientProxy.GCipher.Shoco,
+			GClientProxy.GCipher.Hires,
+			GClientProxy.GCipher.KeyString,
 		})
 
 		w.Write([]byte(`<table><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
 
 		flag := false
-		G_Cache.Info(func(k lru.Key, v interface{}, h int64) {
+		GClientProxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
 			flag = true
 			w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h)))
 		})
@@ -97,17 +96,16 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("</table></html>"))
 	} else if r.Method == "POST" {
 		if r.FormValue("clearc") != "" {
-			G_Cache.Clear()
+			GClientProxy.DNSCache.Clear()
 		}
 
 		if r.FormValue("proxy") != "" {
-			*G_ProxyAllTraffic = r.FormValue("proxyall") == "on"
-			*G_UseChinaList = r.FormValue("proxyc") == "on"
-			*G_DisableShoco = r.FormValue("noshoco") == "on"
-			*G_HRCounter = r.FormValue("hrcounter") == "on"
-
-			*G_Key = r.FormValue("key")
-			UpdateKey()
+			GClientProxy.ProxyAllTraffic = r.FormValue("proxyall") == "on"
+			GClientProxy.UseChinaList = r.FormValue("proxyc") == "on"
+			GClientProxy.GCipher.Shoco = r.FormValue("noshoco") != "on"
+			GClientProxy.GCipher.Hires = r.FormValue("hrcounter") == "on"
+			GClientProxy.GCipher.KeyString = r.FormValue("key")
+			GClientProxy.GCipher.New()
 		}
 
 		http.Redirect(w, r, "/?goflyway-console", 301)
