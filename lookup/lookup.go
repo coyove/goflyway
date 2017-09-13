@@ -46,7 +46,12 @@ func init() {
 }
 
 func LoadOrCreateChinaList() {
-	buf, _ := ioutil.ReadFile("./chinalist.txt")
+	buf, err := ioutil.ReadFile("./chinalist.txt")
+	if err != nil {
+		logg.W("cannot read chinalist.txt")
+		return
+	}
+
 	ChinaList = make(China_list_t)
 
 	for _, domain := range strings.Split(string(buf), "\n") {

@@ -10,9 +10,23 @@ import (
 )
 
 var ignoreLocalhost = true
+var logLevel = 0
 
 func RecordLocalhostError(r bool) {
 	ignoreLocalhost = !r
+}
+
+func SetLevel(lv string) {
+	switch lv {
+	case "warn":
+		logLevel = 1
+	case "err":
+		logLevel = 2
+	case "off":
+		logLevel = 3
+	default:
+		logLevel = 0
+	}
 }
 
 func timestamp() string {
@@ -88,15 +102,21 @@ func print(l string, params ...interface{}) {
 }
 
 func L(params ...interface{}) {
-	print(" ", params...)
+	if logLevel == 0 {
+		print(" ", params...)
+	}
 }
 
 func W(params ...interface{}) {
-	print("W", params...)
+	if logLevel <= 1 {
+		print("W", params...)
+	}
 }
 
 func E(params ...interface{}) {
-	print("E", params...)
+	if logLevel <= 2 {
+		print("E", params...)
+	}
 }
 
 func F(params ...interface{}) {

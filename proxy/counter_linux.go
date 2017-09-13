@@ -1,4 +1,4 @@
-package counter
+package proxy
 
 import (
 	"syscall"
@@ -7,7 +7,7 @@ import (
 
 var CLOCK_MONOTONIC = 1
 
-func Get() int64 {
+func GetCounter() int64 {
 	var ts syscall.Timespec
 	syscall.Syscall(syscall.SYS_CLOCK_GETTIME, uintptr(CLOCK_MONOTONIC), uintptr(unsafe.Pointer(&ts)), 0)
 

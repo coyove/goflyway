@@ -1,5 +1,4 @@
-// +build windows
-package counter
+package proxy
 
 import (
 	"syscall"
@@ -14,7 +13,7 @@ func init() {
 	qpc, _ = syscall.GetProcAddress(k32, "QueryPerformanceCounter")
 }
 
-func Get() (k int64) {
+func GetCounter() (k int64) {
 	syscall.Syscall(qpc, 1, uintptr(unsafe.Pointer(&k)), 0, 0)
 
 	if k == 0 {

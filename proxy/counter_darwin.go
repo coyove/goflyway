@@ -1,9 +1,9 @@
-package counter
+package proxy
 
 import (
 	"time"
 )
 
-func Get() int64 {
+func GetCounter() int64 {
 	return time.Now().UnixNano()
 }

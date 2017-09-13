@@ -2,19 +2,9 @@ package config
 
 import (
 	"../logg"
-	"../lru"
 
-	"crypto/aes"
-	"crypto/cipher"
 	"flag"
 	"io/ioutil"
-)
-
-var (
-	G_KeyBytes       []byte
-	G_KeyBlock       cipher.Block
-	G_Cache          *lru.Cache
-	G_RequestDummies *lru.Cache
 )
 
 var (
@@ -23,8 +13,9 @@ var (
 	G_Key        = flag.String("k", "0123456789abcdef", "key, important")
 	G_Auth       = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
 	G_Upstream   = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	G_Local      = flag.String("l", ":8100", "local listening port")
-	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port")
+	G_Local      = flag.String("l", ":8100", "local listening port (remember the colon)")
+	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port, -s=0 to disable it")
+	G_LogLevel   = flag.String("lv", "all", "logging level, whose value can be: all, warn, err")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")
@@ -36,8 +27,8 @@ var (
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
 
 	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
-	G_Throttling      = flag.Int("throttling", 0, "traffic throttling, experimental")
-	G_ThrottlingMax   = flag.Int("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
+	G_Throttling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
+	G_ThrottlingMax   = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
 func LoadConfig() {
@@ -61,6 +52,7 @@ func LoadConfig() {
 		*G_Local = cf.GetString("default", "listen", *G_Local)
 		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
 		*G_SocksProxy = cf.GetString("default", "socks5", *G_SocksProxy)
+		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
 
@@ -71,21 +63,7 @@ func LoadConfig() {
 		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
 		*G_PartialEncrypt = cf.GetBool("misc", "partial", *G_PartialEncrypt)
 
-		*G_Throttling = int(cf.GetInt("experimental", "throttling", int64(*G_Throttling)))
-		*G_ThrottlingMax = int(cf.GetInt("experimental", "throttlingmax", int64(*G_ThrottlingMax)))
-	}
-
-	UpdateKey()
-}
-
-func UpdateKey() {
-	G_KeyBytes = []byte(*G_Key)
-	for len(G_KeyBytes) < 32 {
-		G_KeyBytes = append(G_KeyBytes, G_KeyBytes...)
-	}
-
-	G_KeyBlock, _ = aes.NewCipher(G_KeyBytes[:32])
-	if G_KeyBlock == nil {
-		logg.F("cannot create aes cipher")
+		*G_Throttling = cf.GetInt("experimental", "throttling", *G_Throttling)
+		*G_ThrottlingMax = cf.GetInt("experimental", "throttlingmax", *G_ThrottlingMax)
 	}
 }

@@ -12,13 +12,31 @@ type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
 
+	Users map[string]UserConfig
+
 	*GCipher
+}
+
+// for multi-users server, not implemented yet
+type UserConfig struct {
+	Auth          string
+	Throttling    int64
+	ThrottlingMax int64
 }
 
 type ProxyUpstreamHttpServer struct {
 	Tr *http.Transport
 
 	*ServerConfig
+}
+
+func (proxy *ProxyUpstreamHttpServer) getIOConfig(auth string) *IOConfig {
+	var ioc *IOConfig
+	if proxy.Throttling > 0 {
+		ioc = &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
+	}
+
+	return ioc
 }
 
 func (proxy *ProxyUpstreamHttpServer) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
@@ -42,7 +60,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 
 	var auth string
 	if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
-		logg.L(auth)
+		auth = proxy.GCipher.DecryptString(auth)
 	}
 
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
@@ -73,12 +91,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 			downstreamConn.Write(OK_SOCKS)
 		}
 
-		var ioc *IOConfig
-		if proxy.Throttling > 0 {
-			ioc = &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
-		}
-
-		proxy.GCipher.TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), ioc)
+		proxy.GCipher.TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), proxy.getIOConfig(auth))
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
@@ -113,13 +126,7 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		var iocc *IOCopyCipher
-		if proxy.Throttling > 0 {
-			iocc = proxy.GCipher.WrapIO(w, resp.Body, rkey, &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)})
-		} else {
-			iocc = proxy.GCipher.WrapIO(w, resp.Body, rkey, nil)
-		}
-
+		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkey, proxy.getIOConfig(auth))
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()

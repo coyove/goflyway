@@ -90,7 +90,7 @@ func (proxy *ProxyHttpServer) basicAuth(token string) string {
 
 func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
 	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
-	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.AEncryptString(req.URL.String()))
+	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
 	rkey := proxy.GCipher.RandomKey()
 	SafeAddHeader(req, RKEY_HEADER, rkey)
@@ -109,7 +109,7 @@ func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
 	add("Connection")
 
 	for _, c := range req.Cookies() {
-		c.Value = proxy.GCipher.AEncryptString(c.Value)
+		c.Value = proxy.GCipher.EncryptString(c.Value)
 	}
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
@@ -124,13 +124,13 @@ func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
 func (proxy *ProxyUpstreamHttpServer) DecryptRequest(req *http.Request) string {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
-		req.URL, _ = url.Parse(proxy.GCipher.ADecryptString(p[1]))
+		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
 	}
 
 	rkey := SafeGetHeader(req, RKEY_HEADER)
 
 	for _, c := range req.Cookies() {
-		c.Value = proxy.GCipher.ADecryptString(c.Value)
+		c.Value = proxy.GCipher.DecryptString(c.Value)
 	}
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
@@ -180,9 +180,9 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 
 	enc := func(in string) string {
 		if !c.Shoco {
-			return Base32Encode(c.AEncrypt([]byte(in)))
+			return Base32Encode(c.Encrypt([]byte(in)))
 		} else {
-			return Base32Encode(c.AEncrypt(shocoCompress(in)))
+			return Base32Encode(c.Encrypt(shocoCompress(in)))
 		}
 	}
 
@@ -225,9 +225,9 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 			buf := Base32Decode(parts[i])
 
 			if !c.Shoco {
-				parts[i] = string(c.ADecrypt(buf))
+				parts[i] = string(c.Decrypt(buf))
 			} else {
-				parts[i] = shocoDecompress(c.ADecrypt(buf))
+				parts[i] = shocoDecompress(c.Decrypt(buf))
 			}
 
 			if len(parts[i]) == 0 {

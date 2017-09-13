@@ -23,7 +23,7 @@ func main() {
  `)
 
 	LoadConfig()
-
+	logg.SetLevel(*G_LogLevel)
 	logg.RecordLocalhostError(*G_RecordLocalError)
 
 	if *G_Key == "0123456789abcdef" {
@@ -55,12 +55,12 @@ func main() {
 
 	sc := &proxy.ServerConfig{
 		GCipher:       cipher,
-		Throttling:    int64(*G_Throttling),
-		ThrottlingMax: int64(*G_ThrottlingMax),
+		Throttling:    *G_Throttling,
+		ThrottlingMax: *G_ThrottlingMax,
 	}
 
 	if *G_Debug {
-		logg.L("debug mode on, port 8100 for local redirection, upstream on 8102")
+		logg.L("debug mode on, port 8100 for http proxy, port 8101 for socks5 proxy")
 
 		cc.Upstream = "127.0.0.1:8102"
 		go proxy.StartClient(":8100", ":8101", cc)

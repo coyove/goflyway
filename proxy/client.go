@@ -62,7 +62,7 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	})
 
 	if auth != "" {
-		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.AEncryptString(auth))
+		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth))
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))

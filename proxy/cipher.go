@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"../counter"
 	"../logg"
 
 	"bytes"
@@ -88,7 +87,7 @@ func (x *InplaceCTR) XorBuffer(buf []byte) {
 	}
 }
 
-func _AXor(blk cipher.Block, iv, buf []byte) []byte {
+func _xor(blk cipher.Block, iv, buf []byte) []byte {
 	bsize := blk.BlockSize()
 	x := make([]byte, len(buf)/bsize*bsize+bsize)
 
@@ -152,32 +151,32 @@ func (gc *GCipher) GenerateIV(s, s2 byte) []byte {
 	return ret
 }
 
-func (gc *GCipher) AEncrypt(buf []byte) []byte {
+func (gc *GCipher) Encrypt(buf []byte) []byte {
 	r := gc.NewRand()
 	b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
-	return append(_AXor(gc.Block, gc.GenerateIV(b, b2), buf), b, b2)
+	return append(_xor(gc.Block, gc.GenerateIV(b, b2), buf), b, b2)
 }
 
-func (gc *GCipher) ADecrypt(buf []byte) []byte {
+func (gc *GCipher) Decrypt(buf []byte) []byte {
 	if len(buf) < 2 {
 		return buf
 	}
 
 	b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
-	return _AXor(gc.Block, gc.GenerateIV(b, b2), buf[:len(buf)-2])
+	return _xor(gc.Block, gc.GenerateIV(b, b2), buf[:len(buf)-2])
 }
 
-func (gc *GCipher) AEncryptString(text string) string {
-	return hex.EncodeToString(gc.AEncrypt([]byte(text)))
+func (gc *GCipher) EncryptString(text string) string {
+	return hex.EncodeToString(gc.Encrypt([]byte(text)))
 }
 
-func (gc *GCipher) ADecryptString(text string) string {
+func (gc *GCipher) DecryptString(text string) string {
 	buf, err := hex.DecodeString(text)
 	if err != nil {
 		return ""
 	}
 
-	return string(gc.ADecrypt(buf))
+	return string(gc.Decrypt(buf))
 }
 
 func (gc *GCipher) NewRand() *rand.Rand {
@@ -185,7 +184,7 @@ func (gc *GCipher) NewRand() *rand.Rand {
 	var k2 int64
 
 	if gc.Hires {
-		k2 = counter.Get()
+		k2 = GetCounter()
 	} else {
 		k2 = time.Now().UnixNano()
 	}
@@ -201,7 +200,7 @@ func (gc *GCipher) RandomKey() string {
 		retB[i] = byte(_rand.Intn(255) + 1)
 	}
 
-	return base64.StdEncoding.EncodeToString(gc.AEncrypt(retB))
+	return base64.StdEncoding.EncodeToString(gc.Encrypt(retB))
 }
 
 func (gc *GCipher) ReverseRandomKey(key string) []byte {
@@ -214,7 +213,7 @@ func (gc *GCipher) ReverseRandomKey(key string) []byte {
 		return nil
 	}
 
-	return gc.ADecrypt(k)
+	return gc.Decrypt(k)
 }
 
 type IOConfig struct {
@@ -257,7 +256,7 @@ func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key string, options *IOC
 	}
 
 	if options != nil {
-		iocc.Throttling = options.Bucket // NewTokenBucket(int64(*G_Throttling), int64(*G_ThrottlingMax))
+		iocc.Throttling = options.Bucket
 	}
 
 	return iocc
