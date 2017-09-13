@@ -24,6 +24,49 @@ There is a simple web console built inside goflyway: `http://127.0.0.1:8100/?gof
 
 ![](https://github.com/coyove/goflyway/blob/master/.misc/console.png?raw=true)
 
+# Building instructions:
+Building can now be done with:
+```shell
+make clean build
+```
+
+Or if you want to do it through Docker (if you don't have/want go installed on your local):
+```shell
+make -f docker.Makefile clean build
+```
+
+# Usage as a docker image:
+Docker image can be built with:
+```shell
+make build_image
+```
+
+It's a multi-stage build so the size is ~8.23mb
+```
+❯ docker images | grep goflyway
+coyove/goflyway                      latest                       68bd9fe5612e        7 minutes ago       8.23MB
+```
+
+Can be used like:
+
+```
+❯ docker run --rm -p 8102:8102 -p 8100:8100 -p 8101:8101 coyove/goflyway -debug
+     __//                   __ _
+    /.__.\                 / _| |
+    \ \/ /      __ _  ___ | |_| |_   ___      ____ _ _   _
+ '__/    \     / _' |/ _ \|  _| | | | \ \ /\ / / _' | | | |
+  \-      )   | (_| | (_) | | | | |_| |\ V  V / (_| | |_| |
+   \_____/     \__, |\___/|_| |_|\__, | \_/\_/ \__,_|\__, |
+ ____|_|____    __/ |             __/ |               __/ |
+     " "  cf   |___/             |___/               |___/
+
+[W 0912 22:44:16.696] [WARNING] you are using the default key, please change it by setting -k=KEY
+[  0912 22:44:16.696] debug mode on, port 8100 for local redirection, upstream on 8101
+[  0912 22:44:16.696] listening on :8102
+[  0912 22:44:16.697] socks5 proxy at :8101
+[  0912 22:44:16.697] http proxy at :8100, upstream is 127.0.0.1:8101
+```
+
 ## Others
 When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
 
