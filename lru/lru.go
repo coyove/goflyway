@@ -3,8 +3,6 @@ package lru
 import (
 	"container/list"
 	"sync"
-
-	"../logg"
 )
 
 type Cache struct {
@@ -52,14 +50,8 @@ func (c *Cache) Clear() {
 func (c *Cache) Info(callback func(Key, interface{}, int64)) {
 	c.RLock()
 	f := c.ll.Front()
-	r := 0
 
 	for f != nil {
-		if r++; r > c.MaxEntries {
-			logg.E("something bad happened: we had a loop")
-			break
-		}
-
 		e := f.Value.(*entry)
 		callback(e.key, e.value, e.hits)
 

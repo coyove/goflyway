@@ -1,8 +1,6 @@
 package lookup
 
 import (
-	"../logg"
-
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -45,11 +43,10 @@ func init() {
 	fill(&IPv4PrivateLookupTable, PRIVATE_IP)
 }
 
-func LoadOrCreateChinaList() {
+func LoadOrCreateChinaList() bool {
 	buf, err := ioutil.ReadFile("./chinalist.txt")
 	if err != nil {
-		logg.W("cannot read chinalist.txt")
-		return
+		return false
 	}
 
 	ChinaList = make(China_list_t)
@@ -73,6 +70,8 @@ func LoadOrCreateChinaList() {
 			top = top[subs[i]].(China_list_t)
 		}
 	}
+
+	return true
 }
 
 func IPInLookupTable(ip string, table [][]uint32) bool {
@@ -140,14 +139,13 @@ func IsPrivateIP(ip string) bool {
 	return IPInLookupTable(ip, IPv4PrivateLookupTable)
 }
 
-func LookupIP(host string) string {
+func LookupIP(host string) (string, error) {
 	ip, err := net.ResolveIPAddr("ip4", host)
 	if err != nil {
-		logg.L("[DNS] ", err)
-		return ""
+		return "", err
 	}
 
-	return ip.String()
+	return ip.String(), nil
 }
 
 func IPAddressToInteger(ip string) int {
@@ -199,8 +197,4 @@ func BytesToIPv6(buf []byte) string {
 		hex(buf[4]), hex(buf[5]), hex(buf[6]), hex(buf[7]),
 		hex(buf[8]), hex(buf[9]), hex(buf[10]), hex(buf[11]),
 		hex(buf[12]), hex(buf[13]), hex(buf[14]), hex(buf[15]))
-}
-
-func LookupIPInt(host string) int {
-	return IPAddressToInteger(LookupIP(host))
 }

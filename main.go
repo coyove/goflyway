@@ -31,7 +31,9 @@ func main() {
 	}
 
 	if *G_UseChinaList && *G_Upstream != "" {
-		lookup.LoadOrCreateChinaList()
+		if !lookup.LoadOrCreateChinaList() {
+			logg.W("cannot read chinalist.txt")
+		}
 	}
 
 	cipher := &proxy.GCipher{

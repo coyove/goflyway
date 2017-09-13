@@ -53,7 +53,8 @@ func (proxy *ProxyUpstreamHttpServer) Write(w http.ResponseWriter, r *http.Reque
 func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
 		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
-			w.Write([]byte(lookup.LookupIP(x)))
+			ip, _ := lookup.LookupIP(x)
+			w.Write([]byte(ip))
 			return
 		}
 	}

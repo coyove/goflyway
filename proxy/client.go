@@ -220,7 +220,11 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	}
 
 	// lookup at local in case host points to a private ip
-	ip := lookup.LookupIP(host)
+	ip, err := lookup.LookupIP(host)
+	if err != nil {
+		logg.E("[DNS] ", err)
+	}
+
 	if lookup.IsPrivateIP(ip) {
 		proxy.DNSCache.Add(host, ip)
 		return true
