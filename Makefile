@@ -1,6 +1,6 @@
 IMAGE_NAME?=coyove/goflyway
 NAME?=goflyway
-SOURCE?=main.go
+SOURCE?=./cmd/goflyway/main.go
 LIST?=chinalist.txt
 
 .PHONY: release windows darwin linux clean
@@ -11,7 +11,7 @@ clean:
 build: build/goflyway
 
 build/goflyway:
-	mkdir -p build && go build -o $@ main.go && cp $(LIST) build/
+	mkdir -p build && go build -o $@ ./cmd/goflyway && cp $(LIST) build/
 
 .PHONY: build_image
 build_image:
@@ -19,7 +19,7 @@ build_image:
 
 release: windows darwin linux
 
-release = GOOS=$(1) GOARCH=$(2) go build -o build/$(3) && cp $(LIST) build/
+release = GOOS=$(1) GOARCH=$(2) go build -o build/$(3) ./cmd/goflyway && cp $(LIST) build/
 tar = cd build && tar -cvzf $(NAME)_$(1)_$(2).tar.gz $(NAME) $(LIST) && rm $(NAME)
 zip = cd build && zip $(NAME)_$(1)_$(2).zip $(NAME).exe $(LIST) && rm $(NAME).exe
 

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"../logg"
+	"github.com/coyove/goflyway/pkg/logg"
 
 	"flag"
 	"io/ioutil"

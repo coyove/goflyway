@@ -1,9 +1,9 @@
 package proxy
 
 import (
-	"../logg"
-	"../lookup"
-	"../lru"
+	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/lru"
 
 	"fmt"
 	"io"

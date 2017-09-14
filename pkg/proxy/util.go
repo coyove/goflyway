@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	"../logg"
-	"../lookup"
+	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/lookup"
 
 	"crypto/tls"
 	"encoding/base32"

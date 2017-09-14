@@ -1,6 +1,6 @@
 # goflyway, HTTP tunnel in Go
 
-goflyway is a tunnel proxy helping you fly across the wall. It is based entirely on HTTP protocol without any other 3rd party libraries. 
+goflyway is a tunnel proxy helping you fly across the wall. It is based entirely on HTTP protocol without any other 3rd party libraries.
 
 [中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%B3%A8%E6%84%8F)
 
@@ -16,16 +16,9 @@ where `KEY` is the password, then at local run the client to connect:
 Set your Internet proxy to 127.0.0.1:8100 (HTTP) or 127.0.0.1:8101 (SOCKS5) and enjoy.
 
 ### Build from source
-goflyway is still not yet completed, please do not `go get && go install` (because of ugly local imports), instead git cloned it directly:
 ```shell
-git clone https://github.com/coyove/goflyway
-cd goflyway
-make build && cd build && ./goflyway -k=KEY
-```
-
-On windows (normally running a client) without `make`, you can:
-```
-./debug.bat -up=VPS_IP:8100 -k=KEY
+$ go get -u https://github.com/coyove/goflyway/cmd/goflyway
+$ goflyway -k=KEY
 ```
 
 ### Usage as a docker image
