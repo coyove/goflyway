@@ -2,6 +2,16 @@
 
 goflyway is a tunnel proxy helping you fly across the wall. It is based entirely on HTTP protocol without any other 3rd party libraries. 
 
+## Install
+
+`go get` will show error " local import in non-local package", instead you should clone into directory outsite your `$GOPATH` directory:
+
+```
+$ git clone https://github.com/coyove/goflyway
+$ cd goflyway
+$ go install
+```
+
 ## Run
 If you want to try it now, simply run:
 ```
