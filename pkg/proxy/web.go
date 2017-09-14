@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"../lru"
+	"github.com/coyove/goflyway/pkg/lru"
 
 	"fmt"
 	"net/http"
@@ -47,7 +47,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 			float: right;
 		}
 	</style>
-	
+
 	<div id=logo>
 		g<span>o</span>f<span>ly</span>w<span>ay</span> console
 	</div>
