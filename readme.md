@@ -2,6 +2,8 @@
 
 goflyway is a tunnel proxy helping you fly across the wall. It is based entirely on HTTP protocol without any other 3rd party libraries. 
 
+[中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%B3%A8%E6%84%8F)
+
 ## Build & Run
 Download the binary from [releases](https://github.com/coyove/goflyway/releases), on your VPS, launch the server by:
 ```

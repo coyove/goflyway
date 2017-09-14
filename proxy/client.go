@@ -412,6 +412,7 @@ func startSocks5(slocaladdr string) {
 					logg.E("[SOCKS] ", err)
 					continue
 				}
+
 				go GClientProxy.HandleSocks(conn)
 			}
 		}()
@@ -433,7 +434,18 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		ClientConfig: config,
 	}
 
-	startSocks5(slocaladdr)
-	logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
-	logg.F(http.ListenAndServe(localaddr, GClientProxy))
+	if localaddr != slocaladdr {
+		startSocks5(slocaladdr)
+		logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
+		logg.F(http.ListenAndServe(localaddr, GClientProxy))
+	} else {
+		// try multiplexer
+		mux, err := net.Listen("tcp", localaddr)
+		if err != nil {
+			logg.F(err)
+		}
+
+		logg.L("http/socks5 proxy both at ", localaddr, ", upstream is ", config.Upstream)
+		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: GClientProxy}, GClientProxy))
+	}
 }
