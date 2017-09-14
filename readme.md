@@ -76,7 +76,7 @@ However HTTP is much much easier to write and debug, I think this trade-off is a
 
 ## Android
 
-I don't know much about programming on Android, but there is still way to run goflyway:
+I don't know much about programming on Android, but there is still a way to run goflyway:
 
 1. Install [Termux](https://f-droid.org/packages/com.termux/) and launch it
 2. `pkg install golang`
