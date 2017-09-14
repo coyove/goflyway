@@ -5,14 +5,12 @@ import (
 	"../lookup"
 	"../lru"
 
-	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -340,59 +338,28 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 	}
 	// handshake over
 	// tunneling start
-	typeBuf, n := make([]byte, 256+3+1+1+2), 0
-	// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-		log_close(CANNOT_READ_BUF, err)
+	method, addr, ok := ParseDstFrom(conn, nil, false)
+	if !ok {
+		conn.Close()
 		return
 	}
 
-	if typeBuf[0] != socks5Version {
-		log_close(NOT_SOCKS5)
-		return
-	}
+	host := addr.String()
 
-	if typeBuf[1] != 0x01 { // 0x01: establish a TCP/IP stream connection
-		log_close("[SOCKS] invalid command: ", typeBuf[1])
-		return
-	}
-
-	reqLen := -1
-	switch typeBuf[3] {
-	case socksTypeIPv4:
-		reqLen = 3 + 1 + net.IPv4len + 2
-	case socksTypeIPv6:
-		reqLen = 3 + 1 + net.IPv6len + 2
-	case socksTypeDm:
-		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
-	default:
-		log_close("[SOCKS] invalid type")
-		return
-	}
-
-	if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
-		log_close(CANNOT_READ_BUF, err)
-		return
-	}
-
-	rawaddr := typeBuf[3 : reqLen-2]
-	host, port := "", int(binary.BigEndian.Uint16(typeBuf[reqLen-2:]))
-
-	switch typeBuf[3] {
-	case socksTypeIPv4:
-		host = lookup.BytesToIPv4(rawaddr[1:])
-	case socksTypeIPv6:
-		host = lookup.BytesToIPv6(rawaddr[1:])
-	default:
-		host = string(rawaddr[2:])
-	}
-
-	host = net.JoinHostPort(host, strconv.Itoa(port))
-
-	if proxy.CanDirectConnect(host) {
-		proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
+	if method == 0x01 {
+		if proxy.CanDirectConnect(host) {
+			proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
+		} else {
+			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
+		}
 	} else {
-		proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
+		// UDP relay
+		// addr, _ := net.ResolveUDPAddr("udp", ":180")
+		// c, _ := net.ListenUDP("udp", addr)
+		// conn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 180})
+		// b := make([]byte, 32*1024)
+		// n, src, err := c.ReadFrom(b)
+		// _, ip, _ := ParseDstFrom(nil, b[:n], true)
 	}
 }
 

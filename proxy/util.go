@@ -7,11 +7,14 @@ import (
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -270,4 +273,104 @@ func Base32Decode(text string) []byte {
 	}
 
 	return buf
+}
+
+type addr_t struct {
+	ip   net.IP
+	host string
+	port int
+}
+
+func (a *addr_t) String() string {
+	if a.ip != nil {
+		return a.ip.String() + ":" + strconv.Itoa(a.port)
+	} else {
+		return a.host + ":" + strconv.Itoa(a.port)
+	}
+}
+
+func (a *addr_t) IP() net.IP {
+	if a.ip != nil {
+		return a.ip
+	}
+
+	ip, err := net.ResolveIPAddr("ip", a.host)
+	if err != nil {
+		logg.E("[ADT] ", err)
+		return nil
+	}
+
+	return ip.IP
+}
+
+func (a *addr_t) IsAllZeros() bool {
+	if a.ip != nil {
+		return a.ip.IsUnspecified() && a.port == 0
+	}
+
+	return false
+}
+
+func ParseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t, bool) {
+	var err error
+	var n int
+
+	if typeBuf == nil {
+		typeBuf, n = make([]byte, 256+3+1+1+2), 0
+		// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	}
+
+	if typeBuf[0] != socks5Version && !omitCheck {
+		logg.E(NOT_SOCKS5)
+		return 0x0, nil, false
+	}
+
+	if typeBuf[1] != 0x01 && typeBuf[1] != 0x03 && !omitCheck { // 0x01: establish a TCP/IP stream connection
+		logg.E("[SOCKS] invalid command: ", typeBuf[1])
+		return 0x0, nil, false
+	}
+
+	reqLen := -1
+	switch typeBuf[3] {
+	case socksTypeIPv4:
+		reqLen = 3 + 1 + net.IPv4len + 2
+	case socksTypeIPv6:
+		reqLen = 3 + 1 + net.IPv6len + 2
+	case socksTypeDm:
+		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
+	default:
+		logg.E("[SOCKS] invalid type")
+		return 0x0, nil, false
+	}
+
+	if conn != nil {
+		if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	} else {
+		if len(typeBuf) < reqLen {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	}
+
+	rawaddr := typeBuf[3 : reqLen-2]
+	addr := &addr_t{}
+	addr.port = int(binary.BigEndian.Uint16(typeBuf[reqLen-2:]))
+
+	switch typeBuf[3] {
+	case socksTypeIPv4:
+		addr.ip = net.IP(rawaddr[1:])
+	case socksTypeIPv6:
+		addr.ip = net.IP(rawaddr[1:])
+	default:
+		addr.host = string(rawaddr[2:])
+	}
+
+	return typeBuf[1], addr, true
 }
