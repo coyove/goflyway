@@ -21,6 +21,7 @@ var (
 	G_Upstream   = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local      = flag.String("l", ":8100", "local listening port (remember the colon)")
 	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port, -s=0 to disable it")
+	G_UdpRelay   = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
 	G_LogLevel   = flag.String("lv", "all", "logging level, whose value can be: all, warn, err or off")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
@@ -58,6 +59,7 @@ func LoadConfig() {
 		*G_Local = cf.GetString("default", "listen", *G_Local)
 		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
 		*G_SocksProxy = cf.GetString("default", "socks5", *G_SocksProxy)
+		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
@@ -115,6 +117,7 @@ func main() {
 		DisableConsole:  *G_DisableConsole,
 		UserAuth:        *G_Auth,
 		Upstream:        *G_Upstream,
+		UDPRelayPort:    int(*G_UdpRelay),
 		GCipher:         cipher,
 	}
 

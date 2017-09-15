@@ -46,6 +46,8 @@ var (
 	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
 	OK_SOCKS = []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
+	//                                RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
+	UDP_REQUEST_HEADER = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 	tlsSkip = &tls.Config{InsecureSkipVerify: true}
 

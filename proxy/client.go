@@ -5,6 +5,7 @@ import (
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,6 +24,7 @@ type ClientConfig struct {
 	UseChinaList    bool
 	DisableConsole  bool
 	UserAuth        string
+	UDPRelayPort    int
 
 	*GCipher
 }
@@ -32,6 +34,11 @@ type ProxyHttpServer struct {
 	TrDirect *http.Transport
 
 	*ClientConfig
+
+	udp struct {
+		relay    *net.UDPConn
+		response []byte
+	}
 }
 
 var GClientProxy *ProxyHttpServer
@@ -353,7 +360,33 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
 	} else {
-		// UDP relay
+		// UDP relay test
+		conn.Write(proxy.udp.response)
+
+		for {
+			b := make([]byte, 2048)
+			n, src, _ := proxy.udp.relay.ReadFrom(b)
+
+			go func(b []byte, src net.Addr) {
+				_, dst, _ := ParseDstFrom(nil, b, true)
+
+				raddr, _ := net.ResolveUDPAddr("udp", dst.String())
+				rconn, _ := net.DialUDP("udp", nil, raddr) // cannot dial everytime
+
+				go func(src net.Addr) {
+					buf := make([]byte, 2048)
+					copy(buf, UDP_REQUEST_HEADER)
+					xbuf := buf[len(UDP_REQUEST_HEADER):]
+
+					for {
+						n, _ := rconn.Read(xbuf)
+						proxy.udp.relay.WriteTo(buf[:n+len(UDP_REQUEST_HEADER)], src)
+					}
+				}(src)
+
+				rconn.Write(b[dst.size:])
+			}(b[:n], src)
+		}
 	}
 }
 
@@ -386,7 +419,7 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
-	GClientProxy = &ProxyHttpServer{
+	proxy := &ProxyHttpServer{
 		Tr: &http.Transport{
 			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),
@@ -395,10 +428,24 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		ClientConfig: config,
 	}
 
+	if config.UDPRelayPort != 0 {
+		r := []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+		binary.BigEndian.PutUint16(r[8:], uint16(config.UDPRelayPort))
+		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
+		if err != nil {
+			logg.F("[UDP] - ", err)
+		}
+
+		proxy.udp.response = r
+		proxy.udp.relay = relay
+	}
+
+	GClientProxy = proxy
+
 	if localaddr != slocaladdr {
 		startSocks5(slocaladdr)
 		logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.ListenAndServe(localaddr, GClientProxy))
+		logg.F(http.ListenAndServe(localaddr, proxy))
 	} else {
 		// try multiplexer
 		mux, err := net.Listen("tcp", localaddr)
@@ -407,6 +454,6 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		}
 
 		logg.L("http/socks5 proxy both at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: GClientProxy}, GClientProxy))
+		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy}, proxy))
 	}
 }
