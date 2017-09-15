@@ -64,7 +64,7 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	proxy.GCipher.TwoWayBridge(downstreamConn, upstreamConn, rkey, nil)
+	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkey, nil)
 }
 
 func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
@@ -81,7 +81,7 @@ func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host st
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	proxy.GCipher.TwoWayBridge(downstreamConn, targetSiteConn, "", nil)
+	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, "", nil)
 }
 
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -354,12 +354,6 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 		}
 	} else {
 		// UDP relay
-		// addr, _ := net.ResolveUDPAddr("udp", ":180")
-		// c, _ := net.ListenUDP("udp", addr)
-		// conn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 180})
-		// b := make([]byte, 32*1024)
-		// n, src, err := c.ReadFrom(b)
-		// _, ip, _ := ParseDstFrom(nil, b[:n], true)
 	}
 }
 

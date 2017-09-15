@@ -3,6 +3,7 @@ package proxy
 import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/shoco"
 
 	"crypto/tls"
 	"encoding/base32"
@@ -32,6 +33,7 @@ const (
 	HOST_HTTP_FORWARD  = '#'
 	HOST_SOCKS_CONNECT = '$'
 	HOST_DOMAIN_LOOKUP = '!'
+	HOST_UDP_ADDRESS   = '%'
 
 	RKEY_HEADER     = "X-Request-ID"
 	DNS_HEADER      = "X-Host-Lookup"
@@ -185,7 +187,7 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 		if !c.Shoco {
 			return Base32Encode(c.Encrypt([]byte(in)))
 		} else {
-			return Base32Encode(c.Encrypt(shocoCompress(in)))
+			return Base32Encode(c.Encrypt(shoco.Compress(in)))
 		}
 	}
 
@@ -230,7 +232,7 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 			if !c.Shoco {
 				parts[i] = string(c.Decrypt(buf))
 			} else {
-				parts[i] = shocoDecompress(c.Decrypt(buf))
+				parts[i] = shoco.Decompress(c.Decrypt(buf))
 			}
 
 			if len(parts[i]) == 0 {
@@ -279,6 +281,7 @@ type addr_t struct {
 	ip   net.IP
 	host string
 	port int
+	size int
 }
 
 func (a *addr_t) String() string {
@@ -334,34 +337,33 @@ func ParseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 		return 0x0, nil, false
 	}
 
-	reqLen := -1
+	addr := &addr_t{}
 	switch typeBuf[3] {
 	case socksTypeIPv4:
-		reqLen = 3 + 1 + net.IPv4len + 2
+		addr.size = 3 + 1 + net.IPv4len + 2
 	case socksTypeIPv6:
-		reqLen = 3 + 1 + net.IPv6len + 2
+		addr.size = 3 + 1 + net.IPv6len + 2
 	case socksTypeDm:
-		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
+		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
 	default:
 		logg.E("[SOCKS] invalid type")
 		return 0x0, nil, false
 	}
 
 	if conn != nil {
-		if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
+		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
 			logg.E(CANNOT_READ_BUF, err)
 			return 0x0, nil, false
 		}
 	} else {
-		if len(typeBuf) < reqLen {
+		if len(typeBuf) < addr.size {
 			logg.E(CANNOT_READ_BUF, err)
 			return 0x0, nil, false
 		}
 	}
 
-	rawaddr := typeBuf[3 : reqLen-2]
-	addr := &addr_t{}
-	addr.port = int(binary.BigEndian.Uint16(typeBuf[reqLen-2:]))
+	rawaddr := typeBuf[3 : addr.size-2]
+	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
 
 	switch typeBuf[3] {
 	case socksTypeIPv4:

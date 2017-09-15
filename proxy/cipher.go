@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"github.com/coyove/goflyway/pkg/counter"
 	"github.com/coyove/goflyway/pkg/logg"
 
 	"bytes"
@@ -184,7 +185,7 @@ func (gc *GCipher) NewRand() *rand.Rand {
 	var k2 int64
 
 	if gc.Hires {
-		k2 = GetCounter()
+		k2 = counter.GetCounter()
 	} else {
 		k2 = time.Now().UnixNano()
 	}
@@ -220,7 +221,16 @@ type IOConfig struct {
 	Bucket *TokenBucket
 }
 
-func (gc *GCipher) TwoWayBridge(target, source net.Conn, key string, options *IOConfig) {
+func (gc *GCipher) blockedIO(target, source interface{}, key string, options *IOConfig) {
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go gc.ioCopyOrWarn(target.(io.Writer), source.(io.Reader), key, options, &wg)
+	go gc.ioCopyOrWarn(source.(io.Writer), target.(io.Reader), key, options, &wg)
+	wg.Wait()
+}
+
+func (gc *GCipher) Bridge(target, source net.Conn, key string, options *IOConfig) {
 
 	targetTCP, targetOK := target.(*net.TCPConn)
 	sourceTCP, sourceOK := source.(*net.TCPConn)
@@ -233,13 +243,7 @@ func (gc *GCipher) TwoWayBridge(target, source net.Conn, key string, options *IO
 		go gc.ioCopyAndClose(sourceTCP, targetTCP, key, options)
 	} else {
 		go func() {
-			var wg sync.WaitGroup
-
-			wg.Add(2)
-			go gc.ioCopyOrWarn(target, source, key, options, &wg)
-			go gc.ioCopyOrWarn(source, target, key, options, &wg)
-			wg.Wait()
-
+			gc.blockedIO(target, source, key, options)
 			source.Close()
 			target.Close()
 		}()

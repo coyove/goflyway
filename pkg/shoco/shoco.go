@@ -1,4 +1,4 @@
-package proxy
+package shoco
 
 /*
  * this is a go implementation of shoco alogrithm
@@ -222,13 +222,13 @@ func shoco_decompress(in []byte, out []byte) int {
 	return current_out_index
 }
 
-func shocoCompress(text string) []byte {
+func Compress(text string) []byte {
 	buf := make([]byte, len(text)*2)
 	x := shoco_compress([]byte(text), buf)
 	return buf[:x]
 }
 
-func shocoDecompress(buf []byte) string {
+func Decompress(buf []byte) string {
 	out := make([]byte, len(buf)*2)
 	x := shoco_decompress(buf, out)
 

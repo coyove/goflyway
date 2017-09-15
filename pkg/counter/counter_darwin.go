@@ -1,4 +1,4 @@
-package proxy
+package counter
 
 import (
 	"time"

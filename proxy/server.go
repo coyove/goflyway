@@ -64,7 +64,8 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		auth = proxy.GCipher.DecryptString(auth)
 	}
 
-	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
+	host, mark := TryDecryptHost(proxy.GCipher, r.Host)
+	if mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT || mark == HOST_UDP_ADDRESS {
 		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
@@ -78,21 +79,28 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 			return
 		}
 
-		// we are outside GFW and should pass data to the real target
-		targetSiteConn, err := net.Dial("tcp", host)
-		if err != nil {
-			logg.E("[HOST] - ", err)
-			return
-		}
+		rkey := r.Header.Get(RKEY_HEADER)
+		ioc := proxy.getIOConfig(auth)
 
-		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-		if mark == HOST_HTTP_CONNECT {
-			downstreamConn.Write(OK_HTTP)
+		if mark != HOST_UDP_ADDRESS {
+			// we are outside GFW and should pass data to the real target
+			targetSiteConn, err := net.Dial("tcp", host)
+			if err != nil {
+				logg.E("[HOST] - ", err)
+				return
+			}
+
+			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
+			if mark == HOST_HTTP_CONNECT {
+				downstreamConn.Write(OK_HTTP)
+			} else {
+				downstreamConn.Write(OK_SOCKS)
+			}
+
+			proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkey, ioc)
 		} else {
-			downstreamConn.Write(OK_SOCKS)
+			panic("not implemented")
 		}
-
-		proxy.GCipher.TwoWayBridge(targetSiteConn, downstreamConn, r.Header.Get(RKEY_HEADER), proxy.getIOConfig(auth))
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
