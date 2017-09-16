@@ -29,7 +29,7 @@ type ClientConfig struct {
 	*GCipher
 }
 
-type ProxyHttpServer struct {
+type ProxyClient struct {
 	Tr       *http.Transport
 	TrDirect *http.Transport
 
@@ -41,9 +41,9 @@ type ProxyHttpServer struct {
 	}
 }
 
-var GClientProxy *ProxyHttpServer
+var GClientProxy *ProxyClient
 
-func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
+func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 	if err != nil {
 		logg.E("[UPSTREAM] - ", err)
@@ -74,7 +74,7 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkey, nil)
 }
 
-func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
+func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
 		logg.E("[HOST] - ", err)
@@ -91,7 +91,7 @@ func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host st
 	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, "", nil)
 }
 
-func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI == "/?goflyway-console" && !proxy.DisableConsole {
 		handleWebConsole(w, r)
 		return
@@ -202,7 +202,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
+func (proxy *ProxyClient) CanDirectConnect(host string) bool {
 	host = strings.ToLower(host)
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
@@ -268,7 +268,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	return isChineseIP(string(ipbuf))
 }
 
-func (proxy *ProxyHttpServer) authConnection(conn net.Conn) (string, bool) {
+func (proxy *ProxyClient) authConnection(conn net.Conn) (string, bool) {
 	buf := make([]byte, 1+1+255+1+255)
 	var n int
 	var err error
@@ -299,7 +299,7 @@ func (proxy *ProxyHttpServer) authConnection(conn net.Conn) (string, bool) {
 	return pu, proxy.UserAuth == pu
 }
 
-func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
+func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	var err error
 	log_close := func(args ...interface{}) {
 		logg.E(args...)
@@ -367,25 +367,7 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 			b := make([]byte, 2048)
 			n, src, _ := proxy.udp.relay.ReadFrom(b)
 
-			go func(b []byte, src net.Addr) {
-				_, dst, _ := ParseDstFrom(nil, b, true)
-
-				raddr, _ := net.ResolveUDPAddr("udp", dst.String())
-				rconn, _ := net.DialUDP("udp", nil, raddr) // cannot dial everytime
-
-				go func(src net.Addr) {
-					buf := make([]byte, 2048)
-					copy(buf, UDP_REQUEST_HEADER)
-					xbuf := buf[len(UDP_REQUEST_HEADER):]
-
-					for {
-						n, _ := rconn.Read(xbuf)
-						proxy.udp.relay.WriteTo(buf[:n+len(UDP_REQUEST_HEADER)], src)
-					}
-				}(src)
-
-				rconn.Write(b[dst.size:])
-			}(b[:n], src)
+			go proxy.HandleUDPtoTCP(b[:n], src)
 		}
 	}
 }
@@ -419,7 +401,7 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
-	proxy := &ProxyHttpServer{
+	proxy := &ProxyClient{
 		Tr: &http.Transport{
 			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),

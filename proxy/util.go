@@ -40,6 +40,8 @@ const (
 	AUTH_HEADER     = "X-Authorization"
 	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
 	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
+
+	UDP_READ_TIMEOUT = 30
 )
 
 var (
@@ -77,7 +79,7 @@ func SafeGetHeader(req *http.Request, k string) string {
 	return v
 }
 
-func (proxy *ProxyHttpServer) basicAuth(token string) string {
+func (proxy *ProxyClient) basicAuth(token string) string {
 	parts := strings.Split(token, " ")
 	if len(parts) != 2 {
 		return ""
@@ -95,7 +97,7 @@ func (proxy *ProxyHttpServer) basicAuth(token string) string {
 	}
 }
 
-func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
+func (proxy *ProxyClient) EncryptRequest(req *http.Request) string {
 	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
@@ -128,7 +130,7 @@ func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
 	return rkey
 }
 
-func (proxy *ProxyUpstreamHttpServer) DecryptRequest(req *http.Request) string {
+func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) string {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
@@ -287,10 +289,14 @@ type addr_t struct {
 }
 
 func (a *addr_t) String() string {
+	return a.HostString() + ":" + strconv.Itoa(a.port)
+}
+
+func (a *addr_t) HostString() string {
 	if a.ip != nil {
-		return a.ip.String() + ":" + strconv.Itoa(a.port)
+		return a.ip.String()
 	} else {
-		return a.host + ":" + strconv.Itoa(a.port)
+		return a.host
 	}
 }
 

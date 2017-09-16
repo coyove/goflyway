@@ -122,9 +122,10 @@ func main() {
 	}
 
 	sc := &proxy.ServerConfig{
-		GCipher:       cipher,
-		Throttling:    *G_Throttling,
-		ThrottlingMax: *G_ThrottlingMax,
+		GCipher:        cipher,
+		UDPRelayListen: int(*G_UdpRelay),
+		Throttling:     *G_Throttling,
+		ThrottlingMax:  *G_ThrottlingMax,
 	}
 
 	if *G_Debug {

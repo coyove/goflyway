@@ -4,13 +4,15 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 
+	// "io"
 	"net"
 	"net/http"
 )
 
 type ServerConfig struct {
-	Throttling    int64
-	ThrottlingMax int64
+	Throttling     int64
+	ThrottlingMax  int64
+	UDPRelayListen int
 
 	Users map[string]UserConfig
 
@@ -24,13 +26,13 @@ type UserConfig struct {
 	ThrottlingMax int64
 }
 
-type ProxyUpstreamHttpServer struct {
+type ProxyUpstream struct {
 	Tr *http.Transport
 
 	*ServerConfig
 }
 
-func (proxy *ProxyUpstreamHttpServer) getIOConfig(auth string) *IOConfig {
+func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 	var ioc *IOConfig
 	if proxy.Throttling > 0 {
 		ioc = &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
@@ -39,7 +41,7 @@ func (proxy *ProxyUpstreamHttpServer) getIOConfig(auth string) *IOConfig {
 	return ioc
 }
 
-func (proxy *ProxyUpstreamHttpServer) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
+func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
 	key := proxy.GCipher.ReverseRandomKey(SafeGetHeader(r, RKEY_HEADER))
 
 	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
@@ -50,7 +52,23 @@ func (proxy *ProxyUpstreamHttpServer) Write(w http.ResponseWriter, r *http.Reque
 	return w.Write(p)
 }
 
-func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (proxy *ProxyUpstream) Hijack(w http.ResponseWriter, r *http.Request) net.Conn {
+	hij, ok := w.(http.Hijacker)
+	if !ok {
+		proxy.Write(w, r, []byte("webserver doesn't support hijacking"), http.StatusInternalServerError)
+		return nil
+	}
+
+	conn, _, err := hij.Hijack()
+	if err != nil {
+		proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
+		return nil
+	}
+
+	return conn
+}
+
+func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
 		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
 			ip, _ := lookup.LookupIP(x)
@@ -64,18 +82,10 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 		auth = proxy.GCipher.DecryptString(auth)
 	}
 
-	host, mark := TryDecryptHost(proxy.GCipher, r.Host)
-	if mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT || mark == HOST_UDP_ADDRESS {
+	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
-		hij, ok := w.(http.Hijacker)
-		if !ok {
-			proxy.Write(w, r, []byte("webserver doesn't support hijacking"), http.StatusInternalServerError)
-			return
-		}
-
-		downstreamConn, _, err := hij.Hijack()
-		if err != nil {
-			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
+		downstreamConn := proxy.Hijack(w, r)
+		if downstreamConn == nil {
 			return
 		}
 
@@ -148,9 +158,27 @@ func (proxy *ProxyUpstreamHttpServer) ServeHTTP(w http.ResponseWriter, r *http.R
 }
 
 func StartServer(addr string, config *ServerConfig) {
-	proxy := &ProxyUpstreamHttpServer{
+	proxy := &ProxyUpstream{
 		Tr:           &http.Transport{TLSClientConfig: tlsSkip},
 		ServerConfig: config,
+	}
+
+	if proxy.UDPRelayListen != 0 {
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{
+			IP:   net.IPv6zero,
+			Port: proxy.UDPRelayListen,
+		})
+
+		if err != nil {
+			logg.F(err)
+		}
+
+		go func() {
+			for {
+				c, _ := l.Accept()
+				go proxy.HandleTCPtoUDP(c)
+			}
+		}()
 	}
 
 	logg.L("listening on ", addr)
