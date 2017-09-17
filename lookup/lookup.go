@@ -37,6 +37,10 @@ func init() {
 
 			lastIPEnd = ipend
 		}
+
+		if lastIPStart > -1 && lastIPEnd >= lastIPStart {
+			*table = append(*table, []uint32{uint32(lastIPStart), uint32(lastIPEnd)})
+		}
 	}
 
 	fill(&IPv4LookupTable, CHN_IP)
