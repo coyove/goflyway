@@ -223,12 +223,11 @@ type IOConfig struct {
 
 func (gc *GCipher) blockedIO(target, source interface{}, key string, options *IOConfig) {
 	var wg sync.WaitGroup
-	logg.L("start")
+
 	wg.Add(2)
 	go gc.ioCopyOrWarn(target.(io.Writer), source.(io.Reader), key, options, &wg)
 	go gc.ioCopyOrWarn(source.(io.Writer), target.(io.Reader), key, options, &wg)
 	wg.Wait()
-	logg.L("end")
 }
 
 func (gc *GCipher) Bridge(target, source net.Conn, key string, options *IOConfig) {

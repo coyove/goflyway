@@ -359,14 +359,13 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 		} else {
 			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
-	} else {
+	} else if method == 0x03 && proxy.udp.relay != nil {
 		// UDP relay test
 		conn.Write(proxy.udp.response)
 
 		for {
 			b := make([]byte, 2048)
 			n, src, _ := proxy.udp.relay.ReadFrom(b)
-
 			go proxy.HandleUDPtoTCP(b[:n], src)
 		}
 	}

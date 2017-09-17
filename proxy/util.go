@@ -57,8 +57,7 @@ var (
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
 
-	base32Encoding = base32.NewEncoding("0123456789abcdfgijklmnopqsuvwxyz")
-	base32Replace  = []string{"th", "er", "t", "h", "e", "r"}
+	base32Encoding = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
 )
 
 func SafeAddHeader(req *http.Request, k, v string) {
@@ -260,17 +259,20 @@ func Base32Encode(buf []byte) string {
 		return str
 	}
 
-	return str[:idx] + base32Replace[len(str)-idx-1]
+	return str[:idx] //+ base32Replace[len(str)-idx-1]
 }
 
 func Base32Decode(text string) []byte {
 	const paddings = "======"
 
-	for i := 0; i < len(base32Replace); i++ {
-		if strings.HasSuffix(text, base32Replace[i]) {
-			text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
-			break
-		}
+	// for i := 0; i < len(base32Replace); i++ {
+	// 	if strings.HasSuffix(text, base32Replace[i]) {
+	// 		text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
+	// 		break
+	// 	}
+	// }
+	if m := len(text) % 8; m > 1 {
+		text = text + paddings[:8-m]
 	}
 
 	buf, err := base32Encoding.DecodeString(text)
