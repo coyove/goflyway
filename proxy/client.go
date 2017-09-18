@@ -25,6 +25,7 @@ type ClientConfig struct {
 	DisableConsole  bool
 	UserAuth        string
 	UDPRelayPort    int
+	UDPRelayNoHdr   bool
 
 	*GCipher
 }

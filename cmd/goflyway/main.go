@@ -32,6 +32,7 @@ var (
 	G_HRCounter        = flag.Bool("hr-counter", true, "use high resolution counter")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
+	G_UdpRelayNoHdr    = flag.Bool("no-socks-hdr", false, "udp relay: do not prepend the SOCKS5 header")
 
 	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
 	G_Throttling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
@@ -73,6 +74,7 @@ func LoadConfig() {
 
 		*G_Throttling = cf.GetInt("experimental", "throttling", *G_Throttling)
 		*G_ThrottlingMax = cf.GetInt("experimental", "throttlingmax", *G_ThrottlingMax)
+		*G_UdpRelayNoHdr = cf.GetBool("experimental", "relaynohdr", *G_UdpRelayNoHdr)
 	}
 }
 
@@ -118,6 +120,7 @@ func main() {
 		UserAuth:        *G_Auth,
 		Upstream:        *G_Upstream,
 		UDPRelayPort:    int(*G_UdpRelay),
+		UDPRelayNoHdr:   *G_UdpRelayNoHdr,
 		GCipher:         cipher,
 	}
 

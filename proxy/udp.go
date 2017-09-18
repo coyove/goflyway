@@ -216,10 +216,17 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		if buf != nil && len(buf) > 0 {
 			logg.L("[UtT] receive - ", len(buf))
 
-			copy(xbuf, UDP_REQUEST_HEADER)
-			copy(xbuf[len(UDP_REQUEST_HEADER):], buf)
+			var err error
 
-			_, err := proxy.udp.relay.WriteTo(xbuf[:len(buf)+len(UDP_REQUEST_HEADER)], src)
+			if proxy.UDPRelayNoHdr {
+				_, err = proxy.udp.relay.WriteTo(buf, src)
+			} else {
+				copy(xbuf, UDP_REQUEST_HEADER)
+				copy(xbuf[len(UDP_REQUEST_HEADER):], buf)
+
+				_, err = proxy.udp.relay.WriteTo(xbuf[:len(buf)+len(UDP_REQUEST_HEADER)], src)
+			}
+
 			if err != nil {
 				logg.E("[UtT] write - ", err)
 				break
