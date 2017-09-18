@@ -1,4 +1,4 @@
-package proxy
+package shoco
 
 import (
 	"math/rand"

@@ -1,8 +1,9 @@
 package proxy
 
 import (
-	"../logg"
-	"../lookup"
+	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/shoco"
 
 	"crypto/tls"
 	"encoding/base32"
@@ -32,18 +33,24 @@ const (
 	HOST_HTTP_FORWARD  = '#'
 	HOST_SOCKS_CONNECT = '$'
 	HOST_DOMAIN_LOOKUP = '!'
+	HOST_UDP_ADDRESS   = '%'
 
 	RKEY_HEADER     = "X-Request-ID"
 	DNS_HEADER      = "X-Host-Lookup"
 	AUTH_HEADER     = "X-Authorization"
 	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
 	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
+
+	UDP_READ_TIMEOUT = 30
 )
 
 var (
 	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
 	OK_SOCKS = []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
+	//                                RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
+	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 	tlsSkip = &tls.Config{InsecureSkipVerify: true}
 
@@ -51,8 +58,7 @@ var (
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
 
-	base32Encoding = base32.NewEncoding("0123456789abcdfgijklmnopqsuvwxyz")
-	base32Replace  = []string{"th", "er", "t", "h", "e", "r"}
+	base32Encoding = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
 )
 
 func SafeAddHeader(req *http.Request, k, v string) {
@@ -73,7 +79,7 @@ func SafeGetHeader(req *http.Request, k string) string {
 	return v
 }
 
-func (proxy *ProxyHttpServer) basicAuth(token string) string {
+func (proxy *ProxyClient) basicAuth(token string) string {
 	parts := strings.Split(token, " ")
 	if len(parts) != 2 {
 		return ""
@@ -91,7 +97,7 @@ func (proxy *ProxyHttpServer) basicAuth(token string) string {
 	}
 }
 
-func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
+func (proxy *ProxyClient) EncryptRequest(req *http.Request) string {
 	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
@@ -124,7 +130,7 @@ func (proxy *ProxyHttpServer) EncryptRequest(req *http.Request) string {
 	return rkey
 }
 
-func (proxy *ProxyUpstreamHttpServer) DecryptRequest(req *http.Request) string {
+func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) string {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
@@ -185,7 +191,7 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 		if !c.Shoco {
 			return Base32Encode(c.Encrypt([]byte(in)))
 		} else {
-			return Base32Encode(c.Encrypt(shocoCompress(in)))
+			return Base32Encode(c.Encrypt(shoco.Compress(in)))
 		}
 	}
 
@@ -230,7 +236,7 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 			if !c.Shoco {
 				parts[i] = string(c.Decrypt(buf))
 			} else {
-				parts[i] = shocoDecompress(c.Decrypt(buf))
+				parts[i] = shoco.Decompress(c.Decrypt(buf))
 			}
 
 			if len(parts[i]) == 0 {
@@ -254,17 +260,20 @@ func Base32Encode(buf []byte) string {
 		return str
 	}
 
-	return str[:idx] + base32Replace[len(str)-idx-1]
+	return str[:idx] //+ base32Replace[len(str)-idx-1]
 }
 
 func Base32Decode(text string) []byte {
 	const paddings = "======"
 
-	for i := 0; i < len(base32Replace); i++ {
-		if strings.HasSuffix(text, base32Replace[i]) {
-			text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
-			break
-		}
+	// for i := 0; i < len(base32Replace); i++ {
+	// 	if strings.HasSuffix(text, base32Replace[i]) {
+	// 		text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
+	// 		break
+	// 	}
+	// }
+	if m := len(text) % 8; m > 1 {
+		text = text + paddings[:8-m]
 	}
 
 	buf, err := base32Encoding.DecodeString(text)
@@ -279,13 +288,18 @@ type addr_t struct {
 	ip   net.IP
 	host string
 	port int
+	size int
 }
 
 func (a *addr_t) String() string {
+	return a.HostString() + ":" + strconv.Itoa(a.port)
+}
+
+func (a *addr_t) HostString() string {
 	if a.ip != nil {
-		return a.ip.String() + ":" + strconv.Itoa(a.port)
+		return a.ip.String()
 	} else {
-		return a.host + ":" + strconv.Itoa(a.port)
+		return a.host
 	}
 }
 
@@ -334,34 +348,33 @@ func ParseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 		return 0x0, nil, false
 	}
 
-	reqLen := -1
+	addr := &addr_t{}
 	switch typeBuf[3] {
 	case socksTypeIPv4:
-		reqLen = 3 + 1 + net.IPv4len + 2
+		addr.size = 3 + 1 + net.IPv4len + 2
 	case socksTypeIPv6:
-		reqLen = 3 + 1 + net.IPv6len + 2
+		addr.size = 3 + 1 + net.IPv6len + 2
 	case socksTypeDm:
-		reqLen = 3 + 1 + 1 + int(typeBuf[4]) + 2
+		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
 	default:
 		logg.E("[SOCKS] invalid type")
 		return 0x0, nil, false
 	}
 
 	if conn != nil {
-		if _, err = io.ReadFull(conn, typeBuf[n:reqLen]); err != nil {
+		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
 			logg.E(CANNOT_READ_BUF, err)
 			return 0x0, nil, false
 		}
 	} else {
-		if len(typeBuf) < reqLen {
+		if len(typeBuf) < addr.size {
 			logg.E(CANNOT_READ_BUF, err)
 			return 0x0, nil, false
 		}
 	}
 
-	rawaddr := typeBuf[3 : reqLen-2]
-	addr := &addr_t{}
-	addr.port = int(binary.BigEndian.Uint16(typeBuf[reqLen-2:]))
+	rawaddr := typeBuf[3 : addr.size-2]
+	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
 
 	switch typeBuf[3] {
 	case socksTypeIPv4:

@@ -61,7 +61,7 @@ func (cw *connWrapper) Read(p []byte) (int, error) {
 type listenerWrapper struct {
 	net.Listener
 
-	proxy     *ProxyHttpServer
+	proxy     *ProxyClient
 	httpConn  connWrapper
 	socksConn connWrapper
 }

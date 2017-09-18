@@ -1,4 +1,4 @@
-package proxy
+package shoco
 
 const MIN_CHR = 39
 const MAX_CHR = 122

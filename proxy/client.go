@@ -1,10 +1,11 @@
 package proxy
 
 import (
-	"../logg"
-	"../lookup"
-	"../lru"
+	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/lru"
 
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,20 +24,27 @@ type ClientConfig struct {
 	UseChinaList    bool
 	DisableConsole  bool
 	UserAuth        string
+	UDPRelayPort    int
+	UDPRelayNoHdr   bool
 
 	*GCipher
 }
 
-type ProxyHttpServer struct {
+type ProxyClient struct {
 	Tr       *http.Transport
 	TrDirect *http.Transport
 
 	*ClientConfig
+
+	udp struct {
+		relay    *net.UDPConn
+		response []byte
+	}
 }
 
-var GClientProxy *ProxyHttpServer
+var GClientProxy *ProxyClient
 
-func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
+func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 	if err != nil {
 		logg.E("[UPSTREAM] - ", err)
@@ -64,10 +72,10 @@ func (proxy *ProxyHttpServer) DialUpstreamAndBridge(downstreamConn net.Conn, hos
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	proxy.GCipher.TwoWayBridge(downstreamConn, upstreamConn, rkey, nil)
+	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkey, nil)
 }
 
-func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
+func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
 		logg.E("[HOST] - ", err)
@@ -81,10 +89,10 @@ func (proxy *ProxyHttpServer) DialHostAndBridge(downstreamConn net.Conn, host st
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	proxy.GCipher.TwoWayBridge(downstreamConn, targetSiteConn, "", nil)
+	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, "", nil)
 }
 
-func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI == "/?goflyway-console" && !proxy.DisableConsole {
 		handleWebConsole(w, r)
 		return
@@ -195,7 +203,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
+func (proxy *ProxyClient) CanDirectConnect(host string) bool {
 	host = strings.ToLower(host)
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
@@ -261,7 +269,7 @@ func (proxy *ProxyHttpServer) CanDirectConnect(host string) bool {
 	return isChineseIP(string(ipbuf))
 }
 
-func (proxy *ProxyHttpServer) authConnection(conn net.Conn) (string, bool) {
+func (proxy *ProxyClient) authConnection(conn net.Conn) (string, bool) {
 	buf := make([]byte, 1+1+255+1+255)
 	var n int
 	var err error
@@ -292,7 +300,7 @@ func (proxy *ProxyHttpServer) authConnection(conn net.Conn) (string, bool) {
 	return pu, proxy.UserAuth == pu
 }
 
-func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
+func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	var err error
 	log_close := func(args ...interface{}) {
 		logg.E(args...)
@@ -352,14 +360,15 @@ func (proxy *ProxyHttpServer) HandleSocks(conn net.Conn) {
 		} else {
 			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
-	} else {
-		// UDP relay
-		// addr, _ := net.ResolveUDPAddr("udp", ":180")
-		// c, _ := net.ListenUDP("udp", addr)
-		// conn.Write([]byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 180})
-		// b := make([]byte, 32*1024)
-		// n, src, err := c.ReadFrom(b)
-		// _, ip, _ := ParseDstFrom(nil, b[:n], true)
+	} else if method == 0x03 && proxy.udp.relay != nil {
+		// UDP relay test
+		conn.Write(proxy.udp.response)
+
+		for {
+			b := make([]byte, 2048)
+			n, src, _ := proxy.udp.relay.ReadFrom(b)
+			go proxy.HandleUDPtoTCP(b[:n], src)
+		}
 	}
 }
 
@@ -392,7 +401,7 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
-	GClientProxy = &ProxyHttpServer{
+	proxy := &ProxyClient{
 		Tr: &http.Transport{
 			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),
@@ -401,10 +410,24 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		ClientConfig: config,
 	}
 
+	if config.UDPRelayPort != 0 {
+		r := []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+		binary.BigEndian.PutUint16(r[8:], uint16(config.UDPRelayPort))
+		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
+		if err != nil {
+			logg.F("[UDP] - ", err)
+		}
+
+		proxy.udp.response = r
+		proxy.udp.relay = relay
+	}
+
+	GClientProxy = proxy
+
 	if localaddr != slocaladdr {
 		startSocks5(slocaladdr)
 		logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.ListenAndServe(localaddr, GClientProxy))
+		logg.F(http.ListenAndServe(localaddr, proxy))
 	} else {
 		// try multiplexer
 		mux, err := net.Listen("tcp", localaddr)
@@ -413,6 +436,6 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		}
 
 		logg.L("http/socks5 proxy both at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: GClientProxy}, GClientProxy))
+		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy}, proxy))
 	}
 }
