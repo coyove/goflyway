@@ -214,7 +214,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		buf := readFromTCP()
 
 		if buf != nil && len(buf) > 0 {
-			logg.L("[UtT] receive - ", len(buf))
+			logg.D("[UtT] receive - ", len(buf))
 
 			var err error
 

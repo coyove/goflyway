@@ -22,7 +22,7 @@ var (
 	G_Local      = flag.String("l", ":8100", "local listening port (remember the colon)")
 	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port, -s=0 to disable it")
 	G_UdpRelay   = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
-	G_LogLevel   = flag.String("lv", "all", "logging level, whose value can be: all, warn, err or off")
+	G_LogLevel   = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")

@@ -18,6 +18,10 @@ func RecordLocalhostError(r bool) {
 
 func SetLevel(lv string) {
 	switch lv {
+	case "dbg":
+		logLevel = -1
+	case "log":
+		logLevel = 0
 	case "warn":
 		logLevel = 1
 	case "err":
@@ -25,7 +29,7 @@ func SetLevel(lv string) {
 	case "off":
 		logLevel = 3
 	default:
-		logLevel = 0
+		panic("unexpected log level: " + lv)
 	}
 }
 
@@ -101,8 +105,14 @@ func print(l string, params ...interface{}) {
 	fmt.Println(l)
 }
 
+func D(params ...interface{}) {
+	if logLevel <= -1 {
+		print("D", params...)
+	}
+}
+
 func L(params ...interface{}) {
-	if logLevel == 0 {
+	if logLevel <= 0 {
 		print(" ", params...)
 	}
 }
