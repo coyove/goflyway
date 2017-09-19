@@ -217,7 +217,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	for {
 		readFromTCP := func() []byte {
 			xbuf := make([]byte, 3)
-			c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+			upstreamConn.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
 
 			if _, err := io.ReadAtLeast(upstreamConn, xbuf, 3); err != nil {
 				if err != io.EOF && derr(err) {
