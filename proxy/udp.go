@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -141,42 +140,29 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	rconn.Close()
 }
 
-type upstreamConnState struct {
-	sync.Mutex
-	conns map[string]net.Conn
-}
+func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool) {
+	proxy.udp.upstream.Lock()
+	defer proxy.udp.upstream.Unlock()
 
-func (s *upstreamConnState) dial(client net.Addr, dst, upstream string) (net.Conn, bool) {
-	s.Lock()
-	defer s.Unlock()
-
-	if s.conns == nil {
-		s.conns = make(map[string]net.Conn)
+	if proxy.udp.upstream.conns == nil {
+		proxy.udp.upstream.conns = make(map[string]net.Conn)
 	}
 
-	str := client.String() + ":" + dst //src.String()
-	if conn, ok := s.conns[str]; ok {
-		return conn, false
+	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.GCipher.Rand.Intn(proxy.UDPRelayCoconn))
+	if conn, ok := proxy.udp.upstream.conns[str]; ok {
+		return conn, str, false
 	}
 
-	upstreamConn, err := net.Dial("tcp", upstream) //u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	u, _, _ := net.SplitHostPort(proxy.Upstream)
+	upstreamConn, err := net.Dial("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort))
 	if err != nil {
 		logg.E("[UPSTREAM] udp - ", err)
-		return nil, false
+		return nil, "", false
 	}
 
-	s.conns[str] = upstreamConn
-	return upstreamConn, true
+	proxy.udp.upstream.conns[str] = upstreamConn
+	return upstreamConn, str, true
 }
-
-func (s *upstreamConnState) remove(src string) {
-	s.Lock()
-	defer s.Unlock()
-
-	delete(s.conns, src)
-}
-
-var connsMgr upstreamConnState
 
 func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	_, dst, ok := ParseDstFrom(nil, b, true)
@@ -184,8 +170,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		return
 	}
 
-	u, _, _ := net.SplitHostPort(proxy.Upstream)
-	upstreamConn, firstTime := connsMgr.dial(src, dst.String(), u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	upstreamConn, token, firstTime := proxy.dialForUDP(src, dst.String())
 	if upstreamConn == nil {
 		return
 	}
@@ -265,6 +250,9 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		}
 	}
 
-	connsMgr.remove(src.String() + ":" + dst.String())
+	proxy.udp.upstream.Lock()
+	delete(proxy.udp.upstream.conns, token)
+	proxy.udp.upstream.Unlock()
+
 	upstreamConn.Close()
 }

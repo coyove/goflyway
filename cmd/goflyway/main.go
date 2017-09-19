@@ -22,6 +22,7 @@ var (
 	G_Local      = flag.String("l", ":8100", "local listening port (remember the colon)")
 	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port, -s=0 to disable it")
 	G_UdpRelay   = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
+	G_UdpTcp     = flag.Int64("udp-tcp", 1, "use N tcp connections to relay udp")
 	G_LogLevel   = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
@@ -61,6 +62,7 @@ func LoadConfig() {
 		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
 		*G_SocksProxy = cf.GetString("default", "socks5", *G_SocksProxy)
 		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
+		*G_UdpTcp = cf.GetInt("default", "udptcp", *G_UdpTcp)
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
@@ -121,6 +123,7 @@ func main() {
 		Upstream:        *G_Upstream,
 		UDPRelayPort:    int(*G_UdpRelay),
 		UDPRelayNoHdr:   *G_UdpRelayNoHdr,
+		UDPRelayCoconn:  int(*G_UdpTcp),
 		GCipher:         cipher,
 	}
 

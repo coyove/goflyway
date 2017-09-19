@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,8 +25,10 @@ type ClientConfig struct {
 	UseChinaList    bool
 	DisableConsole  bool
 	UserAuth        string
-	UDPRelayPort    int
-	UDPRelayNoHdr   bool
+
+	UDPRelayPort   int
+	UDPRelayNoHdr  bool
+	UDPRelayCoconn int
 
 	*GCipher
 }
@@ -39,6 +42,11 @@ type ProxyClient struct {
 	udp struct {
 		relay    *net.UDPConn
 		response []byte
+
+		upstream struct {
+			sync.Mutex
+			conns map[string]net.Conn
+		}
 	}
 }
 
@@ -416,6 +424,10 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
 		if err != nil {
 			logg.F("[UDP] - ", err)
+		}
+
+		if proxy.UDPRelayCoconn <= 0 {
+			proxy.UDPRelayCoconn = 1
 		}
 
 		proxy.udp.response = r
