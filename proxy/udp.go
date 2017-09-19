@@ -15,13 +15,27 @@ const (
 	UOT_HEADER = byte(0x07)
 )
 
+func derr(err error) bool {
+	if ne, ok := err.(net.Error); ok {
+		if ne.Timeout() {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	defer c.Close()
 
 	readFromTCP := func() (string, []byte) {
 		xbuf := make([]byte, 2)
+
+		c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
 		if _, err := io.ReadAtLeast(c, xbuf, 2); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -29,7 +43,9 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		hostbuf := make([]byte, hostlen)
 
 		if _, err := io.ReadAtLeast(c, hostbuf, hostlen); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -46,7 +62,9 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		payload := make([]byte, payloadlen)
 
 		if _, err := io.ReadAtLeast(c, payload, payloadlen); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -70,24 +88,27 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 
 	quit := make(chan bool)
 	go func() {
+	READ:
 		for {
 			select {
 			case <-quit:
-				return
+				break READ
 			default:
 				if _, buf := readFromTCP(); buf != nil {
 					rconn.Write(buf)
 				} else {
-					return
+					break READ
 				}
 			}
 		}
+
+		c.Close() // may re-close, but fine
 	}()
 
 	buf := make([]byte, 2048)
 	for {
 
-		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_READ_TIMEOUT) * time.Second))
+		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 		n, _, err := rconn.ReadFrom(buf)
 		// logg.L(n, ad.String(), err)
 
@@ -96,16 +117,20 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 			payload := append([]byte{UOT_HEADER, 0, 0}, ybuf...)
 			binary.BigEndian.PutUint16(payload[1:3], uint16(len(ybuf)))
 
+			c.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 			_, err := c.Write(payload)
 			if err != nil {
-				logg.E("[TtU] - ", err)
+				if derr(err) {
+					logg.E("[TtU] write - ", err)
+				}
+
 				break
 			}
 		}
 
 		if err != nil {
-			if !err.(net.Error).Timeout() {
-				logg.E("[TtU] - ", err)
+			if derr(err) {
+				logg.E("[TtU] readfrom - ", err)
 			}
 
 			break
@@ -192,8 +217,10 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	for {
 		readFromTCP := func() []byte {
 			xbuf := make([]byte, 3)
+			c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+
 			if _, err := io.ReadAtLeast(upstreamConn, xbuf, 3); err != nil {
-				if err != io.EOF {
+				if err != io.EOF && derr(err) {
 					logg.E(CANNOT_READ_BUF, err)
 				}
 
@@ -203,7 +230,9 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 			payloadlen := int(binary.BigEndian.Uint16(xbuf[1:3]))
 			payload := make([]byte, payloadlen)
 			if _, err := io.ReadAtLeast(upstreamConn, payload, payloadlen); err != nil {
-				logg.E(CANNOT_READ_BUF, err)
+				if derr(err) {
+					logg.E(CANNOT_READ_BUF, err)
+				}
 				return nil
 			}
 

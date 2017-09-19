@@ -41,7 +41,8 @@ const (
 	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
 	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
 
-	UDP_READ_TIMEOUT = 30
+	UDP_TIMEOUT = 30
+	TCP_TIMEOUT = 60
 )
 
 var (
