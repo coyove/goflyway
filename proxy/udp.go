@@ -86,7 +86,7 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	}
 
 	quit := make(chan bool)
-	go func() {
+	go func() { // goroutine: read from downstream tcp, write to target host udp
 	READ:
 		for {
 			select {
@@ -101,12 +101,11 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 			}
 		}
 
-		c.Close() // may re-close, but fine
+		c.Close() // may double-close, but fine
 	}()
 
 	buf := make([]byte, 2048)
-	for {
-
+	for { // read from target host udp, write to downstream tcp
 		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 		n, _, err := rconn.ReadFrom(buf)
 		// logg.L(n, ad.String(), err)
@@ -175,7 +174,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		return
 	}
 
-	// logg.L(b[dst.size:])
+	// prepare the payload
 	buf := proxy.GCipher.Encrypt(b[dst.size:])
 	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
 
@@ -195,6 +194,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	upstreamConn.Write(payload)
 
 	if !firstTime {
+		// we are not the first one using this connection, so just return here
 		return
 	}
 
@@ -224,7 +224,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 			return proxy.GCipher.Decrypt(payload)
 		}
 
-		// n, err := upstreamConn.Read(buf)
+		// read from upstream
 		buf := readFromTCP()
 
 		if buf != nil && len(buf) > 0 {

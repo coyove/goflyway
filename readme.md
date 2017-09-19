@@ -59,6 +59,15 @@ Can be used like:
 [  0912 22:44:16.697] http proxy at :8100, upstream is 127.0.0.1:8101
 ```
 
+## UDP
+We have an experimental SOCKS5 UDP relay, turn it on (both at client and server):
+```
+./goflyway YOUR_OTHER_COMMANDS -u 8731
+```
+note that the listening port (`8731` in this example) should be identical at both sides. 
+
+UDP relay is not stable by now and only tested under a limited number of programs (Skype, Discord, etc.) using [SocksCap64](https://sourceforge.net/projects/sockscap64/), problem reports are welcome.
+
 ## Console
 There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
 
