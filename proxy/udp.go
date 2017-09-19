@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -15,13 +14,27 @@ const (
 	UOT_HEADER = byte(0x07)
 )
 
+func derr(err error) bool {
+	if ne, ok := err.(net.Error); ok {
+		if ne.Timeout() {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	defer c.Close()
 
 	readFromTCP := func() (string, []byte) {
 		xbuf := make([]byte, 2)
+
+		c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
 		if _, err := io.ReadAtLeast(c, xbuf, 2); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -29,7 +42,9 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		hostbuf := make([]byte, hostlen)
 
 		if _, err := io.ReadAtLeast(c, hostbuf, hostlen); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -46,7 +61,9 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		payload := make([]byte, payloadlen)
 
 		if _, err := io.ReadAtLeast(c, payload, payloadlen); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			if derr(err) {
+				logg.E(CANNOT_READ_BUF, err)
+			}
 			return "", nil
 		}
 
@@ -69,25 +86,27 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	}
 
 	quit := make(chan bool)
-	go func() {
+	go func() { // goroutine: read from downstream tcp, write to target host udp
+	READ:
 		for {
 			select {
 			case <-quit:
-				return
+				break READ
 			default:
 				if _, buf := readFromTCP(); buf != nil {
 					rconn.Write(buf)
 				} else {
-					return
+					break READ
 				}
 			}
 		}
+
+		c.Close() // may double-close, but fine
 	}()
 
 	buf := make([]byte, 2048)
-	for {
-
-		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_READ_TIMEOUT) * time.Second))
+	for { // read from target host udp, write to downstream tcp
+		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 		n, _, err := rconn.ReadFrom(buf)
 		// logg.L(n, ad.String(), err)
 
@@ -96,16 +115,20 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 			payload := append([]byte{UOT_HEADER, 0, 0}, ybuf...)
 			binary.BigEndian.PutUint16(payload[1:3], uint16(len(ybuf)))
 
+			c.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 			_, err := c.Write(payload)
 			if err != nil {
-				logg.E("[TtU] - ", err)
+				if derr(err) {
+					logg.E("[TtU] write - ", err)
+				}
+
 				break
 			}
 		}
 
 		if err != nil {
-			if !err.(net.Error).Timeout() {
-				logg.E("[TtU] - ", err)
+			if derr(err) {
+				logg.E("[TtU] readfrom - ", err)
 			}
 
 			break
@@ -116,42 +139,29 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	rconn.Close()
 }
 
-type upstreamConnState struct {
-	sync.Mutex
-	conns map[string]net.Conn
-}
+func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool) {
+	proxy.udp.upstream.Lock()
+	defer proxy.udp.upstream.Unlock()
 
-func (s *upstreamConnState) dial(client net.Addr, dst, upstream string) (net.Conn, bool) {
-	s.Lock()
-	defer s.Unlock()
-
-	if s.conns == nil {
-		s.conns = make(map[string]net.Conn)
+	if proxy.udp.upstream.conns == nil {
+		proxy.udp.upstream.conns = make(map[string]net.Conn)
 	}
 
-	str := client.String() + ":" + dst //src.String()
-	if conn, ok := s.conns[str]; ok {
-		return conn, false
+	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.GCipher.Rand.Intn(proxy.UDPRelayCoconn))
+	if conn, ok := proxy.udp.upstream.conns[str]; ok {
+		return conn, str, false
 	}
 
-	upstreamConn, err := net.Dial("tcp", upstream) //u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	u, _, _ := net.SplitHostPort(proxy.Upstream)
+	upstreamConn, err := net.Dial("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort))
 	if err != nil {
 		logg.E("[UPSTREAM] udp - ", err)
-		return nil, false
+		return nil, "", false
 	}
 
-	s.conns[str] = upstreamConn
-	return upstreamConn, true
+	proxy.udp.upstream.conns[str] = upstreamConn
+	return upstreamConn, str, true
 }
-
-func (s *upstreamConnState) remove(src string) {
-	s.Lock()
-	defer s.Unlock()
-
-	delete(s.conns, src)
-}
-
-var connsMgr upstreamConnState
 
 func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	_, dst, ok := ParseDstFrom(nil, b, true)
@@ -159,13 +169,12 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		return
 	}
 
-	u, _, _ := net.SplitHostPort(proxy.Upstream)
-	upstreamConn, firstTime := connsMgr.dial(src, dst.String(), u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	upstreamConn, token, firstTime := proxy.dialForUDP(src, dst.String())
 	if upstreamConn == nil {
 		return
 	}
 
-	// logg.L(b[dst.size:])
+	// prepare the payload
 	buf := proxy.GCipher.Encrypt(b[dst.size:])
 	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
 
@@ -185,6 +194,7 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	upstreamConn.Write(payload)
 
 	if !firstTime {
+		// we are not the first one using this connection, so just return here
 		return
 	}
 
@@ -192,8 +202,10 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	for {
 		readFromTCP := func() []byte {
 			xbuf := make([]byte, 3)
+			upstreamConn.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+
 			if _, err := io.ReadAtLeast(upstreamConn, xbuf, 3); err != nil {
-				if err != io.EOF {
+				if err != io.EOF && derr(err) {
 					logg.E(CANNOT_READ_BUF, err)
 				}
 
@@ -203,14 +215,16 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 			payloadlen := int(binary.BigEndian.Uint16(xbuf[1:3]))
 			payload := make([]byte, payloadlen)
 			if _, err := io.ReadAtLeast(upstreamConn, payload, payloadlen); err != nil {
-				logg.E(CANNOT_READ_BUF, err)
+				if derr(err) {
+					logg.E(CANNOT_READ_BUF, err)
+				}
 				return nil
 			}
 
 			return proxy.GCipher.Decrypt(payload)
 		}
 
-		// n, err := upstreamConn.Read(buf)
+		// read from upstream
 		buf := readFromTCP()
 
 		if buf != nil && len(buf) > 0 {
@@ -236,6 +250,9 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 		}
 	}
 
-	connsMgr.remove(src.String() + ":" + dst.String())
+	proxy.udp.upstream.Lock()
+	delete(proxy.udp.upstream.conns, token)
+	proxy.udp.upstream.Unlock()
+
 	upstreamConn.Close()
 }

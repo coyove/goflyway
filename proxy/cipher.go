@@ -49,6 +49,7 @@ type GCipher struct {
 	Hires     bool
 	Partial   bool
 	Shoco     bool
+	Rand      *rand.Rand
 }
 
 type InplaceCTR struct {
@@ -135,6 +136,8 @@ func (gc *GCipher) New() (err error) {
 	}
 
 	gc.Block, err = aes.NewCipher(gc.Key[:32])
+	gc.Rand = gc.NewRand()
+
 	return
 }
 
