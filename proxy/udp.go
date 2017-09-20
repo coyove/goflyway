@@ -80,8 +80,11 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		return
 	}
 
+	rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 	if _, err := rconn.Write(payload); err != nil {
-		logg.E("[TtU] write - ", err)
+		if derr(err) {
+			logg.E("[TtU] write to target - ", err)
+		}
 		return
 	}
 
@@ -94,7 +97,13 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 				break READ
 			default:
 				if _, buf := readFromTCP(); buf != nil {
-					rconn.Write(buf)
+					rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
+					if _, err := rconn.Write(buf); err != nil {
+						if derr(err) {
+							logg.E("[TtU] write to target - ", err)
+						}
+						break READ
+					}
 				} else {
 					break READ
 				}
@@ -119,7 +128,7 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 			_, err := c.Write(payload)
 			if err != nil {
 				if derr(err) {
-					logg.E("[TtU] write - ", err)
+					logg.E("[TtU] write to downstream - ", err)
 				}
 
 				break
