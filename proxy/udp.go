@@ -110,7 +110,8 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 			}
 		}
 
-		c.Close() // may double-close, but fine
+		c.Close()     // may double-close, but fine
+		rconn.Close() // may double-close, but fine
 	}()
 
 	buf := make([]byte, 2048)
