@@ -30,21 +30,48 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	readFromTCP := func() (string, []byte) {
 		xbuf := make([]byte, 2)
 
-		c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
-		if _, err := io.ReadAtLeast(c, xbuf, 2); err != nil {
-			if derr(err) {
-				logg.E(CANNOT_READ_BUF, err)
+		tryRead := func(buf []byte, min int) bool {
+			if _, err := io.ReadAtLeast(c, buf, min); err != nil {
+				if derr(err) {
+					logg.E(CANNOT_READ_BUF, err)
+				}
+				return false
 			}
+
+			return true
+		}
+
+		c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+		if !tryRead(xbuf, 2) {
 			return "", nil
 		}
 
-		hostlen := int(xbuf[1])
+		if xbuf[0] != UOT_HEADER {
+			return "", nil
+		}
+
+		authlen := int(xbuf[1])
+		if authlen > 0 {
+			authdata := make([]byte, authlen)
+			if !tryRead(authdata, authlen) {
+				return "", nil
+			}
+
+			if !proxy.auth(string(proxy.GCipher.Decrypt(authdata))) {
+				return "", nil
+			}
+		} else if proxy.Users != nil {
+			return "", nil
+		}
+
+		if !tryRead(xbuf[:1], 1) {
+			return "", nil
+		}
+
+		hostlen := int(xbuf[0])
 		hostbuf := make([]byte, hostlen)
 
-		if _, err := io.ReadAtLeast(c, hostbuf, hostlen); err != nil {
-			if derr(err) {
-				logg.E(CANNOT_READ_BUF, err)
-			}
+		if !tryRead(hostbuf, hostlen) {
 			return "", nil
 		}
 
@@ -60,10 +87,7 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 		payloadlen := int(binary.BigEndian.Uint16(hostbuf[hostlen-2:]))
 		payload := make([]byte, payloadlen)
 
-		if _, err := io.ReadAtLeast(c, payload, payloadlen); err != nil {
-			if derr(err) {
-				logg.E(CANNOT_READ_BUF, err)
-			}
+		if !tryRead(payload, payloadlen) {
 			return "", nil
 		}
 
@@ -72,6 +96,9 @@ func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
 	}
 
 	host, payload := readFromTCP()
+	if payload == nil || host == "" {
+		return
+	}
 
 	uaddr, _ := net.ResolveUDPAddr("udp", host)
 	rconn, err := net.DialUDP("udp", nil, uaddr)
@@ -173,7 +200,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 	return upstreamConn, str, true
 }
 
-func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
+func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, auth string, src net.Addr) {
 	_, dst, ok := ParseDstFrom(nil, b, true)
 	if !ok {
 		return
@@ -188,18 +215,34 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, src net.Addr) {
 	buf := proxy.GCipher.Encrypt(b[dst.size:])
 	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
 
-	//                                   +-------------- hostlen -------------+
-	// | 0x07 (1b header) | hostlen (1b) | host | port (2b) | payloadlen (2b) |
-	payload := make([]byte, 2+len(enchost)+2+2+len(buf))
+	var encauth []byte
+	var authlen = 0
 
-	payload[0], payload[1] = UOT_HEADER, byte(len(enchost)+2+2)
+	if auth != "" {
+		encauth = proxy.GCipher.Encrypt([]byte(auth))
+		authlen = len(encauth)
+	}
 
-	copy(payload[2:], enchost)
+	//                                   +----len---+              +-------------- hostlen -------------+
+	// | 0x07 (1b header) | authlen (1b) | authdata | hostlen (1b) | host | port (2b) | payloadlen (2b) |
 
-	binary.BigEndian.PutUint16(payload[2+len(enchost):], uint16(dst.port))
-	binary.BigEndian.PutUint16(payload[2+len(enchost)+2:], uint16(len(buf)))
+	payload := make([]byte, 1+1+authlen+1+len(enchost)+2+2+len(buf))
 
-	copy(payload[2+len(enchost)+2+2:], buf)
+	payload[0] = UOT_HEADER
+
+	payload[1] = byte(authlen)
+	if encauth != nil {
+		copy(payload[2:], encauth)
+	}
+
+	payload[2+authlen] = byte(len(enchost) + 2 + 2)
+
+	copy(payload[2+authlen+1:], enchost)
+
+	binary.BigEndian.PutUint16(payload[2+authlen+1+len(enchost):], uint16(dst.port))
+	binary.BigEndian.PutUint16(payload[2+authlen+1+len(enchost)+2:], uint16(len(buf)))
+
+	copy(payload[2+authlen+1+len(enchost)+2+2:], buf)
 
 	upstreamConn.Write(payload)
 

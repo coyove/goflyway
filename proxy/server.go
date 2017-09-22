@@ -32,6 +32,15 @@ type ProxyUpstream struct {
 	*ServerConfig
 }
 
+func (proxy *ProxyUpstream) auth(auth string) bool {
+	if _, existed := proxy.Users[auth]; existed {
+		// we don't have multi-user mode currently
+		return true
+	}
+
+	return false
+}
+
 func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 	var ioc *IOConfig
 	if proxy.Throttling > 0 {
@@ -80,6 +89,9 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var auth string
 	if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
 		auth = proxy.GCipher.DecryptString(auth)
+		if !proxy.auth(auth) {
+			return
+		}
 	}
 
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {

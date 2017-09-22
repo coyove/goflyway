@@ -375,7 +375,7 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 		for {
 			b := make([]byte, 2048)
 			n, src, _ := proxy.udp.relay.ReadFrom(b)
-			go proxy.HandleUDPtoTCP(b[:n], src)
+			go proxy.HandleUDPtoTCP(b[:n], auth, src)
 		}
 	}
 }
