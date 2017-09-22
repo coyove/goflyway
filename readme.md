@@ -66,7 +66,9 @@ We have an experimental SOCKS5 UDP relay, turn it on (both at client and server)
 ```
 note that the listening port (`8731` in this example) should be identical at both sides. 
 
-UDP relay is not stable by now and only tested under a limited number of programs (Skype, Discord, etc.) using [SocksCap64](https://sourceforge.net/projects/sockscap64/), problem reports are welcome.
+goflyway (only) uses TCP to relay UDP, which is bound to be slow. Use the flag `-udp-tcp N` and increase N progressively (default 1) to tweak the performance.
+
+UDP relay is only tested under a limited number of programs (Skype, Discord, etc.) using [SocksCap64](https://sourceforge.net/projects/sockscap64/), problem reports are welcome. (BTW, dnscrypt is not working)
 
 ## Console
 There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
