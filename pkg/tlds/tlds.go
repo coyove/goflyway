@@ -1,6 +1,6 @@
-package proxy
+package tlds
 
-var tlds = map[string]bool{
+var TLDs = map[string]bool{
 	"aaa":             true,
 	"aarp":            true,
 	"abarth":          true,

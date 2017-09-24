@@ -106,6 +106,21 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	return
 }
 
+func (c *Cache) GetHits(key Key) (hits int64, ok bool) {
+	c.Lock()
+	defer c.Unlock()
+
+	if c.cache == nil {
+		return
+	}
+
+	if ele, hit := c.cache[key]; hit {
+		return ele.Value.(*entry).hits, true
+	}
+
+	return
+}
+
 // Remove removes the provided key from the cache.
 func (c *Cache) Remove(key Key) {
 	c.Lock()

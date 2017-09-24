@@ -3,10 +3,14 @@ package proxy
 import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/lru"
 
-	// "io"
 	"net"
 	"net/http"
+)
+
+const (
+	_RETRY_OPPORTUNITIES = 2
 )
 
 type ServerConfig struct {
@@ -28,6 +32,8 @@ type UserConfig struct {
 
 type ProxyUpstream struct {
 	Tr *http.Transport
+
+	blacklist *lru.Cache
 
 	*ServerConfig
 }
@@ -94,6 +100,30 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	replyRandom := func() {
+		ln := proxy.Rand.Intn(32*1024) + 32*1024
+		buf := make([]byte, ln)
+
+		for i := 0; i < ln; i++ {
+			buf[i] = byte(proxy.GCipher.Rand.Intn(256))
+		}
+
+		w.Write(buf)
+	}
+
+	addr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		logg.W("unknown address: ", r.RemoteAddr)
+		replyRandom()
+		return
+	}
+
+	if h, _ := proxy.blacklist.GetHits(addr); h > _RETRY_OPPORTUNITIES {
+		logg.W("repeated access using invalid key, from: ", addr)
+		replyRandom()
+		return
+	}
+
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
 		downstreamConn := proxy.Hijack(w, r)
@@ -104,26 +134,29 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rkey := r.Header.Get(RKEY_HEADER)
 		ioc := proxy.getIOConfig(auth)
 
-		if mark != HOST_UDP_ADDRESS {
-			// we are outside GFW and should pass data to the real target
-			targetSiteConn, err := net.Dial("tcp", host)
-			if err != nil {
-				logg.E("[HOST] - ", err)
-				return
-			}
-
-			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-			if mark == HOST_HTTP_CONNECT {
-				downstreamConn.Write(OK_HTTP)
-			} else {
-				downstreamConn.Write(OK_SOCKS)
-			}
-
-			proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkey, ioc)
-		} else {
-			panic("not implemented")
+		if rkey == "" {
+			// if the request doesn't have a valid rkey
+			// it should be considered as invalid
+			replyRandom()
+			return
 		}
-	} else {
+
+		// we are outside GFW and should pass data to the real target
+		targetSiteConn, err := net.Dial("tcp", host)
+		if err != nil {
+			logg.E("[HOST] - ", err)
+			return
+		}
+
+		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
+		if mark == HOST_HTTP_CONNECT {
+			downstreamConn.Write(OK_HTTP)
+		} else {
+			downstreamConn.Write(OK_SOCKS)
+		}
+
+		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkey, ioc)
+	} else if mark == HOST_HTTP_FORWARD {
 		// normal http requests
 		if !r.URL.IsAbs() {
 			proxy.Write(w, r, []byte("abspath only"), http.StatusInternalServerError)
@@ -166,6 +199,9 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			logg.E("[COPYS] ", err, " - bytes: ", nr)
 		}
+	} else {
+		proxy.blacklist.Add(addr, nil)
+		replyRandom()
 	}
 }
 
@@ -173,6 +209,7 @@ func StartServer(addr string, config *ServerConfig) {
 	proxy := &ProxyUpstream{
 		Tr:           &http.Transport{TLSClientConfig: tlsSkip},
 		ServerConfig: config,
+		blacklist:    lru.NewCache(128),
 	}
 
 	if proxy.UDPRelayListen != 0 {

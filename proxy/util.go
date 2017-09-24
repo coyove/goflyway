@@ -4,6 +4,7 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/shoco"
+	"github.com/coyove/goflyway/pkg/tlds"
 
 	"crypto/tls"
 	"encoding/base32"
@@ -49,7 +50,7 @@ var (
 	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
 	OK_SOCKS = []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
-	//                                RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
+	//                                 RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
 	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
@@ -203,7 +204,7 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 	parts := strings.Split(host, ".")
 	flag := false
 	for i := len(parts) - 1; i >= 0; i-- {
-		if !tlds[parts[i]] {
+		if !tlds.TLDs[parts[i]] {
 			parts[i] = enc(string(mark) + parts[i])
 			flag = true
 			break
@@ -231,7 +232,7 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 	parts := strings.Split(host, ".")
 
 	for i := len(parts) - 1; i >= 0; i-- {
-		if !tlds[parts[i]] {
+		if !tlds.TLDs[parts[i]] {
 			buf := Base32Decode(parts[i])
 
 			if !c.Shoco {
