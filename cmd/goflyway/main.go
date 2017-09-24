@@ -132,9 +132,12 @@ func main() {
 		UDPRelayListen: int(*G_UdpRelay),
 		Throttling:     *G_Throttling,
 		ThrottlingMax:  *G_ThrottlingMax,
-		Users: map[string]proxy.UserConfig{
+	}
+
+	if *G_Auth != "" {
+		sc.Users = map[string]proxy.UserConfig{
 			*G_Auth: proxy.UserConfig{},
-		},
+		}
 	}
 
 	if *G_Debug {

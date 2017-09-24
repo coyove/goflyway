@@ -59,7 +59,7 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		return
 	}
 
-	rkey := proxy.GCipher.RandomKey()
+	rkey, rkeybuf := proxy.GCipher.RandomIV()
 
 	if (options & DO_SOCKS5) != 0 {
 		host = EncryptHost(proxy.GCipher, host, HOST_SOCKS_CONNECT)
@@ -80,7 +80,7 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkey, nil)
+	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
 }
 
 func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
@@ -97,7 +97,7 @@ func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, "", nil)
+	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +143,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// normal http requests
 		var err error
-		var rkey string
+		var rkeybuf []byte
 
 		if !r.URL.IsAbs() {
 			http.Error(w, "abspath only", http.StatusInternalServerError)
@@ -156,7 +156,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if proxy.CanDirectConnect(r.Host) {
 			direct = true
 		} else {
-			rkey = proxy.EncryptRequest(r)
+			rkeybuf = proxy.EncryptRequest(r)
 		}
 
 		r.Header.Del("Proxy-Authorization")
@@ -199,7 +199,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkey, nil)
+		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, nil)
 		iocc.Partial = false
 
 		nr, err := iocc.DoCopy()

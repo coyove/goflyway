@@ -196,18 +196,19 @@ func (gc *GCipher) NewRand() *rand.Rand {
 	return rand.New(rand.NewSource(k2 ^ k))
 }
 
-func (gc *GCipher) RandomKey() string {
+func (gc *GCipher) RandomIV() (string, []byte) {
 	_rand := gc.NewRand()
-	retB := make([]byte, 16)
+	retB := make([]byte, IV_LENGTH*2+2) // just avoid allocating 2 slices
 
-	for i := 0; i < 16; i++ {
+	for i := 0; i < IV_LENGTH; i++ {
 		retB[i] = byte(_rand.Intn(255) + 1)
+		retB[i+IV_LENGTH+2] = retB[i]
 	}
 
-	return base64.StdEncoding.EncodeToString(gc.Encrypt(retB))
+	return base64.StdEncoding.EncodeToString(gc.Encrypt(retB[:IV_LENGTH])), retB[IV_LENGTH+2:]
 }
 
-func (gc *GCipher) ReverseRandomKey(key string) []byte {
+func (gc *GCipher) ReverseIV(key string) []byte {
 	if key == "" {
 		return nil
 	}
@@ -217,14 +218,19 @@ func (gc *GCipher) ReverseRandomKey(key string) []byte {
 		return nil
 	}
 
-	return gc.Decrypt(k)
+	buf := gc.Decrypt(k)
+	if len(buf) != IV_LENGTH {
+		return nil
+	}
+
+	return buf
 }
 
 type IOConfig struct {
 	Bucket *TokenBucket
 }
 
-func (gc *GCipher) blockedIO(target, source interface{}, key string, options *IOConfig) {
+func (gc *GCipher) blockedIO(target, source interface{}, key []byte, options *IOConfig) {
 	var wg sync.WaitGroup
 
 	wg.Add(2)
@@ -233,7 +239,7 @@ func (gc *GCipher) blockedIO(target, source interface{}, key string, options *IO
 	wg.Wait()
 }
 
-func (gc *GCipher) Bridge(target, source net.Conn, key string, options *IOConfig) {
+func (gc *GCipher) Bridge(target, source net.Conn, key []byte, options *IOConfig) {
 
 	targetTCP, targetOK := target.(*net.TCPConn)
 	sourceTCP, sourceOK := source.(*net.TCPConn)
@@ -253,11 +259,11 @@ func (gc *GCipher) Bridge(target, source net.Conn, key string, options *IOConfig
 	}
 }
 
-func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key string, options *IOConfig) *IOCopyCipher {
+func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key []byte, options *IOConfig) *IOCopyCipher {
 	iocc := &IOCopyCipher{
 		Dst:     dst,
 		Src:     src,
-		Key:     gc.ReverseRandomKey(key),
+		Key:     key,
 		Partial: gc.Partial,
 		Cipher:  gc,
 	}
@@ -269,7 +275,7 @@ func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key string, options *IOC
 	return iocc
 }
 
-func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key string, options *IOConfig) {
+func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key []byte, options *IOConfig) {
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
@@ -280,7 +286,7 @@ func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key string, options *IO
 	src.CloseRead()
 }
 
-func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key string, options *IOConfig, wg *sync.WaitGroup) {
+func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, options *IOConfig, wg *sync.WaitGroup) {
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {

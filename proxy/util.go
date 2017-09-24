@@ -99,11 +99,11 @@ func (proxy *ProxyClient) basicAuth(token string) string {
 	}
 }
 
-func (proxy *ProxyClient) EncryptRequest(req *http.Request) string {
+func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
 	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
-	rkey := proxy.GCipher.RandomKey()
+	rkey, rkeybuf := proxy.GCipher.RandomIV()
 	SafeAddHeader(req, RKEY_HEADER, rkey)
 
 	add := func(field string) {
@@ -125,14 +125,14 @@ func (proxy *ProxyClient) EncryptRequest(req *http.Request) string {
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
-		Key:    proxy.GCipher.ReverseRandomKey(rkey),
+		Key:    rkeybuf,
 		Cipher: proxy.GCipher,
 	}).Init())
 
-	return rkey
+	return rkeybuf
 }
 
-func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) string {
+func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) []byte {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
@@ -146,10 +146,10 @@ func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) string {
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
-		Key:    proxy.GCipher.ReverseRandomKey(rkey),
+		Key:    proxy.GCipher.ReverseIV(rkey),
 		Cipher: proxy.GCipher,
 	}).Init())
-	return rkey
+	return proxy.GCipher.ReverseIV(rkey)
 }
 
 func copyHeaders(dst, src http.Header) {

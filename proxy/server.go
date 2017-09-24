@@ -57,7 +57,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 }
 
 func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	key := proxy.GCipher.ReverseRandomKey(SafeGetHeader(r, RKEY_HEADER))
+	key := proxy.GCipher.ReverseIV(SafeGetHeader(r, RKEY_HEADER))
 
 	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
@@ -93,13 +93,18 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var auth string
-	if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
-		auth = proxy.GCipher.DecryptString(auth)
-		if !proxy.auth(auth) {
-			return
+	if proxy.Users != nil {
+		if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
+			auth = proxy.GCipher.DecryptString(auth)
+			if proxy.auth(auth) {
+				goto AUTH_OK
+			}
 		}
+
+		return
 	}
 
+AUTH_OK:
 	replyRandom := func() {
 		ln := proxy.Rand.Intn(32*1024) + 32*1024
 		buf := make([]byte, ln)
@@ -132,9 +137,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rkey := r.Header.Get(RKEY_HEADER)
+		rkeybuf := proxy.GCipher.ReverseIV(rkey)
 		ioc := proxy.getIOConfig(auth)
 
-		if rkey == "" {
+		if rkeybuf == nil {
 			// if the request doesn't have a valid rkey
 			// it should be considered as invalid
 			replyRandom()
@@ -148,14 +154,14 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 		if mark == HOST_HTTP_CONNECT {
+			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 			downstreamConn.Write(OK_HTTP)
 		} else {
 			downstreamConn.Write(OK_SOCKS)
 		}
 
-		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkey, ioc)
+		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if mark == HOST_HTTP_FORWARD {
 		// normal http requests
 		if !r.URL.IsAbs() {
