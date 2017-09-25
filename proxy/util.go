@@ -144,12 +144,14 @@ func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) []byte {
 		c.Value = proxy.GCipher.DecryptString(c.Value)
 	}
 
+	iv := proxy.GCipher.ReverseIV(rkey)
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
-		Key:    proxy.GCipher.ReverseIV(rkey),
+		Key:    iv,
 		Cipher: proxy.GCipher,
 	}).Init())
-	return proxy.GCipher.ReverseIV(rkey)
+
+	return iv
 }
 
 func copyHeaders(dst, src http.Header) {

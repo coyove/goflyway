@@ -120,9 +120,17 @@ func (gc *GCipher) GetCipherStream(key []byte) *InplaceCTR {
 		return nil
 	}
 
+	dup := func(in []byte) []byte {
+		ret := make([]byte, len(in))
+		for i, b := range in {
+			ret[i] = b
+		}
+		return ret
+	}
+
 	return &InplaceCTR{
 		b:       gc.Block,
-		ctr:     key,
+		ctr:     dup(key),
 		out:     make([]byte, 0, STREAM_BUFFER_SIZE),
 		outUsed: 0,
 	}
