@@ -67,13 +67,15 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		host = EncryptHost(proxy.GCipher, host, HOST_HTTP_CONNECT)
 	}
 
-	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", host, RKEY_HEADER, rkey)
+	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n", host)
 
 	proxy.Dummies.Info(func(k lru.Key, v interface{}, h int64) {
-		if v.(string) != "" {
+		if v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
 			payload += k.(string) + ": " + v.(string) + "\r\n"
 		}
 	})
+
+	payload += fmt.Sprintf("%s: %s\r\n", RKEY_HEADER, rkey)
 
 	if auth != "" {
 		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth))

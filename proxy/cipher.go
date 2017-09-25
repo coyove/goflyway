@@ -116,20 +116,19 @@ func (gc *GCipher) GetCipherStream(key []byte) *InplaceCTR {
 	}
 
 	if len(key) != IV_LENGTH {
-		logg.E("[AES] iv is not 128bit long")
+		logg.E("[AES] iv is not 128bit long: ", key)
 		return nil
 	}
 
 	dup := func(in []byte) []byte {
 		ret := make([]byte, len(in))
-		for i, b := range in {
-			ret[i] = b
-		}
+		copy(ret, in)
 		return ret
 	}
 
 	return &InplaceCTR{
-		b:       gc.Block,
+		b: gc.Block,
+		// key must be duplicated because it gets modified during XorBuffer
 		ctr:     dup(key),
 		out:     make([]byte, 0, STREAM_BUFFER_SIZE),
 		outUsed: 0,

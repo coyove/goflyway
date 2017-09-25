@@ -170,7 +170,11 @@ AUTH_OK:
 		}
 
 		// decrypt req from inside GFW
-		rkey := proxy.DecryptRequest(r)
+		rkeybuf := proxy.DecryptRequest(r)
+		if rkeybuf == nil {
+			replyRandom()
+			return
+		}
 
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
@@ -186,7 +190,7 @@ AUTH_OK:
 		defer origBody.Close()
 
 		if resp.StatusCode >= 400 {
-			logg.L("[", resp.Status, "] - ", r.URL)
+			logg.D("[", resp.Status, "] - ", r.URL)
 		}
 
 		if origBody != resp.Body {
@@ -196,7 +200,7 @@ AUTH_OK:
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkey, proxy.getIOConfig(auth))
+		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()
