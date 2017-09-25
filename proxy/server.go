@@ -7,6 +7,7 @@ import (
 
 	"net"
 	"net/http"
+	"strconv"
 )
 
 const (
@@ -238,6 +239,10 @@ func StartServer(addr string, config *ServerConfig) {
 				go proxy.HandleTCPtoUDP(c)
 			}
 		}()
+	}
+
+	if port, lerr := strconv.Atoi(addr); lerr == nil {
+		addr = (&net.TCPAddr{IP: net.IPv4zero, Port: port}).String()
 	}
 
 	logg.L("listening on ", addr)

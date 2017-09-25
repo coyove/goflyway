@@ -16,14 +16,14 @@ import (
 var (
 	G_Config = flag.String("c", "", "config file path")
 
-	G_Key        = flag.String("k", "0123456789abcdef", "key, important")
-	G_Auth       = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	G_Upstream   = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	G_Local      = flag.String("l", ":8100", "local listening port (remember the colon)")
-	G_SocksProxy = flag.String("s", ":8101", "socks5 proxy listening port, -s=0 to disable it")
-	G_UdpRelay   = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
-	G_UdpTcp     = flag.Int64("udp-tcp", 1, "use N tcp connections to relay udp")
-	G_LogLevel   = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
+	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
+	G_Auth     = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
+	G_Local    = flag.String("l", ":8100", "local listening port (remember the colon)")
+	G_Local2   = flag.String("p", "", "local listening port (remember the colon), alias of -l")
+	G_UdpRelay = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
+	G_UdpTcp   = flag.Int64("udp-tcp", 1, "use N tcp connections to relay udp")
+	G_LogLevel = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")
@@ -60,7 +60,6 @@ func LoadConfig() {
 		*G_Auth = cf.GetString("default", "auth", *G_Auth)
 		*G_Local = cf.GetString("default", "listen", *G_Local)
 		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
-		*G_SocksProxy = cf.GetString("default", "socks5", *G_SocksProxy)
 		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
 		*G_UdpTcp = cf.GetInt("default", "udptcp", *G_UdpTcp)
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
@@ -141,16 +140,21 @@ func main() {
 	}
 
 	if *G_Debug {
-		logg.L("debug mode on, port 8100 for http proxy, port 8101 for socks5 proxy")
+		logg.L("debug mode on, proxy listening port 8100")
 
-		cc.Upstream = "127.0.0.1:8102"
-		go proxy.StartClient(":8100", ":8101", cc)
-		proxy.StartServer(":8102", sc)
+		cc.Upstream = "127.0.0.1:8101"
+		go proxy.StartClient(":8100", cc)
+		proxy.StartServer(":8101", sc)
 		return
 	}
 
 	if *G_Upstream != "" {
-		proxy.StartClient(*G_Local, *G_SocksProxy, cc)
+		if *G_Local2 != "" {
+			// -p has higher priority than -l, for the sack of SS users
+			proxy.StartClient(*G_Local2, cc)
+		} else {
+			proxy.StartClient(*G_Local, cc)
+		}
 	} else {
 		// save some space because server doesn't need lookup
 		lookup.ChinaList = nil
@@ -161,6 +165,11 @@ func main() {
 		// global variables are pain in the ass
 		runtime.GC()
 
-		proxy.StartServer(*G_Local, sc)
+		if *G_Local2 != "" {
+			// -p has higher priority than -l, for the sack of SS users
+			proxy.StartServer(*G_Local2, sc)
+		} else {
+			proxy.StartServer(*G_Local, sc)
+		}
 	}
 }

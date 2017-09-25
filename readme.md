@@ -13,7 +13,7 @@ where `KEY` is the password, then at local run the client to connect:
 ```
 ./goflyway -up=VPS_IP:8100 -k=KEY
 ```
-Set your Internet proxy to 127.0.0.1:8100 (HTTP) or 127.0.0.1:8101 (SOCKS5) and enjoy.
+Set your Internet proxy to 127.0.0.1:8100 (HTTP or SOCKS5 protocol) and enjoy.
 
 ### Build from source
 ```shell

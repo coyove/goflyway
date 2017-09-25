@@ -12,10 +12,14 @@ type prefetchReader struct {
 	first   byte
 	reseted bool
 	err     error
+
+	obpool *OneBytePool
 }
 
 func (ur *prefetchReader) prefetch() (byte, error) {
-	buf := make([]byte, 1)
+	buf := ur.obpool.Get()
+	defer ur.obpool.Free(buf)
+
 	n, err := ur.src.Read(buf)
 	ur.err = err
 
@@ -45,13 +49,29 @@ func (ur *prefetchReader) Read(p []byte) (int, error) {
 	return ur.src.Read(p)
 }
 
+type OneBytePool chan []byte
+
+func NewOneBytePool(s int) *OneBytePool {
+	p := OneBytePool(make(chan []byte, s))
+
+	for i := 0; i < s; i++ {
+		p <- make([]byte, 1)
+	}
+
+	return &p
+}
+
+func (p *OneBytePool) Get() []byte {
+	return <-*p
+}
+
+func (p *OneBytePool) Free(buf []byte) {
+	*p <- buf
+}
+
 type connWrapper struct {
 	net.Conn
 	sbuffer *prefetchReader
-}
-
-func newConnWrapper(c net.Conn) *connWrapper {
-	return &connWrapper{Conn: c, sbuffer: &prefetchReader{src: c}}
 }
 
 func (cw *connWrapper) Read(p []byte) (int, error) {
@@ -64,12 +84,14 @@ type listenerWrapper struct {
 	proxy     *ProxyClient
 	httpConn  connWrapper
 	socksConn connWrapper
+
+	obpool *OneBytePool
 }
 
 func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
-	wrapper := &connWrapper{Conn: c, sbuffer: &prefetchReader{src: c}}
+	wrapper := &connWrapper{Conn: c, sbuffer: &prefetchReader{src: c, obpool: l.obpool}}
 
 	switch b, _ := wrapper.sbuffer.prefetch(); b {
 	case 0x04, 0x05:

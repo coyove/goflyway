@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -382,30 +383,10 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	}
 }
 
-func startSocks5(slocaladdr string) {
-	if slocaladdr == "0" {
-		return
-	}
+func StartClient(localaddr string, config *ClientConfig) {
+	var mux net.Listener
+	var err error
 
-	if socks5Listener, err := net.Listen("tcp", slocaladdr); err != nil {
-		logg.E(err)
-	} else {
-		logg.L("socks5 proxy at ", slocaladdr)
-		go func() {
-			for {
-				conn, err := socks5Listener.Accept()
-				if err != nil {
-					logg.E("[SOCKS] ", err)
-					continue
-				}
-
-				go GClientProxy.HandleSocks(conn)
-			}
-		}()
-	}
-}
-
-func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 	upstreamUrl, err := url.Parse("http://" + config.Upstream)
 	if err != nil {
 		logg.F(err)
@@ -438,18 +419,17 @@ func StartClient(localaddr, slocaladdr string, config *ClientConfig) {
 
 	GClientProxy = proxy
 
-	if localaddr != slocaladdr {
-		startSocks5(slocaladdr)
-		logg.L("http proxy at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.ListenAndServe(localaddr, proxy))
+	if port, lerr := strconv.Atoi(localaddr); lerr == nil {
+		mux, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv6zero, Port: port})
+		localaddr = "localhost:" + localaddr
 	} else {
-		// try multiplexer
-		mux, err := net.Listen("tcp", localaddr)
-		if err != nil {
-			logg.F(err)
-		}
-
-		logg.L("http/socks5 proxy both at ", localaddr, ", upstream is ", config.Upstream)
-		logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy}, proxy))
+		mux, err = net.Listen("tcp", localaddr)
 	}
+
+	if err != nil {
+		logg.F(err)
+	}
+
+	logg.L("proxy is listening at ", localaddr, ", upstream is ", config.Upstream)
+	logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}, proxy))
 }
