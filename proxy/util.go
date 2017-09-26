@@ -34,7 +34,6 @@ const (
 	HOST_HTTP_FORWARD  = '#'
 	HOST_SOCKS_CONNECT = '$'
 	HOST_DOMAIN_LOOKUP = '!'
-	HOST_UDP_ADDRESS   = '%'
 
 	RKEY_HEADER     = "X-Request-ID"
 	DNS_HEADER      = "X-Host-Lookup"
@@ -79,24 +78,6 @@ func SafeGetHeader(req *http.Request, k string) string {
 	}
 
 	return v
-}
-
-func (proxy *ProxyClient) basicAuth(token string) string {
-	parts := strings.Split(token, " ")
-	if len(parts) != 2 {
-		return ""
-	}
-
-	pa, err := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return ""
-	}
-
-	if s := string(pa); s == proxy.UserAuth {
-		return s
-	} else {
-		return ""
-	}
 }
 
 func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
@@ -165,6 +146,24 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
+func (proxy *ProxyClient) basicAuth(token string) string {
+	parts := strings.Split(token, " ")
+	if len(parts) != 2 {
+		return ""
+	}
+
+	pa, err := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return ""
+	}
+
+	if s := string(pa); s == proxy.UserAuth {
+		return s
+	} else {
+		return ""
+	}
+}
+
 func getAuth(r *http.Request) string {
 	pa := r.Header.Get("Proxy-Authorization")
 	if pa == "" {
@@ -180,21 +179,28 @@ func tryClose(b io.ReadCloser) {
 	}
 }
 
-func SplitHostPort(host string) (string, string) {
-	if idx := strings.Index(host, ":"); idx > 0 {
-		return strings.ToLower(host[:idx]), host[idx:] // Port has a colon ':'
-	} else {
-		return strings.ToLower(host), ""
+func splitHostPort(host string) (string, string) {
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		idx2 := strings.LastIndex(host, "]")
+		if idx2 < idx {
+			return strings.ToLower(host[:idx]), host[idx:]
+		}
+
+		// ipv6 without port
 	}
+
+	return strings.ToLower(host), ""
 }
 
 func EncryptHost(c *GCipher, text string, mark byte) string {
-	host, port := SplitHostPort(text)
+	host, port := splitHostPort(text)
 
 	enc := func(in string) string {
 		if !c.Shoco {
 			return Base32Encode(c.Encrypt([]byte(in)))
 		} else {
+			logg.L(in)
+			logg.L(shoco.Compress(in))
 			return Base32Encode(c.Encrypt(shoco.Compress(in)))
 		}
 	}
@@ -230,7 +236,7 @@ func DecryptHost(c *GCipher, text string, mark byte) string {
 }
 
 func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
-	host, port := SplitHostPort(text)
+	host, port := splitHostPort(text)
 	parts := strings.Split(host, ".")
 
 	for i := len(parts) - 1; i >= 0; i-- {

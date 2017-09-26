@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -113,7 +112,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if proxy.UserAuth != "" {
 		if auth = proxy.basicAuth(getAuth(r)); auth == "" {
 			w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")
-			w.WriteHeader(407)
+			w.WriteHeader(http.StatusProxyAuthRequired)
 			return
 		}
 	}
@@ -138,7 +137,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			host += ":80"
 		}
 
-		if proxy.CanDirectConnect(host) {
+		if proxy.CanDirectConnect(auth, host) {
 			proxy.DialHostAndBridge(proxyClient, host, DO_NOTHING)
 		} else {
 			proxy.DialUpstreamAndBridge(proxyClient, host, auth, DO_NOTHING)
@@ -156,7 +155,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		direct := false
 		rUrl := r.URL.String()
 		// encrypt req to pass GFW
-		if proxy.CanDirectConnect(r.Host) {
+		if proxy.CanDirectConnect(auth, r.Host) {
 			direct = true
 		} else {
 			rkeybuf = proxy.EncryptRequest(r)
@@ -182,21 +181,8 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		origBody := resp.Body
-		defer origBody.Close()
-
 		if resp.StatusCode >= 400 {
-			logg.L("[", resp.Status, "] - ", rUrl)
-		}
-
-		// http.ResponseWriter will take care of filling the correct response length
-		// Setting it now, might impose wrong value, contradicting the actual new
-		// body the user returned.
-		// We keep the original body to remove the header only if things changed.
-		// This will prevent problems with HEAD requests where there's no body, yet,
-		// the Content-Length header should be set.
-		if origBody != resp.Body {
-			resp.Header.Del("Content-Length")
+			logg.D("[", resp.Status, "] - ", rUrl)
 		}
 
 		copyHeaders(w.Header(), resp.Header)
@@ -214,11 +200,8 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (proxy *ProxyClient) CanDirectConnect(host string) bool {
-	host = strings.ToLower(host)
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
-	}
+func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
+	host, _ = splitHostPort(host)
 
 	isChineseIP := func(ip string) bool {
 		if proxy.ProxyAllTraffic {
@@ -259,6 +242,9 @@ func (proxy *ProxyClient) CanDirectConnect(host string) bool {
 	client := http.Client{Timeout: time.Second}
 	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
 	req.Header.Add(DNS_HEADER, EncryptHost(proxy.GCipher, host, HOST_DOMAIN_LOOKUP))
+	if auth != "" {
+		req.Header.Add(AUTH_HEADER, auth)
+	}
 	resp, err := client.Do(req)
 
 	if err != nil {
@@ -366,7 +352,7 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	host := addr.String()
 
 	if method == 0x01 {
-		if proxy.CanDirectConnect(host) {
+		if proxy.CanDirectConnect(auth, host) {
 			proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
 		} else {
 			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)

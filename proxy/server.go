@@ -85,14 +85,6 @@ func (proxy *ProxyUpstream) Hijack(w http.ResponseWriter, r *http.Request) net.C
 }
 
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
-		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
-			ip, _ := lookup.LookupIP(x)
-			w.Write([]byte(ip))
-			return
-		}
-	}
-
 	var auth string
 	if proxy.Users != nil {
 		if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
@@ -115,6 +107,14 @@ AUTH_OK:
 		}
 
 		w.Write(buf)
+	}
+
+	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
+		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
+			ip, _ := lookup.LookupIP(x)
+			w.Write([]byte(ip))
+			return
+		}
 	}
 
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -187,15 +187,8 @@ AUTH_OK:
 			return
 		}
 
-		origBody := resp.Body
-		defer origBody.Close()
-
 		if resp.StatusCode >= 400 {
 			logg.D("[", resp.Status, "] - ", r.URL)
-		}
-
-		if origBody != resp.Body {
-			resp.Header.Del("Content-Length")
 		}
 
 		copyHeaders(w.Header(), resp.Header)
