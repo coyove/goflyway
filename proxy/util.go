@@ -1,9 +1,9 @@
 package proxy
 
 import (
+	"github.com/coyove/goflyway/pkg/bitsop"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
-	"github.com/coyove/goflyway/pkg/shoco"
 	"github.com/coyove/goflyway/pkg/tlds"
 
 	"crypto/tls"
@@ -30,10 +30,11 @@ const (
 	DO_THROTTLING = 1
 	DO_SOCKS5     = 1 << 16
 
-	HOST_HTTP_CONNECT  = '*'
-	HOST_HTTP_FORWARD  = '#'
-	HOST_SOCKS_CONNECT = '$'
-	HOST_DOMAIN_LOOKUP = '!'
+	HOST_HTTP_CONNECT  = byte(0x00)
+	HOST_HTTP_FORWARD  = byte(0x01)
+	HOST_SOCKS_CONNECT = byte(0x02)
+	HOST_DOMAIN_LOOKUP = byte(0x03)
+	HOST_IPV6          = byte(0x04)
 
 	RKEY_HEADER     = "X-Request-ID"
 	DNS_HEADER      = "X-Host-Lookup"
@@ -196,24 +197,26 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 	host, port := splitHostPort(text)
 
 	enc := func(in string) string {
-		if !c.Shoco {
-			return Base32Encode(c.Encrypt([]byte(in)))
-		} else {
-			logg.L(in)
-			logg.L(shoco.Compress(in))
-			return Base32Encode(c.Encrypt(shoco.Compress(in)))
-		}
+		return Base32Encode(c.Encrypt(bitsop.Compress(mark, in)))
 	}
 
 	if lookup.IPAddressToInteger(host) != 0 {
-		return enc(string(mark)+host) + port
+		return enc(host) + port
+	}
+
+	if len(host) > 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		ip := net.ParseIP(host[1 : len(host)-1])
+		if ip != nil {
+			buf := append([]byte{(mark | HOST_IPV6) << 5}, ip...)
+			return Base32Encode(c.Encrypt(buf)) + port
+		}
 	}
 
 	parts := strings.Split(host, ".")
 	flag := false
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds.TLDs[parts[i]] {
-			parts[i] = enc(string(mark) + parts[i])
+			parts[i] = enc(parts[i])
 			flag = true
 			break
 		}
@@ -223,7 +226,7 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 		return strings.Join(parts, ".") + port
 	}
 
-	return enc(string(mark)+host) + port
+	return enc(host) + port
 }
 
 func DecryptHost(c *GCipher, text string, mark byte) string {
@@ -241,20 +244,21 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds.TLDs[parts[i]] {
-			buf := Base32Decode(parts[i])
-
-			if !c.Shoco {
-				parts[i] = string(c.Decrypt(buf))
-			} else {
-				parts[i] = shoco.Decompress(c.Decrypt(buf))
+			buf := c.Decrypt(Base32Decode(parts[i]))
+			if len(buf) == 0 {
+				return text, 0
 			}
 
+			mark := buf[0] >> 5
+			if (mark & HOST_IPV6) != 0 {
+				return "[" + net.IP(buf[1:]).To16().String() + "]" + port, mark - HOST_IPV6
+			}
+
+			m, parts[i] = bitsop.Decompress(buf)
 			if len(parts[i]) == 0 {
 				return text, 0
-			} else {
-				m = parts[i][0]
 			}
-			parts[i] = parts[i][1:]
+
 			break
 		}
 	}

@@ -6,21 +6,20 @@ import (
 )
 
 func TestHost(t *testing.T) {
-	c := &GCipher{Key: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}}
+	c := &GCipher{KeyString: "12345678"}
 	c.New()
-
-	t.Log("Testing shoco host compressing and decompressing")
+	t.Log("Testing host compressing and decompressing")
 
 	for _, web := range strings.Split(websites, "\n") {
 		t.Log(web, EncryptHost(c, web, HOST_HTTP_FORWARD))
 		if DecryptHost(c, EncryptHost(c, web, HOST_HTTP_FORWARD), HOST_HTTP_FORWARD) != web {
-			t.Error("ShocoHost failed", web)
+			t.Error("Host failed", web)
 		}
 	}
 
 	for _, web := range strings.Split(websites, "\n") {
 		if DecryptHost(c, EncryptHost(c, web, HOST_HTTP_FORWARD), HOST_HTTP_CONNECT) == web {
-			t.Error("ShocoHost failed", web)
+			t.Error("Host failed", web)
 		}
 	}
 }
@@ -129,4 +128,5 @@ doamin.google
 wiki
 com
 1.2.3.4
-1.2.3.4.5.6.com`
+1.2.3.4.5.6.com
+[127::1]`

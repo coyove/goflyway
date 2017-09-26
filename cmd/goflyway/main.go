@@ -26,14 +26,11 @@ var (
 	G_LogLevel = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
-	G_DisableShoco     = flag.Bool("disable-shoco", false, "disable shoco compression")
 	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
 	G_ProxyAllTraffic  = flag.Bool("proxy-all", false, "proxy Chinese websites")
 	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
-	G_HRCounter        = flag.Bool("hr-counter", true, "use high resolution counter")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
-	G_UdpRelayNoHdr    = flag.Bool("no-socks-hdr", false, "udp relay: do not prepend the SOCKS5 header")
 
 	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
 	G_Throttling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
@@ -65,17 +62,14 @@ func LoadConfig() {
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
 		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
-
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
-		*G_DisableShoco = cf.GetBool("misc", "disableshoco", *G_DisableShoco)
-		*G_HRCounter = cf.GetBool("misc", "hirescounter", *G_HRCounter)
+
 		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
 		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
 		*G_PartialEncrypt = cf.GetBool("misc", "partial", *G_PartialEncrypt)
 
 		*G_Throttling = cf.GetInt("experimental", "throttling", *G_Throttling)
 		*G_ThrottlingMax = cf.GetInt("experimental", "throttlingmax", *G_ThrottlingMax)
-		*G_UdpRelayNoHdr = cf.GetBool("experimental", "relaynohdr", *G_UdpRelayNoHdr)
 	}
 }
 
@@ -106,9 +100,7 @@ func main() {
 
 	cipher := &proxy.GCipher{
 		KeyString: *G_Key,
-		Hires:     *G_HRCounter,
 		Partial:   *G_PartialEncrypt,
-		Shoco:     !*G_DisableShoco,
 	}
 	cipher.New()
 
@@ -121,7 +113,6 @@ func main() {
 		UserAuth:        *G_Auth,
 		Upstream:        *G_Upstream,
 		UDPRelayPort:    int(*G_UdpRelay),
-		UDPRelayNoHdr:   *G_UdpRelayNoHdr,
 		UDPRelayCoconn:  int(*G_UdpTcp),
 		GCipher:         cipher,
 	}

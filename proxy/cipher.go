@@ -46,9 +46,7 @@ type GCipher struct {
 	Key       []byte
 	KeyString string
 	Block     cipher.Block
-	Hires     bool
 	Partial   bool
-	Shoco     bool
 	Rand      *rand.Rand
 }
 
@@ -192,13 +190,7 @@ func (gc *GCipher) DecryptString(text string) string {
 
 func (gc *GCipher) NewRand() *rand.Rand {
 	var k int64 = int64(binary.BigEndian.Uint64(gc.Key[:8]))
-	var k2 int64
-
-	if gc.Hires {
-		k2 = counter.GetCounter()
-	} else {
-		k2 = time.Now().UnixNano()
-	}
+	var k2 int64 = counter.GetCounter()
 
 	return rand.New(rand.NewSource(k2 ^ k))
 }

@@ -284,25 +284,25 @@ func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, auth string, src net.Addr) {
 			logg.D("[UtT] receive - ", len(buf))
 
 			var err error
+			var ln int
+			// prepare the response header
+			if len(dst.ip) == net.IPv4len {
+				copy(xbuf, UDP_REQUEST_HEADER)
+				copy(xbuf[4:8], dst.ip)
+				binary.BigEndian.PutUint16(xbuf[8:], uint16(dst.port))
+				copy(xbuf[len(UDP_REQUEST_HEADER):], buf)
 
-			if proxy.UDPRelayNoHdr {
-				_, err = proxy.udp.relay.WriteTo(buf, src)
+				ln = len(buf) + len(UDP_REQUEST_HEADER)
 			} else {
-				// prepare the response header
-				if len(dst.ip) == net.IPv4len {
-					copy(xbuf, UDP_REQUEST_HEADER)
-					copy(xbuf[4:8], dst.ip)
-					binary.BigEndian.PutUint16(xbuf[8:], uint16(dst.port))
-					copy(xbuf[len(UDP_REQUEST_HEADER):], buf)
-				} else {
-					copy(xbuf, UDP_REQUEST_HEADER6)
-					copy(xbuf[4:20], dst.ip)
-					binary.BigEndian.PutUint16(xbuf[20:], uint16(dst.port))
-					copy(xbuf[len(UDP_REQUEST_HEADER6):], buf)
-				}
+				copy(xbuf, UDP_REQUEST_HEADER6)
+				copy(xbuf[4:20], dst.ip)
+				binary.BigEndian.PutUint16(xbuf[20:], uint16(dst.port))
+				copy(xbuf[len(UDP_REQUEST_HEADER6):], buf)
 
-				_, err = proxy.udp.relay.WriteTo(xbuf[:len(buf)+len(UDP_REQUEST_HEADER)], src)
+				ln = len(buf) + len(UDP_REQUEST_HEADER6)
 			}
+
+			_, err = proxy.udp.relay.WriteTo(xbuf[:ln], src)
 
 			if err != nil {
 				logg.E("[UtT] write - ", err)

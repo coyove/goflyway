@@ -27,7 +27,6 @@ type ClientConfig struct {
 	UserAuth        string
 
 	UDPRelayPort   int
-	UDPRelayNoHdr  bool
 	UDPRelayCoconn int
 
 	*GCipher

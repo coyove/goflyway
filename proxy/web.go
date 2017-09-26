@@ -55,9 +55,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 	<form id=panel method='POST'>
 		<input type='checkbox' disabled checked>Change key: <input name='key' value='{{.Key}}' style='border:none;padding:0;font:inherit;font-style:italic'/><br>
 		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Proxy all traffic including Chinese websites</label><br>
-		<input type='checkbox' name='hrcounter' {{if .HRCounter}}checked{{end}}/><label>Use high resolution counter in RNG</label><br>
-		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify Chinese websites using china-list</label><br>
-		<input type='checkbox' name='noshoco' {{if .NoShoco}}checked{{end}}/><label>Disable shoco compression algorithm</label><br><br>
+		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify Chinese websites using china-list</label><br><br>
 		<input type='submit' name='proxy' value='Update Settings'/>
 		<input type='submit' name='clearc' value='Clear DNS Cache'/>
 	</form>
@@ -70,14 +68,10 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		webConsoleHTML.Execute(w, struct {
 			ProxyAll   bool
 			ProxyChina bool
-			NoShoco    bool
-			HRCounter  bool
 			Key        string
 		}{
 			GClientProxy.ProxyAllTraffic,
 			GClientProxy.UseChinaList,
-			!GClientProxy.GCipher.Shoco,
-			GClientProxy.GCipher.Hires,
 			GClientProxy.GCipher.KeyString,
 		})
 
@@ -102,8 +96,6 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("proxy") != "" {
 			GClientProxy.ProxyAllTraffic = r.FormValue("proxyall") == "on"
 			GClientProxy.UseChinaList = r.FormValue("proxyc") == "on"
-			GClientProxy.GCipher.Shoco = r.FormValue("noshoco") != "on"
-			GClientProxy.GCipher.Hires = r.FormValue("hrcounter") == "on"
 			GClientProxy.GCipher.KeyString = r.FormValue("key")
 			GClientProxy.GCipher.New()
 		}
