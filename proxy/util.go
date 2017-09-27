@@ -36,7 +36,6 @@ const (
 	HOST_DOMAIN_LOOKUP = byte(0x03)
 	HOST_IPV6          = byte(0x04)
 
-	RKEY_HEADER     = "X-Request-ID"
 	DNS_HEADER      = "X-Host-Lookup"
 	AUTH_HEADER     = "X-Authorization"
 	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
@@ -86,7 +85,7 @@ func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
 	rkey, rkeybuf := proxy.GCipher.RandomIV()
-	SafeAddHeader(req, RKEY_HEADER, rkey)
+	SafeAddHeader(req, proxy.rkeyHeader, rkey)
 
 	add := func(field string) {
 		if x := req.Header.Get(field); x != "" {
@@ -114,26 +113,23 @@ func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
 	return rkeybuf
 }
 
-func (proxy *ProxyUpstream) DecryptRequest(req *http.Request) []byte {
+func (proxy *ProxyUpstream) DecryptRequest(req *http.Request, rkeybuf []byte) {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
+		req.RequestURI = req.URL.String()
 	}
-
-	rkey := SafeGetHeader(req, RKEY_HEADER)
 
 	for _, c := range req.Cookies() {
 		c.Value = proxy.GCipher.DecryptString(c.Value)
 	}
 
-	iv := proxy.GCipher.ReverseIV(rkey)
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
-		Key:    iv,
+		Key:    rkeybuf,
 		Cipher: proxy.GCipher,
 	}).Init())
-
-	return iv
 }
 
 func copyHeaders(dst, src http.Header) {
@@ -251,7 +247,11 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 
 			mark := buf[0] >> 5
 			if (mark & HOST_IPV6) != 0 {
-				return "[" + net.IP(buf[1:]).To16().String() + "]" + port, mark - HOST_IPV6
+				if ipv6 := net.IP(buf[1:]).To16(); ipv6 != nil {
+					return "[" + ipv6.String() + "]" + port, mark - HOST_IPV6
+				} else {
+					return "", 0
+				}
 			}
 
 			m, parts[i] = bitsop.Decompress(buf)
@@ -280,12 +280,6 @@ func Base32Encode(buf []byte) string {
 func Base32Decode(text string) []byte {
 	const paddings = "======"
 
-	// for i := 0; i < len(base32Replace); i++ {
-	// 	if strings.HasSuffix(text, base32Replace[i]) {
-	// 		text = text[:len(text)-len(base32Replace[i])] + paddings[:i+1]
-	// 		break
-	// 	}
-	// }
 	if m := len(text) % 8; m > 1 {
 		text = text + paddings[:8-m]
 	}
@@ -296,6 +290,35 @@ func Base32Decode(text string) []byte {
 	}
 
 	return buf
+}
+
+func genWord(gc *GCipher) string {
+	const (
+		vowels = "aeiou"
+		cons   = "bcdfghlmnprst"
+	)
+
+	ret := make([]byte, 16)
+	gc.Block.Encrypt(ret, gc.Key)
+	ret[0] = (vowels + cons)[ret[0]/15]
+	i, ln := 1, int(ret[15]/85)+6
+
+	fill := func(prev string, this string, thisidx byte) {
+		if strings.ContainsRune(prev, rune(ret[i-1])) {
+			ret[i] = this[ret[i]/thisidx]
+			i++
+		}
+	}
+
+	for i < ln {
+		fill(vowels, cons, 21)
+		fill(cons, vowels, 64)
+		fill(vowels, cons, 21)
+		fill(cons, vowels+"tr", 43)
+	}
+
+	ret[0] -= 32
+	return string(ret[:ln])
 }
 
 type addr_t struct {

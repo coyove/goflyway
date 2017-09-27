@@ -24,6 +24,24 @@ func TestHost(t *testing.T) {
 	}
 }
 
+func TestGenWord(t *testing.T) {
+	r := &GCipher{KeyString: "12345678"}
+	r.New()
+
+	gen := func() *GCipher {
+		ret, n := &GCipher{}, r.Rand.Intn(16)+1
+		for i := 0; i < n; i++ {
+			ret.KeyString += string(byte(r.Rand.Intn(26)) + 'a')
+		}
+		ret.New()
+		return ret
+	}
+
+	for i := 0; i < 100; i++ {
+		t.Log(genWord(gen()))
+	}
+}
+
 const websites = `google.com
 youtube.com
 facebook.com

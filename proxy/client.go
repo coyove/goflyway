@@ -38,7 +38,8 @@ type ProxyClient struct {
 
 	*ClientConfig
 
-	udp struct {
+	rkeyHeader string
+	udp        struct {
 		relay    *net.UDPConn
 		response []byte
 
@@ -74,7 +75,7 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		}
 	})
 
-	payload += fmt.Sprintf("%s: %s\r\n", RKEY_HEADER, rkey)
+	payload += fmt.Sprintf("%s: %s\r\n", proxy.rkeyHeader, rkey)
 
 	if auth != "" {
 		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth))
@@ -377,6 +378,7 @@ func StartClient(localaddr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
+	word := genWord(config.GCipher)
 	proxy := &ProxyClient{
 		Tr: &http.Transport{
 			TLSClientConfig: tlsSkip,
@@ -384,6 +386,8 @@ func StartClient(localaddr string, config *ClientConfig) {
 		},
 		TrDirect:     &http.Transport{TLSClientConfig: tlsSkip},
 		ClientConfig: config,
+
+		rkeyHeader: "X-" + word,
 	}
 
 	if config.UDPRelayPort != 0 {
@@ -415,6 +419,6 @@ func StartClient(localaddr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
-	logg.L("proxy is listening at ", localaddr, ", upstream is ", config.Upstream)
+	logg.L("Hi! ", word, ", proxy is listening at ", localaddr, ", upstream is ", config.Upstream)
 	logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}, proxy))
 }
