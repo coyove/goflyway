@@ -19,12 +19,11 @@ import (
 
 type ClientConfig struct {
 	Upstream        string
-	DNSCache        *lru.Cache
-	Dummies         *lru.Cache
 	ProxyAllTraffic bool
 	UseChinaList    bool
 	DisableConsole  bool
 	UserAuth        string
+	DNSCacheSize    int
 
 	UDPRelayPort   int
 	UDPRelayCoconn int
@@ -39,6 +38,8 @@ type ProxyClient struct {
 	*ClientConfig
 
 	rkeyHeader string
+	dnsCache   *lru.Cache
+	dummies    *lru.Cache
 	udp        struct {
 		relay    *net.UDPConn
 		response []byte
@@ -69,7 +70,7 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 
 	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n", host)
 
-	proxy.Dummies.Info(func(k lru.Key, v interface{}, h int64) {
+	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
 		if v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
 			payload += k.(string) + ": " + v.(string) + "\r\n"
 		}
@@ -156,9 +157,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rUrl := r.URL.String()
 		// encrypt req to pass GFW
 		if proxy.CanDirectConnect(auth, r.Host) {
+			proxy.addToDummies(r)
 			direct = true
 		} else {
-			rkeybuf = proxy.EncryptRequest(r)
+			rkeybuf = proxy.encryptRequest(r)
 		}
 
 		r.Header.Del("Proxy-Authorization")
@@ -215,7 +217,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 		return !proxy.ProxyAllTraffic
 	}
 
-	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
+	if ip, ok := proxy.dnsCache.Get(host); ok && ip.(string) != "" { // we have cached the host
 		return lookup.IsPrivateIP(ip.(string)) || isChineseIP(ip.(string))
 	}
 
@@ -226,7 +228,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	}
 
 	if lookup.IsPrivateIP(ip) {
-		proxy.DNSCache.Add(host, ip)
+		proxy.dnsCache.Add(host, ip)
 		return true
 	}
 
@@ -234,7 +236,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	// but if it is a chinese ip, we withhold and query the upstream to double check
 	maybeChinese := isChineseIP(ip)
 	if !maybeChinese {
-		proxy.DNSCache.Add(host, ip)
+		proxy.dnsCache.Add(host, ip)
 		return false
 	}
 
@@ -262,7 +264,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 		return maybeChinese
 	}
 
-	proxy.DNSCache.Add(host, string(ipbuf))
+	proxy.dnsCache.Add(host, string(ipbuf))
 	return isChineseIP(string(ipbuf))
 }
 
@@ -387,6 +389,8 @@ func StartClient(localaddr string, config *ClientConfig) {
 		TrDirect:     &http.Transport{TLSClientConfig: tlsSkip},
 		ClientConfig: config,
 
+		dummies:    lru.NewCache(len(DUMMY_FIELDS)),
+		dnsCache:   lru.NewCache(config.DNSCacheSize),
 		rkeyHeader: "X-" + word,
 	}
 

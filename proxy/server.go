@@ -176,7 +176,7 @@ AUTH_OK:
 		}
 
 		// decrypt req from inside GFW
-		proxy.DecryptRequest(r, rkeybuf)
+		proxy.decryptRequest(r, rkeybuf)
 
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")

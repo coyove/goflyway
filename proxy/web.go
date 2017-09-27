@@ -78,7 +78,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<table><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
 
 		flag := false
-		GClientProxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
+		GClientProxy.dnsCache.Info(func(k lru.Key, v interface{}, h int64) {
 			flag = true
 			w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h)))
 		})
@@ -90,7 +90,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("</table></html>"))
 	} else if r.Method == "POST" {
 		if r.FormValue("clearc") != "" {
-			GClientProxy.DNSCache.Clear()
+			GClientProxy.dnsCache.Clear()
 		}
 
 		if r.FormValue("proxy") != "" {

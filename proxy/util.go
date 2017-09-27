@@ -53,6 +53,8 @@ var (
 	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
+	DUMMY_FIELDS = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
+
 	tlsSkip = &tls.Config{InsecureSkipVerify: true}
 
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
@@ -80,25 +82,22 @@ func SafeGetHeader(req *http.Request, k string) string {
 	return v
 }
 
-func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
+func (proxy *ProxyClient) addToDummies(req *http.Request) {
+	for _, field := range DUMMY_FIELDS {
+		if x := req.Header.Get(field); x != "" {
+			proxy.dummies.Add(field, x)
+		}
+	}
+}
+
+func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
 	rkey, rkeybuf := proxy.GCipher.RandomIV()
 	SafeAddHeader(req, proxy.rkeyHeader, rkey)
 
-	add := func(field string) {
-		if x := req.Header.Get(field); x != "" {
-			proxy.Dummies.Add(field, x)
-		}
-	}
-
-	add("Accept-Language")
-	add("User-Agent")
-	add("Referer")
-	add("Cache-Control")
-	add("Accept-Encoding")
-	add("Connection")
+	proxy.addToDummies(req)
 
 	for _, c := range req.Cookies() {
 		c.Value = proxy.GCipher.EncryptString(c.Value)
@@ -113,7 +112,7 @@ func (proxy *ProxyClient) EncryptRequest(req *http.Request) []byte {
 	return rkeybuf
 }
 
-func (proxy *ProxyUpstream) DecryptRequest(req *http.Request, rkeybuf []byte) {
+func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
 	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
 
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
@@ -303,7 +302,7 @@ func genWord(gc *GCipher) string {
 	ret[0] = (vowels + cons)[ret[0]/15]
 	i, ln := 1, int(ret[15]/85)+6
 
-	fill := func(prev string, this string, thisidx byte) {
+	link := func(prev string, this string, thisidx byte) {
 		if strings.ContainsRune(prev, rune(ret[i-1])) {
 			ret[i] = this[ret[i]/thisidx]
 			i++
@@ -311,10 +310,10 @@ func genWord(gc *GCipher) string {
 	}
 
 	for i < ln {
-		fill(vowels, cons, 21)
-		fill(cons, vowels, 64)
-		fill(vowels, cons, 21)
-		fill(cons, vowels+"tr", 43)
+		link(vowels, cons, 20)
+		link(cons, vowels, 52)
+		link(vowels, cons, 20)
+		link(cons, vowels+"tr", 37)
 	}
 
 	ret[0] -= 32

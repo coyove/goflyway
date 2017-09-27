@@ -4,7 +4,6 @@ import (
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
-	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/goflyway/proxy"
 
 	"flag"
@@ -105,8 +104,7 @@ func main() {
 	cipher.New()
 
 	cc := &proxy.ClientConfig{
-		DNSCache:        lru.NewCache(*G_DNSCacheEntries),
-		Dummies:         lru.NewCache(6),
+		DNSCacheSize:    *G_DNSCacheEntries,
 		ProxyAllTraffic: *G_ProxyAllTraffic,
 		UseChinaList:    *G_UseChinaList,
 		DisableConsole:  *G_DisableConsole,

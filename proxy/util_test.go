@@ -37,8 +37,8 @@ func TestGenWord(t *testing.T) {
 		return ret
 	}
 
-	for i := 0; i < 100; i++ {
-		t.Log(genWord(gen()))
+	for i := 0; i < 100000; i++ {
+		genWord(gen())
 	}
 }
 
