@@ -145,35 +145,32 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// normal http requests
-		var err error
-		var rkeybuf []byte
-
 		if !r.URL.IsAbs() {
 			http.Error(w, "abspath only", http.StatusInternalServerError)
 			return
 		}
 
-		direct := false
-		rUrl := r.URL.String()
-		// encrypt req to pass GFW
-		if proxy.CanDirectConnect(auth, r.Host) {
-			proxy.addToDummies(r)
-			direct = true
-		} else {
-			rkeybuf = proxy.encryptRequest(r)
-		}
+		// borrow some headers from real browsings
+		proxy.addToDummies(r)
 
+		rUrl := r.URL.String()
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
-		if auth != "" {
-			SafeAddHeader(r, AUTH_HEADER, auth)
-		}
 
 		var resp *http.Response
+		var err error
+		var rkeybuf []byte
 
-		if direct {
+		if proxy.CanDirectConnect(auth, r.Host) {
 			resp, err = proxy.TrDirect.RoundTrip(r)
 		} else {
+			// encrypt req to pass GFW
+			rkeybuf = proxy.encryptRequest(r)
+
+			if auth != "" {
+				SafeAddHeader(r, AUTH_HEADER, auth)
+			}
+
 			resp, err = proxy.Tr.RoundTrip(r)
 		}
 
@@ -312,7 +309,7 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 		return
 	}
 
-	if buf[0] != socks5Version {
+	if buf[0] != SOCKS5_VERSION {
 		log_close(NOT_SOCKS5)
 		return
 	}
@@ -330,7 +327,7 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	)
 
 	if proxy.UserAuth != "" {
-		conn.Write([]byte{socks5Version, 0x02}) // username & password auth
+		conn.Write([]byte{SOCKS5_VERSION, 0x02}) // username & password auth
 
 		if auth, ok = proxy.authConnection(conn); !ok {
 			conn.Write([]byte{0x01, 0x01})
@@ -341,11 +338,11 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 			conn.Write([]byte{0x1, 0})
 		}
 	} else {
-		conn.Write([]byte{socks5Version, 0})
+		conn.Write([]byte{SOCKS5_VERSION, 0})
 	}
 	// handshake over
 	// tunneling start
-	method, addr, ok := ParseDstFrom(conn, nil, false)
+	method, addr, ok := parseDstFrom(conn, nil, false)
 	if !ok {
 		conn.Close()
 		return
@@ -359,14 +356,23 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 		} else {
 			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
-	} else if method == 0x03 && proxy.udp.relay != nil {
-		// UDP relay test
-		conn.Write(proxy.udp.response)
+	} else if method == 0x03 {
+		if proxy.udp.relay != nil {
+			conn.Write(proxy.udp.response)
 
-		for {
-			b := make([]byte, 2048)
-			n, src, _ := proxy.udp.relay.ReadFrom(b)
-			go proxy.HandleUDPtoTCP(b[:n], auth, src)
+			for {
+				buf := make([]byte, 2048)
+				n, src, err := proxy.udp.relay.ReadFrom(buf)
+				if err != nil {
+					logg.E("[RELAY] - ", err)
+					continue
+				}
+
+				go proxy.handleUDPtoTCP(buf[:n], auth, src)
+			}
+		} else {
+			logg.W("use command -udp=PORT to enable UDP relay")
+			conn.Close()
 		}
 	}
 }
@@ -395,7 +401,7 @@ func StartClient(localaddr string, config *ClientConfig) {
 	}
 
 	if config.UDPRelayPort != 0 {
-		r := []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+		r := []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 		binary.BigEndian.PutUint16(r[8:], uint16(config.UDPRelayPort))
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
 		if err != nil {

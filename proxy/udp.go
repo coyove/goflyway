@@ -14,6 +14,110 @@ const (
 	UOT_HEADER = byte(0x07)
 )
 
+type addr_t struct {
+	ip   net.IP
+	host string
+	port int
+	size int
+}
+
+func (a *addr_t) String() string {
+	return a.HostString() + ":" + strconv.Itoa(a.port)
+}
+
+func (a *addr_t) HostString() string {
+	if a.ip != nil {
+		return a.ip.String()
+	} else {
+		return a.host
+	}
+}
+
+func (a *addr_t) IP() net.IP {
+	if a.ip != nil {
+		return a.ip
+	}
+
+	ip, err := net.ResolveIPAddr("ip", a.host)
+	if err != nil {
+		logg.E("[ADT] ", err)
+		return nil
+	}
+
+	return ip.IP
+}
+
+func (a *addr_t) IsAllZeros() bool {
+	if a.ip != nil {
+		return a.ip.IsUnspecified() && a.port == 0
+	}
+
+	return false
+}
+
+func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t, bool) {
+	var err error
+	var n int
+
+	if typeBuf == nil {
+		typeBuf, n = make([]byte, 256+3+1+1+2), 0
+		// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	}
+
+	if typeBuf[0] != SOCKS5_VERSION && !omitCheck {
+		logg.E(NOT_SOCKS5)
+		return 0x0, nil, false
+	}
+
+	if typeBuf[1] != 0x01 && typeBuf[1] != 0x03 && !omitCheck { // 0x01: establish a TCP/IP stream connection
+		logg.E("[SOCKS] invalid command: ", typeBuf[1])
+		return 0x0, nil, false
+	}
+
+	addr := &addr_t{}
+	switch typeBuf[3] {
+	case SOCKS_TYPE_IPv4:
+		addr.size = 3 + 1 + net.IPv4len + 2
+	case SOCKS_TYPE_IPv6:
+		addr.size = 3 + 1 + net.IPv6len + 2
+	case SOCKS_TYPE_Dm:
+		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
+	default:
+		logg.E("[SOCKS] invalid type")
+		return 0x0, nil, false
+	}
+
+	if conn != nil {
+		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	} else {
+		if len(typeBuf) < addr.size {
+			logg.E(CANNOT_READ_BUF, err)
+			return 0x0, nil, false
+		}
+	}
+
+	rawaddr := typeBuf[3 : addr.size-2]
+	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
+
+	switch typeBuf[3] {
+	case SOCKS_TYPE_IPv4:
+		addr.ip = net.IP(rawaddr[1:])
+	case SOCKS_TYPE_IPv6:
+		addr.ip = net.IP(rawaddr[1:])
+	default:
+		addr.host = string(rawaddr[2:])
+	}
+
+	return typeBuf[1], addr, true
+}
+
 func derr(err error) bool {
 	if ne, ok := err.(net.Error); ok {
 		if ne.Timeout() {
@@ -24,7 +128,7 @@ func derr(err error) bool {
 	return true
 }
 
-func (proxy *ProxyUpstream) HandleTCPtoUDP(c net.Conn) {
+func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 	defer c.Close()
 
 	readFromTCP := func() (string, []byte) {
@@ -200,8 +304,8 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 	return upstreamConn, str, true
 }
 
-func (proxy *ProxyClient) HandleUDPtoTCP(b []byte, auth string, src net.Addr) {
-	_, dst, ok := ParseDstFrom(nil, b, true)
+func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
+	_, dst, ok := parseDstFrom(nil, b, true)
 	if !ok {
 		return
 	}

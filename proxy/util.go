@@ -9,22 +9,20 @@ import (
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
 const (
-	socks5Version = byte(0x05)
-	socksTypeIPv4 = 1
-	socksTypeDm   = 3
-	socksTypeIPv6 = 4
+	SOCKS5_VERSION  = byte(0x05)
+	SOCKS_TYPE_IPv4 = 1
+	SOCKS_TYPE_Dm   = 3
+	SOCKS_TYPE_IPv6 = 4
 
 	DO_NOTHING    = 0
 	DO_THROTTLING = 1
@@ -47,8 +45,8 @@ const (
 
 var (
 	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
-	// version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
-	OK_SOCKS = []byte{socks5Version, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
+	//                       version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
+	OK_SOCKS = []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
 	//                                 RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
 	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
@@ -96,8 +94,6 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 
 	rkey, rkeybuf := proxy.GCipher.RandomIV()
 	SafeAddHeader(req, proxy.rkeyHeader, rkey)
-
-	proxy.addToDummies(req)
 
 	for _, c := range req.Cookies() {
 		c.Value = proxy.GCipher.EncryptString(c.Value)
@@ -318,108 +314,4 @@ func genWord(gc *GCipher) string {
 
 	ret[0] -= 32
 	return string(ret[:ln])
-}
-
-type addr_t struct {
-	ip   net.IP
-	host string
-	port int
-	size int
-}
-
-func (a *addr_t) String() string {
-	return a.HostString() + ":" + strconv.Itoa(a.port)
-}
-
-func (a *addr_t) HostString() string {
-	if a.ip != nil {
-		return a.ip.String()
-	} else {
-		return a.host
-	}
-}
-
-func (a *addr_t) IP() net.IP {
-	if a.ip != nil {
-		return a.ip
-	}
-
-	ip, err := net.ResolveIPAddr("ip", a.host)
-	if err != nil {
-		logg.E("[ADT] ", err)
-		return nil
-	}
-
-	return ip.IP
-}
-
-func (a *addr_t) IsAllZeros() bool {
-	if a.ip != nil {
-		return a.ip.IsUnspecified() && a.port == 0
-	}
-
-	return false
-}
-
-func ParseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t, bool) {
-	var err error
-	var n int
-
-	if typeBuf == nil {
-		typeBuf, n = make([]byte, 256+3+1+1+2), 0
-		// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
-			return 0x0, nil, false
-		}
-	}
-
-	if typeBuf[0] != socks5Version && !omitCheck {
-		logg.E(NOT_SOCKS5)
-		return 0x0, nil, false
-	}
-
-	if typeBuf[1] != 0x01 && typeBuf[1] != 0x03 && !omitCheck { // 0x01: establish a TCP/IP stream connection
-		logg.E("[SOCKS] invalid command: ", typeBuf[1])
-		return 0x0, nil, false
-	}
-
-	addr := &addr_t{}
-	switch typeBuf[3] {
-	case socksTypeIPv4:
-		addr.size = 3 + 1 + net.IPv4len + 2
-	case socksTypeIPv6:
-		addr.size = 3 + 1 + net.IPv6len + 2
-	case socksTypeDm:
-		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
-	default:
-		logg.E("[SOCKS] invalid type")
-		return 0x0, nil, false
-	}
-
-	if conn != nil {
-		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
-			return 0x0, nil, false
-		}
-	} else {
-		if len(typeBuf) < addr.size {
-			logg.E(CANNOT_READ_BUF, err)
-			return 0x0, nil, false
-		}
-	}
-
-	rawaddr := typeBuf[3 : addr.size-2]
-	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
-
-	switch typeBuf[3] {
-	case socksTypeIPv4:
-		addr.ip = net.IP(rawaddr[1:])
-	case socksTypeIPv6:
-		addr.ip = net.IP(rawaddr[1:])
-	default:
-		addr.host = string(rawaddr[2:])
-	}
-
-	return typeBuf[1], addr, true
 }

@@ -70,16 +70,16 @@ func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []by
 	return w.Write(p)
 }
 
-func (proxy *ProxyUpstream) Hijack(w http.ResponseWriter, r *http.Request) net.Conn {
+func (proxy *ProxyUpstream) hijack(w http.ResponseWriter, r *http.Request) net.Conn {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
-		logg.L("webserver doesn't support hijacking")
+		logg.E("webserver doesn't support hijacking")
 		return nil
 	}
 
 	conn, _, err := hij.Hijack()
 	if err != nil {
-		logg.L(err.Error())
+		logg.E(err.Error())
 		return nil
 	}
 
@@ -146,7 +146,7 @@ AUTH_OK:
 
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
-		downstreamConn := proxy.Hijack(w, r)
+		downstreamConn := proxy.hijack(w, r)
 		if downstreamConn == nil {
 			return
 		}
@@ -169,17 +169,7 @@ AUTH_OK:
 
 		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if mark == HOST_HTTP_FORWARD {
-		// normal http requests
-		if !r.URL.IsAbs() {
-			proxy.Write(w, r, []byte("abspath only"), http.StatusInternalServerError)
-			return
-		}
-
-		// decrypt req from inside GFW
 		proxy.decryptRequest(r, rkeybuf)
-
-		r.Header.Del("Proxy-Authorization")
-		r.Header.Del("Proxy-Connection")
 
 		resp, err := proxy.Tr.RoundTrip(r)
 		if err != nil {
@@ -232,7 +222,7 @@ func StartServer(addr string, config *ServerConfig) {
 		go func() {
 			for {
 				c, _ := l.Accept()
-				go proxy.HandleTCPtoUDP(c)
+				go proxy.handleTCPtoUDP(c)
 			}
 		}()
 	}
