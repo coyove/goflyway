@@ -46,6 +46,13 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		#panel {
 			float: right;
 		}
+
+		.i {
+			border: none;
+			padding: 0;
+			font: inherit;
+			font-style: italic;
+		}
 	</style>
 
 	<div id=logo>
@@ -53,9 +60,9 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 	</div>
 
 	<form id=panel method='POST'>
-		<input type='checkbox' disabled checked>Change key: <input name='key' value='{{.Key}}' style='border:none;padding:0;font:inherit;font-style:italic'/><br>
-		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Proxy all traffic including Chinese websites</label><br>
-		<input type='checkbox' name='proxyc' {{if .ProxyChina}}checked{{end}}/><label>Identify Chinese websites using china-list</label><br><br>
+		<input type='checkbox' disabled checked>Change key: <input class=i name='key' value='{{.Key}}'/><br>
+		<input type='checkbox' disabled checked>Change auth: <input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/><br>
+		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Enable global proxy</label><br><br>
 		<input type='submit' name='proxy' value='Update Settings'/>
 		<input type='submit' name='clearc' value='Clear DNS Cache'/>
 	</form>
@@ -66,13 +73,13 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html><title>goflyway web console</title>`))
 
 		webConsoleHTML.Execute(w, struct {
-			ProxyAll   bool
-			ProxyChina bool
-			Key        string
+			ProxyAll bool
+			Key      string
+			Auth     string
 		}{
-			GClientProxy.ProxyAllTraffic,
-			GClientProxy.UseChinaList,
+			GClientProxy.GlobalProxy,
 			GClientProxy.GCipher.KeyString,
+			GClientProxy.UserAuth,
 		})
 
 		w.Write([]byte(`<table><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
@@ -94,9 +101,9 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if r.FormValue("proxy") != "" {
-			GClientProxy.ProxyAllTraffic = r.FormValue("proxyall") == "on"
-			GClientProxy.UseChinaList = r.FormValue("proxyc") == "on"
+			GClientProxy.GlobalProxy = r.FormValue("proxyall") == "on"
 			GClientProxy.GCipher.KeyString = r.FormValue("key")
+			GClientProxy.UserAuth = r.FormValue("auth")
 			GClientProxy.GCipher.New()
 		}
 

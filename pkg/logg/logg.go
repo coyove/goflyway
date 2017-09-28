@@ -70,8 +70,16 @@ func tryShortenWSAError(err interface{}) (ret string) {
 	return
 }
 
+type msg_t struct {
+	dst     string
+	message string
+}
+
+var msgQueue = make(chan msg_t)
+
 func print(l string, params ...interface{}) {
 	l = lead(l)
+	m := msg_t{}
 
 	for _, p := range params {
 		switch p.(type) {
@@ -89,6 +97,7 @@ func print(l string, params ...interface{}) {
 				l += fmt.Sprintf("[%s]-> %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
 			} else {
 				l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
+				m.dst, _, _ = net.SplitHostPort(op.Addr.String())
 			}
 		case *net.DNSError:
 			op := p.(*net.DNSError)
@@ -102,7 +111,45 @@ func print(l string, params ...interface{}) {
 		}
 	}
 
-	fmt.Println(l)
+	m.message = l
+	msgQueue <- m
+}
+
+func Start() {
+	go func() {
+		var count int
+		var lastMsg *msg_t
+
+		for {
+		L:
+			for {
+				select {
+				case m := <-msgQueue:
+					if lastMsg != nil && m.dst != "" {
+						if m.dst == lastMsg.dst {
+							count++
+
+							if count < 100 {
+								continue L
+							}
+						}
+
+						if count > 0 {
+							fmt.Sprintln("[%d similar message(s)]", count)
+						}
+					}
+
+					fmt.Println(m.message)
+					lastMsg, count = &m, 0
+				default:
+					// nothing in queue to print, quit loop
+					break L
+				}
+			}
+
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
 }
 
 func D(params ...interface{}) {

@@ -18,12 +18,11 @@ import (
 )
 
 type ClientConfig struct {
-	Upstream        string
-	ProxyAllTraffic bool
-	UseChinaList    bool
-	DisableConsole  bool
-	UserAuth        string
-	DNSCacheSize    int
+	Upstream       string
+	GlobalProxy    bool
+	DisableConsole bool
+	UserAuth       string
+	DNSCacheSize   int
 
 	UDPRelayPort   int
 	UDPRelayCoconn int
@@ -203,7 +202,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	host, _ = splitHostPort(host)
 
 	isChineseIP := func(ip string) bool {
-		if proxy.ProxyAllTraffic {
+		if proxy.GlobalProxy {
 			return false
 		}
 
@@ -211,7 +210,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	}
 
 	if lookup.IsChineseWebsite(host) {
-		return !proxy.ProxyAllTraffic
+		return !proxy.GlobalProxy
 	}
 
 	if ip, ok := proxy.dnsCache.Get(host); ok && ip.(string) != "" { // we have cached the host

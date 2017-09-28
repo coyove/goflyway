@@ -15,19 +15,18 @@ import (
 var (
 	G_Config = flag.String("c", "", "config file path")
 
-	G_Key      = flag.String("k", "0123456789abcdef", "key, important")
-	G_Auth     = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	G_Upstream = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	G_Local    = flag.String("l", ":8100", "local listening port (remember the colon)")
-	G_Local2   = flag.String("p", "", "local listening port (remember the colon), alias of -l")
-	G_UdpRelay = flag.Int64("udp", 0, "udp relay listening port, 0 to disable, not working yet")
-	G_UdpTcp   = flag.Int64("udp-tcp", 1, "use N tcp connections to relay udp")
-	G_LogLevel = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
+	G_Key         = flag.String("k", "0123456789abcdef", "key, important")
+	G_Auth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	G_Upstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
+	G_Local       = flag.String("l", ":8100", "local listening port (remember the colon)")
+	G_Local2      = flag.String("p", "", "local listening port, alias of -l")
+	G_UdpRelay    = flag.Int64("udp", 0, "UDP relay listening port, 0 to disable, not working yet")
+	G_UdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
+	G_LogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
+	G_GlobalProxy = flag.Bool("g", false, "global proxy")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
-	G_ProxyAllTraffic  = flag.Bool("proxy-all", false, "proxy Chinese websites")
-	G_UseChinaList     = flag.Bool("china-list", true, "identify Chinese websites using china-list")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
 
@@ -59,8 +58,7 @@ func LoadConfig() {
 		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
 		*G_UdpTcp = cf.GetInt("default", "udptcp", *G_UdpTcp)
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
-		*G_ProxyAllTraffic = cf.GetBool("default", "proxyall", *G_ProxyAllTraffic)
-		*G_UseChinaList = cf.GetBool("default", "chinalist", *G_UseChinaList)
+		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
 
 		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
@@ -73,6 +71,7 @@ func LoadConfig() {
 }
 
 func main() {
+	logg.Start()
 	fmt.Println(`     __//                   __ _
     /.__.\                 / _| |
     \ \/ /      __ _  ___ | |_| |_   ___      ____ _ _   _
@@ -88,12 +87,12 @@ func main() {
 	logg.RecordLocalhostError(*G_RecordLocalError)
 
 	if *G_Key == "0123456789abcdef" {
-		logg.W("[WARNING] you are using the default key, please change it by setting -k=KEY")
+		logg.W("you are using the default key, please change it by setting -k=KEY")
 	}
 
-	if *G_UseChinaList && *G_Upstream != "" {
+	if *G_Upstream != "" {
 		if !lookup.LoadOrCreateChinaList() {
-			logg.W("cannot read chinalist.txt")
+			logg.W("cannot read chinalist.txt (but it's fine, you can ignore this msg)")
 		}
 	}
 
@@ -104,15 +103,14 @@ func main() {
 	cipher.New()
 
 	cc := &proxy.ClientConfig{
-		DNSCacheSize:    *G_DNSCacheEntries,
-		ProxyAllTraffic: *G_ProxyAllTraffic,
-		UseChinaList:    *G_UseChinaList,
-		DisableConsole:  *G_DisableConsole,
-		UserAuth:        *G_Auth,
-		Upstream:        *G_Upstream,
-		UDPRelayPort:    int(*G_UdpRelay),
-		UDPRelayCoconn:  int(*G_UdpTcp),
-		GCipher:         cipher,
+		DNSCacheSize:   *G_DNSCacheEntries,
+		GlobalProxy:    *G_GlobalProxy,
+		DisableConsole: *G_DisableConsole,
+		UserAuth:       *G_Auth,
+		Upstream:       *G_Upstream,
+		UDPRelayPort:   int(*G_UdpRelay),
+		UDPRelayCoconn: int(*G_UdpTcp),
+		GCipher:        cipher,
 	}
 
 	sc := &proxy.ServerConfig{
