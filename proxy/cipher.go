@@ -278,7 +278,7 @@ func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key []byte, options *IO
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("[COPY] ", time.Now().Sub(ts).Seconds(), "s - ", err)
+		logg.E("[COPY] ", int(time.Now().Sub(ts).Seconds()), "s - ", err)
 	}
 
 	dst.CloseWrite()
@@ -289,7 +289,7 @@ func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, option
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("[COPYW] ", time.Now().Sub(ts).Seconds(), "s - ", err)
+		logg.E("[COPYW] ", int(time.Now().Sub(ts).Seconds()), "s - ", err)
 	}
 
 	wg.Done()

@@ -53,20 +53,23 @@ type OneBytePool chan []byte
 
 func NewOneBytePool(s int) *OneBytePool {
 	p := OneBytePool(make(chan []byte, s))
-
-	for i := 0; i < s; i++ {
-		p <- make([]byte, 1)
-	}
-
 	return &p
 }
 
 func (p *OneBytePool) Get() []byte {
-	return <-*p
+	select {
+	case buf := <-*p:
+		return buf
+	default:
+		return make([]byte, 1)
+	}
 }
 
 func (p *OneBytePool) Free(buf []byte) {
-	*p <- buf
+	select {
+	case *p <- buf:
+	default:
+	}
 }
 
 type connWrapper struct {

@@ -72,14 +72,14 @@ func tryShortenWSAError(err interface{}) (ret string) {
 
 type msg_t struct {
 	dst     string
+	lead    string
 	message string
 }
 
 var msgQueue = make(chan msg_t)
 
 func print(l string, params ...interface{}) {
-	l = lead(l)
-	m := msg_t{}
+	m := msg_t{lead: lead(l)}
 
 	for _, p := range params {
 		switch p.(type) {
@@ -92,22 +92,22 @@ func print(l string, params ...interface{}) {
 			}
 
 			if op.Source == nil && op.Addr == nil {
-				l += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
+				l = fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
 			} else if op.Source == nil {
-				l += fmt.Sprintf("[%s]-> %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
+				l = fmt.Sprintf("[%s]-> %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
 			} else {
-				l += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
+				l = fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
 				m.dst, _, _ = net.SplitHostPort(op.Addr.String())
 			}
 		case *net.DNSError:
 			op := p.(*net.DNSError)
 			if op.IsTimeout {
-				l += fmt.Sprintf("dns lookup: %s", op.Name)
+				l = fmt.Sprintf("dns lookup: %s", op.Name)
 			} else {
-				l += fmt.Sprintf("dns lookup: %s, timed out", op.Name)
+				l = fmt.Sprintf("dns lookup: %s, timed out", op.Name)
 			}
 		default:
-			l += fmt.Sprintf("%+v", p)
+			l = fmt.Sprintf("%+v", p)
 		}
 	}
 
@@ -125,8 +125,8 @@ func Start() {
 			for {
 				select {
 				case m := <-msgQueue:
-					if lastMsg != nil && m.dst != "" {
-						if m.dst == lastMsg.dst {
+					if lastMsg != nil {
+						if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
 							count++
 
 							if count < 100 {
@@ -135,11 +135,11 @@ func Start() {
 						}
 
 						if count > 0 {
-							fmt.Sprintln("[%d similar message(s)]", count)
+							fmt.Printf(strings.Repeat(" ", len(m.lead))+"... %d similar message(s)\n", count)
 						}
 					}
 
-					fmt.Println(m.message)
+					fmt.Println(m.lead + m.message)
 					lastMsg, count = &m, 0
 				default:
 					// nothing in queue to print, quit loop
