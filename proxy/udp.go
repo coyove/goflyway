@@ -40,7 +40,6 @@ func (a *addr_t) IP() net.IP {
 
 	ip, err := net.ResolveIPAddr("ip", a.host)
 	if err != nil {
-		logg.E("[ADT] ", err)
 		return nil
 	}
 
@@ -74,7 +73,7 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 	}
 
 	if typeBuf[1] != 0x01 && typeBuf[1] != 0x03 && !omitCheck { // 0x01: establish a TCP/IP stream connection
-		logg.E("[SOCKS] invalid command: ", typeBuf[1])
+		logg.E("socks5 invalid command: ", typeBuf[1])
 		return 0x0, nil, false
 	}
 
@@ -87,7 +86,7 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 	case SOCKS_TYPE_Dm:
 		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
 	default:
-		logg.E("[SOCKS] invalid type")
+		logg.E("socks5 invalid address type")
 		return 0x0, nil, false
 	}
 
@@ -180,7 +179,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 		}
 
 		if hostlen < 4 {
-			logg.E("[TtU] invalid hostlen")
+			logg.E("ttu: invalid hostlen")
 			return "", nil
 		}
 
@@ -207,14 +206,14 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 	uaddr, _ := net.ResolveUDPAddr("udp", host)
 	rconn, err := net.DialUDP("udp", nil, uaddr)
 	if err != nil {
-		logg.E("[UDP] dial - ", err)
+		logg.E(err)
 		return
 	}
 
 	rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 	if _, err := rconn.Write(payload); err != nil {
 		if derr(err) {
-			logg.E("[TtU] write to target - ", err)
+			logg.E("ttu: write to target: ", err)
 		}
 		return
 	}
@@ -231,7 +230,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 					rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
 					if _, err := rconn.Write(buf); err != nil {
 						if derr(err) {
-							logg.E("[TtU] write to target - ", err)
+							logg.E("ttu: write to target: ", err)
 						}
 						break READ
 					}
@@ -260,7 +259,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			_, err := c.Write(payload)
 			if err != nil {
 				if derr(err) {
-					logg.E("[TtU] write to downstream - ", err)
+					logg.E("ttu: write to downstream: ", err)
 				}
 
 				break
@@ -269,7 +268,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 
 		if err != nil {
 			if derr(err) {
-				logg.E("[TtU] readfrom - ", err)
+				logg.E("ttu: readfrom: ", err)
 			}
 
 			break
@@ -296,7 +295,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 	u, _, _ := net.SplitHostPort(proxy.Upstream)
 	upstreamConn, err := net.Dial("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort))
 	if err != nil {
-		logg.E("[UPSTREAM] udp - ", err)
+		logg.E(err)
 		return nil, "", false
 	}
 
@@ -317,6 +316,10 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
 
 	// prepare the payload
 	buf := proxy.GCipher.Encrypt(b[dst.size:])
+
+	// i know it's better to encrypt ip bytes (4 or 16 + 2 bytes port) rather than
+	// string representation (like "100.200.300.400:56789", that is 21 bytes!)
+	// but this is one time payload, it's fine, easy.
 	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
 
 	var encauth []byte
@@ -385,7 +388,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
 		buf := readFromTCP()
 
 		if buf != nil && len(buf) > 0 {
-			logg.D("[UtT] receive - ", len(buf))
+			logg.D("utt receive: ", len(buf))
 
 			var err error
 			var ln int
@@ -409,7 +412,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
 			_, err = proxy.udp.relay.WriteTo(xbuf[:ln], src)
 
 			if err != nil {
-				logg.E("[UtT] write - ", err)
+				logg.E("utt: write: ", err)
 				break
 			}
 		} else {

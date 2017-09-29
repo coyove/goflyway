@@ -26,6 +26,7 @@ var (
 	G_GlobalProxy = flag.Bool("g", false, "global proxy")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
+	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, http only")
 	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
@@ -60,6 +61,7 @@ func LoadConfig() {
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
+		*G_ProxyPassAddr = cf.GetString("misc", "proxypass", *G_ProxyPassAddr)
 
 		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
 		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
@@ -118,6 +120,7 @@ func main() {
 		UDPRelayListen: int(*G_UdpRelay),
 		Throttling:     *G_Throttling,
 		ThrottlingMax:  *G_ThrottlingMax,
+		ProxyPassAddr:  *G_ProxyPassAddr,
 	}
 
 	if *G_Auth != "" {

@@ -93,18 +93,18 @@ func print(l string, params ...interface{}) {
 
 			if op.Source == nil && op.Addr == nil {
 				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
-			} else if op.Source == nil {
-				m.message += fmt.Sprintf("[%s]-> %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
 			} else {
-				m.message += fmt.Sprintf("%v -[%s]-> %v, %s", op.Source, op.Op, op.Addr, tryShortenWSAError(p))
-				m.dst, _, _ = net.SplitHostPort(op.Addr.String())
+				m.message += fmt.Sprintf("%s %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
+
+				if op.Source != nil {
+					m.dst, _, _ = net.SplitHostPort(op.Addr.String())
+				}
 			}
 		case *net.DNSError:
 			op := p.(*net.DNSError)
-			if op.IsTimeout {
-				m.message += fmt.Sprintf("dns lookup: %s", op.Name)
-			} else {
-				m.message += fmt.Sprintf("dns lookup: %s, timed out", op.Name)
+
+			if m.message += fmt.Sprintf("dns lookup err: %s", op.Name); op.IsTimeout {
+				m.message += ", timed out"
 			}
 		default:
 			m.message += fmt.Sprintf("%+v", p)

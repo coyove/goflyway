@@ -114,7 +114,7 @@ func (gc *GCipher) GetCipherStream(key []byte) *InplaceCTR {
 	}
 
 	if len(key) != IV_LENGTH {
-		logg.E("[AES] iv is not 128bit long: ", key)
+		logg.E("iv is not 128bit long: ", key)
 		return nil
 	}
 
@@ -278,7 +278,7 @@ func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key []byte, options *IO
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("[COPY] ", int(time.Now().Sub(ts).Seconds()), "s - ", err)
+		logg.E("tcp.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 	}
 
 	dst.CloseWrite()
@@ -289,7 +289,7 @@ func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, option
 	ts := time.Now()
 
 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("[COPYW] ", int(time.Now().Sub(ts).Seconds()), "s - ", err)
+		logg.E("io.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 	}
 
 	wg.Done()
@@ -307,7 +307,7 @@ type IOCopyCipher struct {
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			logg.E("[WTF] - ", r)
+			logg.E("wtf, ", r)
 		}
 	}()
 

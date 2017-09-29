@@ -31,15 +31,13 @@ type ClientConfig struct {
 }
 
 type ProxyClient struct {
-	Tr       *http.Transport
-	TrDirect *http.Transport
-
 	*ClientConfig
 
-	rkeyHeader string
-	dnsCache   *lru.Cache
-	dummies    *lru.Cache
-	udp        struct {
+	tp       *http.Transport
+	tpd      *http.Transport
+	dnsCache *lru.Cache
+	dummies  *lru.Cache
+	udp      struct {
 		relay    *net.UDPConn
 		response []byte
 
@@ -48,14 +46,25 @@ type ProxyClient struct {
 			conns map[string]net.Conn
 		}
 	}
+
+	rkeyHeader string
 }
 
 var GClientProxy *ProxyClient
 
-func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
+func (proxy *ProxyClient) dialUpstream() net.Conn {
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
 	if err != nil {
-		logg.E("[UPSTREAM] - ", err)
+		logg.E(err)
+		return nil
+	}
+
+	return upstreamConn
+}
+
+func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
+	upstreamConn := proxy.dialUpstream()
+	if upstreamConn == nil {
 		return
 	}
 
@@ -85,10 +94,10 @@ func (proxy *ProxyClient) DialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
 }
 
-func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string, options int) {
+func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, options int) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
-		logg.E("[HOST] - ", err)
+		logg.E(err)
 		return
 	}
 
@@ -103,6 +112,8 @@ func (proxy *ProxyClient) DialHostAndBridge(downstreamConn net.Conn, host string
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logg.D(r.Method, " ", r.RequestURI)
+
 	if r.RequestURI == "/?goflyway-console" && !proxy.DisableConsole {
 		handleWebConsole(w, r)
 		return
@@ -137,15 +148,15 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			host += ":80"
 		}
 
-		if proxy.CanDirectConnect(auth, host) {
-			proxy.DialHostAndBridge(proxyClient, host, DO_NOTHING)
+		if proxy.canDirectConnect(auth, host) {
+			proxy.dialHostAndBridge(proxyClient, host, DO_HTTP)
 		} else {
-			proxy.DialUpstreamAndBridge(proxyClient, host, auth, DO_NOTHING)
+			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
 		}
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
-			http.Error(w, "abspath only", http.StatusInternalServerError)
+			http.Error(w, "request uri must be absolute", http.StatusInternalServerError)
 			return
 		}
 
@@ -160,8 +171,8 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var rkeybuf []byte
 
-		if proxy.CanDirectConnect(auth, r.Host) {
-			resp, err = proxy.TrDirect.RoundTrip(r)
+		if proxy.canDirectConnect(auth, r.Host) {
+			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
 			// encrypt req to pass GFW
 			rkeybuf = proxy.encryptRequest(r)
@@ -170,11 +181,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				SafeAddHeader(r, AUTH_HEADER, auth)
 			}
 
-			resp, err = proxy.Tr.RoundTrip(r)
+			resp, err = proxy.tp.RoundTrip(r)
 		}
 
 		if err != nil {
-			logg.E("[HTTP] - ", rUrl, " - ", err)
+			logg.E("proxy pass: ", rUrl, ", ", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -193,12 +204,12 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tryClose(resp.Body)
 
 		if err != nil {
-			logg.E("[COPYC] ", err, " - bytes: ", nr)
+			logg.E("io.wrap ", nr, "bytes: ", err)
 		}
 	}
 }
 
-func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
+func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	host, _ = splitHostPort(host)
 
 	isChineseIP := func(ip string) bool {
@@ -220,7 +231,7 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	// lookup at local in case host points to a private ip
 	ip, err := lookup.LookupIP(host)
 	if err != nil {
-		logg.E("[DNS] ", err)
+		logg.E(err)
 	}
 
 	if lookup.IsPrivateIP(ip) {
@@ -237,31 +248,37 @@ func (proxy *ProxyClient) CanDirectConnect(auth, host string) bool {
 	}
 
 	// lookup at upstream
-	client := http.Client{Timeout: time.Second}
-	req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-	req.Header.Add(DNS_HEADER, EncryptHost(proxy.GCipher, host, HOST_DOMAIN_LOOKUP))
-	if auth != "" {
-		req.Header.Add(AUTH_HEADER, auth)
+	upstreamConn := proxy.dialUpstream()
+	if upstreamConn == nil {
+		return maybeChinese
 	}
-	resp, err := client.Do(req)
 
-	if err != nil {
+	// only http 1.0 allows request without Host
+	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.GCipher.EncryptString(auth+"-"+host))
+
+	upstreamConn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+	if _, err = upstreamConn.Write([]byte(payload)); err != nil {
 		if !err.(net.Error).Timeout() {
-			logg.W("[REMOTE LOOKUP] ", err)
+			logg.W("remote lookup: ", err)
 		}
 		return maybeChinese
 	}
 
-	ipbuf, err := ioutil.ReadAll(resp.Body)
-	tryClose(resp.Body)
+	upstreamConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	ipbuf, err := ioutil.ReadAll(upstreamConn)
+	tryClose(upstreamConn)
 
 	if err != nil {
-		logg.W("[REMOTE LOOKUP] ", err)
 		return maybeChinese
 	}
 
-	proxy.dnsCache.Add(host, string(ipbuf))
-	return isChineseIP(string(ipbuf))
+	ip2 := net.IP(ipbuf).To4()
+	if ip2 == nil {
+		return maybeChinese
+	}
+
+	proxy.dnsCache.Add(host, ip2.String())
+	return isChineseIP(ip2.String())
 }
 
 func (proxy *ProxyClient) authConnection(conn net.Conn) (string, bool) {
@@ -295,7 +312,7 @@ func (proxy *ProxyClient) authConnection(conn net.Conn) (string, bool) {
 	return pu, proxy.UserAuth == pu
 }
 
-func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
+func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	var err error
 	log_close := func(args ...interface{}) {
 		logg.E(args...)
@@ -350,10 +367,10 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 	host := addr.String()
 
 	if method == 0x01 {
-		if proxy.CanDirectConnect(auth, host) {
-			proxy.DialHostAndBridge(conn, host, DO_SOCKS5)
+		if proxy.canDirectConnect(auth, host) {
+			proxy.dialHostAndBridge(conn, host, DO_SOCKS5)
 		} else {
-			proxy.DialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
+			proxy.dialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
 	} else if method == 0x03 {
 		if proxy.udp.relay != nil {
@@ -363,14 +380,14 @@ func (proxy *ProxyClient) HandleSocks(conn net.Conn) {
 				buf := make([]byte, 2048)
 				n, src, err := proxy.udp.relay.ReadFrom(buf)
 				if err != nil {
-					logg.E("[RELAY] - ", err)
+					logg.E("relay readfrom: ", err)
 					continue
 				}
 
 				go proxy.handleUDPtoTCP(buf[:n], auth, src)
 			}
 		} else {
-			logg.W("use command -udp=PORT to enable UDP relay")
+			logg.W("use command -udp to enable udp relay")
 			conn.Close()
 		}
 	}
@@ -387,16 +404,20 @@ func StartClient(localaddr string, config *ClientConfig) {
 
 	word := genWord(config.GCipher)
 	proxy := &ProxyClient{
-		Tr: &http.Transport{
+		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),
 		},
-		TrDirect:     &http.Transport{TLSClientConfig: tlsSkip},
-		ClientConfig: config,
+
+		tpd: &http.Transport{
+			TLSClientConfig: tlsSkip,
+		},
 
 		dummies:    lru.NewCache(len(DUMMY_FIELDS)),
 		dnsCache:   lru.NewCache(config.DNSCacheSize),
 		rkeyHeader: "X-" + word,
+
+		ClientConfig: config,
 	}
 
 	if config.UDPRelayPort != 0 {
@@ -404,7 +425,7 @@ func StartClient(localaddr string, config *ClientConfig) {
 		binary.BigEndian.PutUint16(r[8:], uint16(config.UDPRelayPort))
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
 		if err != nil {
-			logg.F("[UDP] - ", err)
+			logg.F("udp relay server: ", err)
 		}
 
 		if proxy.UDPRelayCoconn <= 0 {

@@ -99,7 +99,7 @@ CONTINUE:
 	switch b, _ := wrapper.sbuffer.prefetch(); b {
 	case 0x04, 0x05:
 		// we are accepting SOCKS4 in case it goes to the HTTP handler
-		go l.proxy.HandleSocks(wrapper)
+		go l.proxy.handleSocks(wrapper)
 		goto CONTINUE
 	default:
 		return wrapper, err

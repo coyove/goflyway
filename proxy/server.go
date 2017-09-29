@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +21,7 @@ type ServerConfig struct {
 	Throttling     int64
 	ThrottlingMax  int64
 	UDPRelayListen int
+	ProxyPassAddr  string
 
 	Users map[string]UserConfig
 
@@ -33,8 +36,8 @@ type UserConfig struct {
 }
 
 type ProxyUpstream struct {
-	Tr *http.Transport
-
+	tp         *http.Transport
+	rp         http.Handler
 	blacklist  *lru.Cache
 	rkeyHeader string
 
@@ -70,7 +73,7 @@ func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []by
 	return w.Write(p)
 }
 
-func (proxy *ProxyUpstream) hijack(w http.ResponseWriter, r *http.Request) net.Conn {
+func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
 		logg.E("webserver doesn't support hijacking")
@@ -79,7 +82,7 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter, r *http.Request) net.C
 
 	conn, _, err := hij.Hijack()
 	if err != nil {
-		logg.E(err.Error())
+		logg.E("hijacking: ", err.Error())
 		return nil
 	}
 
@@ -87,6 +90,51 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter, r *http.Request) net.C
 }
 
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// remote dns lookup
+	if r.Method == "GET" && r.ProtoMajor == 1 && r.ProtoMinor == 0 && len(r.RequestURI) > 0 {
+		p := strings.Split(proxy.GCipher.DecryptString(r.RequestURI[1:]), "-")
+		if len(p) != 2 {
+			return
+		}
+
+		if proxy.Users != nil && !proxy.auth(p[0]) {
+			return
+		}
+
+		conn := proxy.hijack(w)
+		if conn == nil {
+			return
+		}
+
+		ip, err := net.ResolveIPAddr("ip4", p[1])
+		if err != nil {
+			return
+		}
+
+		conn.Write(ip.IP)
+		conn.Close()
+		return
+	}
+
+	replyRandom := func() {
+		if proxy.rp == nil {
+			round := proxy.Rand.Intn(32) + 32
+			buf := make([]byte, 2048)
+			for r := 0; r < round; r++ {
+				ln := proxy.Rand.Intn(1024) + 1024
+
+				for i := 0; i < ln; i++ {
+					buf[i] = byte(proxy.Rand.Intn(256))
+				}
+
+				w.Write(buf[:ln])
+				time.Sleep(time.Duration(proxy.Rand.Intn(100)) * time.Millisecond)
+			}
+		} else {
+			proxy.rp.ServeHTTP(w, r)
+		}
+	}
+
 	var auth string
 	if proxy.Users != nil {
 		if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
@@ -100,29 +148,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 AUTH_OK:
-	replyRandom := func() {
-		round := proxy.Rand.Intn(32) + 32
-
-		buf := make([]byte, 2048)
-		for r := 0; r < round; r++ {
-			ln := proxy.Rand.Intn(1024) + 1024
-
-			for i := 0; i < ln; i++ {
-				buf[i] = byte(proxy.Rand.Intn(256))
-			}
-
-			w.Write(buf[:ln])
-			time.Sleep(time.Duration(proxy.Rand.Intn(100)) * time.Millisecond)
-		}
-	}
-
-	if dh := r.Header.Get(DNS_HEADER); r.Method == "GET" && dh != "" {
-		if x := DecryptHost(proxy.GCipher, dh, HOST_DOMAIN_LOOKUP); x != "" {
-			ip, _ := lookup.LookupIP(x)
-			w.Write([]byte(ip))
-			return
-		}
-	}
 
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -146,7 +171,7 @@ AUTH_OK:
 
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		// dig tunnel
-		downstreamConn := proxy.hijack(w, r)
+		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
 			return
 		}
@@ -156,7 +181,7 @@ AUTH_OK:
 		// we are outside GFW and should pass data to the real target
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
-			logg.E("[HOST] - ", err)
+			logg.E(err)
 			return
 		}
 
@@ -171,9 +196,9 @@ AUTH_OK:
 	} else if mark == HOST_HTTP_FORWARD {
 		proxy.decryptRequest(r, rkeybuf)
 
-		resp, err := proxy.Tr.RoundTrip(r)
+		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
-			logg.E("[HTTP] - ", r.URL, " - ", err)
+			logg.E("proxy pass: ", r.URL, ", ", err)
 			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
@@ -192,7 +217,7 @@ AUTH_OK:
 		tryClose(resp.Body)
 
 		if err != nil {
-			logg.E("[COPYS] ", err, " - bytes: ", nr)
+			logg.E("io.wrap ", nr, "bytes: ", err)
 		}
 	} else {
 		proxy.blacklist.Add(addr, nil)
@@ -203,10 +228,28 @@ AUTH_OK:
 func StartServer(addr string, config *ServerConfig) {
 	word := genWord(config.GCipher)
 	proxy := &ProxyUpstream{
-		Tr:           &http.Transport{TLSClientConfig: tlsSkip},
+		tp: &http.Transport{
+			TLSClientConfig: tlsSkip,
+		},
+
 		ServerConfig: config,
 		blacklist:    lru.NewCache(128),
 		rkeyHeader:   "X-" + word,
+	}
+
+	if config.ProxyPassAddr != "" {
+		if strings.HasPrefix(config.ProxyPassAddr, "http") {
+			u, err := url.Parse(config.ProxyPassAddr)
+			if err != nil {
+				logg.F(err)
+			}
+
+			logg.L("alternatively act as reverse proxy: ", config.ProxyPassAddr)
+			proxy.rp = httputil.NewSingleHostReverseProxy(u)
+		} else {
+			logg.L("alternatively act as file server: ", config.ProxyPassAddr)
+			proxy.rp = http.FileServer(http.Dir(config.ProxyPassAddr))
+		}
 	}
 
 	if proxy.UDPRelayListen != 0 {

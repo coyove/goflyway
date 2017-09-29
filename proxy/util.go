@@ -24,20 +24,17 @@ const (
 	SOCKS_TYPE_Dm   = 3
 	SOCKS_TYPE_IPv6 = 4
 
-	DO_NOTHING    = 0
-	DO_THROTTLING = 1
-	DO_SOCKS5     = 1 << 16
+	DO_HTTP   = 0
+	DO_SOCKS5 = 1
 
 	HOST_HTTP_CONNECT  = byte(0x00)
 	HOST_HTTP_FORWARD  = byte(0x01)
 	HOST_SOCKS_CONNECT = byte(0x02)
-	HOST_DOMAIN_LOOKUP = byte(0x03)
 	HOST_IPV6          = byte(0x04)
 
-	DNS_HEADER      = "X-Host-Lookup"
 	AUTH_HEADER     = "X-Authorization"
-	CANNOT_READ_BUF = "[SOCKS] cannot read buffer - "
-	NOT_SOCKS5      = "[SOCKS] invalid socks version (socks5 only)"
+	CANNOT_READ_BUF = "socks server: cannot read buffer: "
+	NOT_SOCKS5      = "invalid socks version (socks5 only)"
 
 	UDP_TIMEOUT = 30
 	TCP_TIMEOUT = 60
@@ -167,7 +164,7 @@ func getAuth(r *http.Request) string {
 
 func tryClose(b io.ReadCloser) {
 	if err := b.Close(); err != nil {
-		logg.W("can't close response body - ", err)
+		logg.W("can't close: ", err)
 	}
 }
 
