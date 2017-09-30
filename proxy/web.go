@@ -12,72 +12,102 @@ import (
 )
 
 var webConsoleHTML, _ = template.New("console").Parse(`
-	<html><title>{{.I18N.Title}}</title>
-	<style>
-		* { 
-			font-family: Arial, Helvetica, sans-serif;
-			font-size: 12px;
-		}
+    <html><title>{{.I18N.Title}}</title>
+    <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAP1BMVEVHcEwLCw1mZXVnZ3ZnZXZnZXZmZndmZnpnZ3pmZndmZndmZnYTEhZoZHZnZ3dnZXdmZXZnZXU7O0VmZnVnZncczGBuAAAAFHRSTlMAG1AllNfJGQ2Ga+QuRzBxmmqTddMDS9kAAAC7SURBVHhe7dbbCsMgDIDh1GOiPW3z/Z91MMg0ZezCTmbB/zbw3bRGIZ3s18AABrB6mc4j7WXrR8CDDPMIQeabAQuVCUARt3wBKJUJwCSOWgP2XR1ggcOrAsm9etQCnPkToAynJHAY+U4Pk0aZL2yU6T5W2gAGUPEr74kjRF1xmOQ+aAYoU7QfgRhCiGduJgcAtjFwc1ysA3LhqsBmuXj6K/QHKKIbAGy1jyxRK2CepnuS5ZFs7m2lDWAAT8eKCjJEdYTQAAAAAElFTkSuQmCC'>
 
-		table.dns {
-			font-size: 12px;
-			border-collapse: collapse;
-			width: 100%;
-			max-width: 100%;
-		}
+    <style>
+        * { 
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+        }
 
-		table.dns td, table.dns th {
-			border: solid 1px rgba(0, 0, 0, 0.1);
-			padding: 4px 8px;
-		}
+        table.dns {
+            font-size: 12px;
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 100%;
+        }
 
-		table.dns td.ip {
-			font-family: "Lucida Console", Monaco, monospace;
-		}
+        table.dns td, table.dns th {
+            border: solid 1px rgba(0, 0, 0, 0.1);
+            padding: 4px 8px;
+        }
 
-		table.dns tr:nth-child(odd) {
-		   background-color: #e3e4e5;
-		}
+        table.dns td.ip {
+            font-family: "Lucida Console", Monaco, monospace;
+        }
 
-		.i {
-			width: 100%;
-		}
+        table.dns tr:nth-child(odd) {
+           background-color: #e3e4e5;
+        }
 
-		span.r {
-			display: inline-block;
-			margin-right: 6px;
-			line-height: 20px;
-		}
+        .i {
+            width: 100%;
+        }
 
-		span.r + input {
-			float: right;
-		}
+        #panel{
+            float: left;
+            margin-left: 8px;
+        }
 
-		h3 {
-			font-size: 14px;
-			margin: 0.25em 0;
-		}
+        span.r {
+            display: inline-block;
+            margin-right: 6px;
+            line-height: 20px;
+        }
 
-		hr {
-			border: dashed 1px #cacbcc;
-		}
-	</style>
+        span.r + input {
+            float: right;
+        }
 
-	<form id=panel method='POST'>
-	<table>
-		<tr><td colspan=2><h3>{{.I18N.Basic}}</h3></td></tr>
-		<tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
-		<tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
-		<tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
-		<tr><td colspan=2><input type='submit' name='proxy' value='{{.I18N.Update}}'/></td></tr>
-		<tr><td colspan=2><hr></td></tr>
-		<tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
-		<tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='clearc' value='{{.I18N.Clear}}'/></td></tr>
-		<tr><td colspan=2><span class=r>{{.I18N.UnlockMeText}}:</span><input type='submit' name='unlock' value='{{.I18N.UnlockMe}}'></td></tr>
-	</table>
-	</form>
+        h3 {
+            font-size: 14px;
+            margin: 0.25em 0;
+        }
 
-	<table class=dns><tr><th>{{.I18N.Host}}</th><th>IP</th><th>{{.I18N.Hits}}</th></tr>
+        hr {
+            border: dashed 1px #cacbcc;
+        }
+
+        #logo {
+            image-rendering: optimizeSpeed;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -o-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: pixelated;
+            image-rendering: optimize-contrast;
+            -ms-interpolation-mode: nearest-neighbor;
+            display: none;
+            float: left;
+        }
+    </style>
+
+    <img id=logo src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABMAAAATBAMAAACAfiv/AAAAD1BMVEVjY2dmZXZnZndnZnZnZnd4CqQOAAAABHRSTlMC/vz7NKZ17gAAAEtJREFUeF5jcIEBBxSmo6AgGAOZAgxgDGYCRQREBMBMIAYyIKIGLgKKCihq8ZoLhDC1jhATFEVcBAQEIKIsMKYAUIuAAoyJ11wEEwAgDCYCrylKywAAAABJRU5ErkJggg==">
+
+    <form id=panel method='POST'>
+    <table>
+        <tr><td colspan=2><h3>{{.I18N.Basic}}</h3></td></tr>
+        <tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
+        <tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
+        <tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
+        <tr><td colspan=2><input type='submit' name='proxy' value='{{.I18N.Update}}'/></td></tr>
+        <tr><td colspan=2><hr></td></tr>
+        <tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
+        <tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='clearc' value='{{.I18N.Clear}}'/></td></tr>
+        <tr><td colspan=2><span class=r>{{.I18N.UnlockMeText}}:</span><input type='submit' name='unlock' value='{{.I18N.UnlockMe}}'></td></tr>
+    </table>
+    </form>
+
+    <script>
+    var width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+    if (width > 600) {
+        var el = document.getElementById("logo");
+        el.style.display = "block";
+        el.style.width = el.style.height = document.getElementById("panel").clientHeight + "px";
+    }
+    </script>
+
+    <table class=dns><tr><th>{{.I18N.Host}}</th><th>IP</th><th>{{.I18N.Hits}}</th></tr>
 `)
 
 var _i18n = map[string]map[string]string{
