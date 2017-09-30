@@ -6,11 +6,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strings"
 	"text/template"
 	"time"
 )
 
 var webConsoleHTML, _ = template.New("console").Parse(`
+	<html><title>{{.I18N.Title}}</title>
 	<style>
 		* { 
 			font-family: Arial, Helvetica, sans-serif;
@@ -53,39 +55,85 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 
 		h3 {
 			font-size: 14px;
-			margin: 0.25em 0 0.2em;
+			margin: 0.25em 0;
+		}
+
+		hr {
+			border: dashed 1px #cacbcc;
 		}
 	</style>
 
 	<form id=panel method='POST'>
 	<table>
-		<tr><td colspan=2><h3>Basic</h3></td></tr>
-		<tr><td>Key:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
-		<tr><td>Auth:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
-		<tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Global proxy</label></td></tr>
-		<tr><td colspan=2><input type='submit' name='proxy' value='Update'/></td></tr>
-		<tr><td colspan=2><h3>Misc</h3></td></tr>
-		<tr><td colspan=2><span class=r>Clear goflyway's local DNS cache:</span><input type='submit' name='clearc' value='Clear'/></td></tr>
-		<tr><td colspan=2><span class=r>If you got blacklisted by the server, try:</span><input type='submit' name='unlock' value='Unlock Me'></td></tr>
+		<tr><td colspan=2><h3>{{.I18N.Basic}}</h3></td></tr>
+		<tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
+		<tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
+		<tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
+		<tr><td colspan=2><input type='submit' name='proxy' value='{{.I18N.Update}}'/></td></tr>
+		<tr><td colspan=2><hr></td></tr>
+		<tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
+		<tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='clearc' value='{{.I18N.Clear}}'/></td></tr>
+		<tr><td colspan=2><span class=r>{{.I18N.UnlockMeText}}:</span><input type='submit' name='unlock' value='{{.I18N.UnlockMe}}'></td></tr>
 	</table>
 	</form>
+
+	<table class=dns><tr><th>{{.I18N.Host}}</th><th>IP</th><th>{{.I18N.Hits}}</th></tr>
 `)
+
+var _i18n = map[string]map[string]string{
+	"en": map[string]string{
+		"Title":        "goflyway web console",
+		"Basic":        "Basic",
+		"Key":          "Key",
+		"Auth":         "Auth",
+		"Global":       "Global proxy",
+		"Update":       "Update",
+		"Misc":         "Misc",
+		"ClearDNS":     "Clear goflyway's local DNS cache",
+		"UnlockMeText": "If you got blacklisted by the server, try",
+		"Host":         "Host",
+		"Hits":         "Hits",
+		"Clear":        "Clear",
+		"UnlockMe":     "UnlockMe",
+	},
+	"zh": map[string]string{
+		"Title":        "goflyway 控制台",
+		"Basic":        "基本设置",
+		"Key":          "密钥",
+		"Auth":         "用户认证",
+		"Global":       "全局代理",
+		"Update":       "确定",
+		"Misc":         "杂项",
+		"ClearDNS":     "清除goflyway本地DNS缓存",
+		"UnlockMeText": "如果您被服务器ban了，可以尝试",
+		"Host":         "域名",
+		"Hits":         "访问次数",
+		"Clear":        "清除",
+		"UnlockMe":     "解锁",
+	},
+}
 
 func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		w.Write([]byte(`<html><title>goflyway web console</title>`))
-
-		webConsoleHTML.Execute(w, struct {
+		payload := struct {
 			ProxyAll bool
 			Key      string
 			Auth     string
+			I18N     map[string]string
 		}{
 			GClientProxy.GlobalProxy,
 			GClientProxy.GCipher.KeyString,
 			GClientProxy.UserAuth,
-		})
+			nil,
+		}
 
-		w.Write([]byte(`<table class=dns><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
+		if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("en") != "1" { // use en=1 to force english display
+			payload.I18N = _i18n["zh"]
+		} else {
+			payload.I18N = _i18n["en"]
+		}
+
+		webConsoleHTML.Execute(w, payload)
 
 		flag := false
 		GClientProxy.dnsCache.Info(func(k lru.Key, v interface{}, h int64) {

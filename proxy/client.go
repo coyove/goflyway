@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -114,7 +115,7 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logg.D(r.Method, " ", r.RequestURI)
 
-	if r.RequestURI == "/?goflyway-console" && !proxy.DisableConsole {
+	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.DisableConsole {
 		handleWebConsole(w, r)
 		return
 	}

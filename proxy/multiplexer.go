@@ -3,8 +3,10 @@ package proxy
 import (
 	"github.com/coyove/goflyway/pkg/logg"
 
+	"errors"
 	"io"
 	"net"
+	"time"
 )
 
 // prefetchReader can prefetch one byte from the reader before Read()
@@ -14,15 +16,33 @@ type prefetchReader struct {
 	first   byte
 	reseted bool
 	err     error
+	timeout int
 
 	obpool *OneBytePool
+}
+
+func (ur *prefetchReader) readTimeout(buf []byte) (n int, err error) {
+	finish := make(chan bool, 1)
+
+	go func() {
+		n, err = ur.src.Read(buf)
+		finish <- true
+	}()
+
+	select {
+	case <-finish:
+	case <-time.After(time.Duration(ur.timeout) * time.Millisecond):
+		err = errors.New("io read timeout")
+	}
+
+	return
 }
 
 func (ur *prefetchReader) prefetch() (byte, error) {
 	buf := ur.obpool.Get()
 	defer ur.obpool.Free(buf)
 
-	n, err := ur.src.Read(buf)
+	n, err := ur.readTimeout(buf)
 	ur.err = err
 
 	if n == 1 {
@@ -96,9 +116,20 @@ type listenerWrapper struct {
 func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
-	wrapper := &connWrapper{Conn: c, sbuffer: &prefetchReader{src: c, obpool: l.obpool}}
-	b, _ := wrapper.sbuffer.prefetch()
-	logg.D("mux get byte: ", b)
+	wrapper := &connWrapper{
+		Conn: c,
+		sbuffer: &prefetchReader{
+			src:     c,
+			obpool:  l.obpool,
+			timeout: 2000, // 2 seconds
+		},
+	}
+
+	b, err := wrapper.sbuffer.prefetch()
+	if err != nil {
+		logg.E("mux got err: ", err)
+		goto CONTINUE
+	}
 
 	switch b {
 	case 0x04, 0x05:
