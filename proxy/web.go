@@ -3,68 +3,71 @@ package proxy
 import (
 	"github.com/coyove/goflyway/pkg/lru"
 
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"text/template"
+	"time"
 )
 
 var webConsoleHTML, _ = template.New("console").Parse(`
 	<style>
-		* { font-family: Arial, Helvetica, sans-serif }
+		* { 
+			font-family: Arial, Helvetica, sans-serif;
+			font-size: 12px;
+		}
 
-		table {
+		table.dns {
 			font-size: 12px;
 			border-collapse: collapse;
 			width: 100%;
 			max-width: 100%;
 		}
 
-		td, th {
+		table.dns td, table.dns th {
 			border: solid 1px rgba(0, 0, 0, 0.1);
 			padding: 4px 8px;
 		}
 
-		td.ip {
+		table.dns td.ip {
 			font-family: "Lucida Console", Monaco, monospace;
 		}
 
-		tr:nth-child(odd) {
+		table.dns tr:nth-child(odd) {
 		   background-color: #e3e4e5;
 		}
 
-		#logo {
-			float: left;
-			padding: 8px;
-			font-size: 60px;
+		.i {
+			width: 100%;
 		}
 
-		#logo span {
-			color: white;
-			text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+		span.r {
+			display: inline-block;
+			margin-right: 6px;
+			line-height: 20px;
 		}
 
-		#panel {
+		span.r + input {
 			float: right;
 		}
 
-		.i {
-			border: none;
-			padding: 0;
-			font: inherit;
-			font-style: italic;
+		h3 {
+			font-size: 14px;
+			margin: 0.25em 0 0.2em;
 		}
 	</style>
 
-	<div id=logo>
-		g<span>o</span>f<span>ly</span>w<span>ay</span> console
-	</div>
-
 	<form id=panel method='POST'>
-		<input type='checkbox' disabled checked>Change key: <input class=i name='key' value='{{.Key}}'/><br>
-		<input type='checkbox' disabled checked>Change auth: <input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/><br>
-		<input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Enable global proxy</label><br><br>
-		<input type='submit' name='proxy' value='Update Settings'/>
-		<input type='submit' name='clearc' value='Clear DNS Cache'/>
+	<table>
+		<tr><td colspan=2><h3>Basic</h3></td></tr>
+		<tr><td>Key:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
+		<tr><td>Auth:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
+		<tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>Global proxy</label></td></tr>
+		<tr><td colspan=2><input type='submit' name='proxy' value='Update'/></td></tr>
+		<tr><td colspan=2><h3>Misc</h3></td></tr>
+		<tr><td colspan=2><span class=r>Clear goflyway's local DNS cache:</span><input type='submit' name='clearc' value='Clear'/></td></tr>
+		<tr><td colspan=2><span class=r>If you got blacklisted by the server, try:</span><input type='submit' name='unlock' value='Unlock Me'></td></tr>
+	</table>
 	</form>
 `)
 
@@ -82,7 +85,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			GClientProxy.UserAuth,
 		})
 
-		w.Write([]byte(`<table><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
+		w.Write([]byte(`<table class=dns><tr><th>Host</th><th>IP</th><th>Hits</th></tr>`))
 
 		flag := false
 		GClientProxy.dnsCache.Info(func(k lru.Key, v interface{}, h int64) {
@@ -105,6 +108,17 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			GClientProxy.GCipher.KeyString = r.FormValue("key")
 			GClientProxy.UserAuth = r.FormValue("auth")
 			GClientProxy.GCipher.New()
+		}
+
+		if r.FormValue("unlock") != "" {
+			upConn := GClientProxy.dialUpstream()
+			if upConn != nil {
+				token := base64.StdEncoding.EncodeToString(GClientProxy.Encrypt(genTrustedToken("unlock", GClientProxy.GCipher)))
+
+				upConn.SetWriteDeadline(time.Now().Add(time.Second))
+				upConn.Write([]byte(fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n\r\n", GClientProxy.rkeyHeader, token)))
+				upConn.Close()
+			}
 		}
 
 		http.Redirect(w, r, "/?goflyway-console", 301)

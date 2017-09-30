@@ -36,10 +36,11 @@ type UserConfig struct {
 }
 
 type ProxyUpstream struct {
-	tp         *http.Transport
-	rp         http.Handler
-	blacklist  *lru.Cache
-	rkeyHeader string
+	tp            *http.Transport
+	rp            http.Handler
+	blacklist     *lru.Cache
+	trustedTokens map[string]bool
+	rkeyHeader    string
 
 	*ServerConfig
 }
@@ -156,20 +157,36 @@ AUTH_OK:
 		return
 	}
 
+	rkey := SafeGetHeader(r, proxy.rkeyHeader)
+	rkeybuf := proxy.GCipher.ReverseIV(rkey)
+	if rkeybuf == nil {
+		logg.W("can't find header, check your client's key")
+		proxy.blacklist.Add(addr, nil)
+		replyRandom()
+		return
+	}
+
+	if isTrustedToken("unlock", rkeybuf) {
+		if proxy.trustedTokens[rkey] {
+			proxy.blacklist.Add(addr, nil)
+			replyRandom()
+			return
+		}
+
+		proxy.trustedTokens[rkey] = true
+		proxy.blacklist.Remove(addr)
+		logg.L("unlock request accepted from: ", addr)
+		return
+	}
+
 	if h, _ := proxy.blacklist.GetHits(addr); h > _RETRY_OPPORTUNITIES {
 		logg.W("repeated access using invalid key, from: ", addr)
 		replyRandom()
 		return
 	}
 
-	rkeybuf := proxy.GCipher.ReverseIV(SafeGetHeader(r, proxy.rkeyHeader))
-	if rkeybuf == nil {
-		proxy.blacklist.Add(addr, nil)
-		replyRandom()
-		return
-	}
-
 	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
+		logg.D(mark, " ", host)
 		// dig tunnel
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
@@ -195,6 +212,7 @@ AUTH_OK:
 		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if mark == HOST_HTTP_FORWARD {
 		proxy.decryptRequest(r, rkeybuf)
+		logg.D(r.Method, " ", r.Host)
 
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
@@ -232,9 +250,10 @@ func StartServer(addr string, config *ServerConfig) {
 			TLSClientConfig: tlsSkip,
 		},
 
-		ServerConfig: config,
-		blacklist:    lru.NewCache(128),
-		rkeyHeader:   "X-" + word,
+		ServerConfig:  config,
+		blacklist:     lru.NewCache(128),
+		trustedTokens: make(map[string]bool),
+		rkeyHeader:    "X-" + word,
 	}
 
 	if config.ProxyPassAddr != "" {

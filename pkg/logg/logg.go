@@ -118,6 +118,7 @@ func Start() {
 	go func() {
 		var count int
 		var lastMsg *msg_t
+		var lastTime time.Time = time.Now()
 
 		for {
 		L:
@@ -126,10 +127,12 @@ func Start() {
 				case m := <-msgQueue:
 					if lastMsg != nil {
 						if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
-							count++
+							if time.Now().Sub(lastTime).Seconds() < 5.0 {
+								count++
 
-							if count < 100 {
-								continue L
+								if count < 100 {
+									continue L
+								}
 							}
 						}
 
@@ -139,7 +142,7 @@ func Start() {
 					}
 
 					fmt.Println(m.lead + m.message)
-					lastMsg, count = &m, 0
+					lastMsg, lastTime, count = &m, time.Now(), 0
 				default:
 					// nothing in queue to print, quit loop
 					break L

@@ -258,6 +258,35 @@ func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
 	return strings.Join(parts, ".") + port, m
 }
 
+func isTrustedToken(mark string, rkeybuf []byte) bool {
+	if string(rkeybuf[:len(mark)]) != mark {
+		return false
+	}
+
+	b := rkeybuf[len(mark)]
+
+	for i := len(mark) + 1; i < IV_LENGTH; i++ {
+		if rkeybuf[i] >= b {
+			return false
+		}
+	}
+
+	return true
+}
+
+func genTrustedToken(mark string, gc *GCipher) []byte {
+	ret := make([]byte, IV_LENGTH)
+	copy(ret, []byte(mark))
+
+	n := gc.Rand.Intn(128)
+	ret[len(mark)] = byte(n)
+	for i := len(mark) + 1; i < IV_LENGTH; i++ {
+		ret[i] = byte(gc.Rand.Intn(n))
+	}
+
+	return ret
+}
+
 func Base32Encode(buf []byte) string {
 	str := base32Encoding.EncodeToString(buf)
 	idx := strings.Index(str, "=")

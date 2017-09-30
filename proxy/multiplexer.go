@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"github.com/coyove/goflyway/pkg/logg"
+
 	"io"
 	"net"
 )
@@ -95,8 +97,10 @@ func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
 	wrapper := &connWrapper{Conn: c, sbuffer: &prefetchReader{src: c, obpool: l.obpool}}
+	b, _ := wrapper.sbuffer.prefetch()
+	logg.D("mux get byte: ", b)
 
-	switch b, _ := wrapper.sbuffer.prefetch(); b {
+	switch b {
 	case 0x04, 0x05:
 		// we are accepting SOCKS4 in case it goes to the HTTP handler
 		go l.proxy.handleSocks(wrapper)
