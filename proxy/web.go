@@ -183,9 +183,11 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 
 		if r.FormValue("proxy") != "" {
 			GClientProxy.GlobalProxy = r.FormValue("proxyall") == "on"
-			GClientProxy.GCipher.KeyString = r.FormValue("key")
 			GClientProxy.UserAuth = r.FormValue("auth")
+
+			GClientProxy.GCipher.KeyString = r.FormValue("key")
 			GClientProxy.GCipher.New()
+			GClientProxy.rkeyHeader = "X-" + genWord(GClientProxy.GCipher)
 		}
 
 		if r.FormValue("unlock") != "" {
