@@ -16,12 +16,14 @@ where `KEY` is the password, then at local run the client to connect:
 Set your Internet proxy to 127.0.0.1:8100 (HTTP or SOCKS5 protocol) and enjoy.
 
 ### Build from source
+Get the lastest release of golang and setup a correct `GOPATH`, then:
 ```shell
-$ go get -u github.com/coyove/goflyway/cmd/goflyway
-$ goflyway -k=KEY
+go get -u github.com/coyove/goflyway/cmd/goflyway
+cd $GOPATH/bin
+./goflyway -k=KEY
 ```
 
-### Usage as a docker image
+### Use a docker image
 If you want to do it through Docker, run:
 ```shell
 make -f docker.Makefile clean build
@@ -33,7 +35,12 @@ make build_image
 ```
 
 ## Key
-`KEY` in goflyway is merely a password, but if you are not using the same password (intentional or unintentional) server uses, you get banned. And once on the blacklist, you have to either manually restart the server and try again, or click "Unlock Me" in the goflyway console.
+`KEY` in goflyway is merely a password, but if you are not using the same one (intentional or mistyping) server uses, you get banned. 
+
+Once on the blacklist, all requests you sent will be discarded and there is no auto discharge, you have to either manually restart the server and try again (check your key first), or click "Unlock Me" in the goflyway console (again, please check your key).
+
+## Console
+There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
 
 ## UDP
 We have an experimental SOCKS5 UDP relay, turn it on (both at client and server):
@@ -45,9 +52,6 @@ note that the listening port (`8731` in this example) should be identical at bot
 goflyway (only) uses TCP to relay UDP, which is bound to be slow. Use the flag `-udp-tcp N` and increase N progressively (default 1) to tweak the performance.
 
 UDP relay is only tested under a limited number of programs (Skype, Discord, etc.) using [SocksCap64](https://sourceforge.net/projects/sockscap64/), problem reports are welcome. (BTW, dnscrypt is not working)
-
-## Console
-There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
 
 ## Reverse proxy
 The goflyway server is actually an HTTP server with special proxy functions, so you can indeed use it as a normal HTTP server without problems. Just pass `-proxy-pass http://xxx.xxx.xxx.xxx:xx` to the server and it will act as a reverse proxy.
