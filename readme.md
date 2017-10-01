@@ -22,8 +22,7 @@ $ goflyway -k=KEY
 ```
 
 ### Usage as a docker image
-
-If you want to do it through Docker (if you don't have/want go installed on your local):
+If you want to do it through Docker, run:
 ```shell
 make -f docker.Makefile clean build
 ```
@@ -33,31 +32,8 @@ Docker image can be built with:
 make build_image
 ```
 
-It's a multi-stage build so the size is ~8.23mb
-```
-❯ docker images | grep goflyway
-coyove/goflyway                      latest                       68bd9fe5612e        7 minutes ago       8.23MB
-```
-
-Can be used like:
-
-```
-❯ docker run --rm -p 8102:8102 -p 8100:8100 -p 8101:8101 coyove/goflyway -debug
-     __//                   __ _
-    /.__.\                 / _| |
-    \ \/ /      __ _  ___ | |_| |_   ___      ____ _ _   _
- '__/    \     / _' |/ _ \|  _| | | | \ \ /\ / / _' | | | |
-  \-      )   | (_| | (_) | | | | |_| |\ V  V / (_| | |_| |
-   \_____/     \__, |\___/|_| |_|\__, | \_/\_/ \__,_|\__, |
- ____|_|____    __/ |             __/ |               __/ |
-     " "  cf   |___/             |___/               |___/
-
-[W 0912 22:44:16.696] [WARNING] you are using the default key, please change it by setting -k=KEY
-[  0912 22:44:16.696] debug mode on, port 8100 for local redirection, upstream on 8101
-[  0912 22:44:16.696] listening on :8102
-[  0912 22:44:16.697] socks5 proxy at :8101
-[  0912 22:44:16.697] http proxy at :8100, upstream is 127.0.0.1:8101
-```
+## Key
+`KEY` in goflyway is merely a password, but if you are not using the same password (intentional or unintentional) server uses, you get banned. And once on the blacklist, you have to either manually restart the server and try again, or click "Unlock Me" in the goflyway console.
 
 ## UDP
 We have an experimental SOCKS5 UDP relay, turn it on (both at client and server):
@@ -74,6 +50,8 @@ UDP relay is only tested under a limited number of programs (Skype, Discord, etc
 There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
 
 ## Reverse proxy
+The goflyway server is actually an HTTP server with special proxy functions, so you can indeed use it as a normal HTTP server without problems. Just pass `-proxy-pass http://xxx.xxx.xxx.xxx:xx` to the server and it will act as a reverse proxy.
+```
      +---------+                          +-----------------+
      | browser |-.                      .-| your web server |
      +---------+  \    +----------+    /  +-----------------+
@@ -81,13 +59,14 @@ There is a simple web console for client built inside goflyway: `http://127.0.0.
 +--------------+  /    +----------+    \  +----------------+
 | proxy client |-'                      '-| GFWed websites |
 +--------------+                          +----------------+
+```
 
 ## Speed
 When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
 
 However HTTP is much much easier to write and debug, I think this trade-off is absolutely acceptable. If you need more speed, try KCPTUN, BBR, ServerSpeeder...
 
-### Android
+## Android
 
 Currently there is no client on Android, here is a workaround:
 
