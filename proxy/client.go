@@ -368,6 +368,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	host := addr.String()
 
 	if method == 0x01 {
+		logg.D("SOCKS ", host)
 		if proxy.canDirectConnect(auth, host) {
 			proxy.dialHostAndBridge(conn, host, DO_SOCKS5)
 		} else {

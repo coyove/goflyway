@@ -111,7 +111,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 `)
 
 var _i18n = map[string]map[string]string{
-	"en": map[string]string{
+	"en": {
 		"Title":        "goflyway web console",
 		"Basic":        "Basic",
 		"Key":          "Key",
@@ -126,7 +126,7 @@ var _i18n = map[string]map[string]string{
 		"Clear":        "Clear",
 		"UnlockMe":     "UnlockMe",
 	},
-	"zh": map[string]string{
+	"zh": {
 		"Title":        "goflyway 控制台",
 		"Basic":        "基本设置",
 		"Key":          "密钥",
@@ -195,8 +195,13 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			if upConn != nil {
 				token := base64.StdEncoding.EncodeToString(GClientProxy.Encrypt(genTrustedToken("unlock", GClientProxy.GCipher)))
 
+				payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", GClientProxy.rkeyHeader, token)
+				if GClientProxy.UserAuth != "" {
+					payload += AUTH_HEADER + ": " + GClientProxy.UserAuth + "\r\n"
+				}
+
 				upConn.SetWriteDeadline(time.Now().Add(time.Second))
-				upConn.Write([]byte(fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n\r\n", GClientProxy.rkeyHeader, token)))
+				upConn.Write([]byte(payload + "\r\n"))
 				upConn.Close()
 			}
 		}

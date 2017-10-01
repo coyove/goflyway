@@ -73,10 +73,17 @@ UDP relay is only tested under a limited number of programs (Skype, Discord, etc
 ## Console
 There is a simple web console for client built inside goflyway: `http://127.0.0.1:8100/?goflyway-console`.
 
-## Others
-When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
+## Reverse proxy
+     +---------+                          +-----------------+
+     | browser |-.                      .-| your web server |
+     +---------+  \    +----------+    /  +-----------------+
+                   }==>| goflyway |==={   
++--------------+  /    +----------+    \  +----------------+
+| proxy client |-'                      '-| GFWed websites |
++--------------+                          +----------------+
 
-![](https://github.com/coyove/goflyway/blob/master/.misc/speed.png?raw=true)
+## Speed
+When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
 
 However HTTP is much much easier to write and debug, I think this trade-off is absolutely acceptable. If you need more speed, try KCPTUN, BBR, ServerSpeeder...
 
