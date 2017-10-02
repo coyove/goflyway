@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -27,9 +28,17 @@ func (a *addr_t) String() string {
 
 func (a *addr_t) HostString() string {
 	if a.ip != nil {
-		return a.ip.String()
+		if len(a.ip) == net.IPv4len {
+			return a.ip.String()
+		} else {
+			return "[" + a.ip.String() + "]"
+		}
 	} else {
-		return a.host
+		if strings.Contains(a.host, ":") && a.host[0] != '[' {
+			return "[" + a.host + "]"
+		} else {
+			return a.host
+		}
 	}
 }
 

@@ -230,7 +230,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	}
 
 	// lookup at local in case host points to a private ip
-	ip, err := lookup.LookupIP(host)
+	ip, err := lookup.LookupIPv4(host)
 	if err != nil {
 		logg.E(err)
 	}

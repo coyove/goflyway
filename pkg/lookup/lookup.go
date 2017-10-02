@@ -143,7 +143,12 @@ func IsPrivateIP(ip string) bool {
 	return IPInLookupTable(ip, IPv4PrivateLookupTable)
 }
 
-func LookupIP(host string) (string, error) {
+func LookupIPv4(host string) (string, error) {
+	if host[0] == '[' && host[len(host)-1] == ']' {
+		// ipv6, we return empty, but also no error
+		return "", nil
+	}
+
 	ip, err := net.ResolveIPAddr("ip4", host)
 	if err != nil {
 		return "", err
