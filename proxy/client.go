@@ -5,6 +5,7 @@ import (
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -34,11 +35,10 @@ type ClientConfig struct {
 type ProxyClient struct {
 	*ClientConfig
 
-	tp       *http.Transport
-	tpd      *http.Transport
-	dnsCache *lru.Cache
-	dummies  *lru.Cache
-	udp      struct {
+	tp      *http.Transport
+	tpd     *http.Transport
+	dummies *lru.Cache
+	udp     struct {
 		relay    *net.UDPConn
 		response []byte
 
@@ -49,9 +49,12 @@ type ProxyClient struct {
 	}
 
 	rkeyHeader string
-}
 
-var GClientProxy *ProxyClient
+	DNSCache  *lru.Cache
+	Nickname  string
+	Localaddr string
+	Listener  *listenerWrapper
+}
 
 func (proxy *ProxyClient) dialUpstream() net.Conn {
 	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
@@ -116,7 +119,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logg.D(r.Method, " ", r.RequestURI)
 
 	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.DisableConsole {
-		handleWebConsole(w, r)
+		proxy.handleWebConsole(w, r)
 		return
 	}
 
@@ -225,7 +228,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		return !proxy.GlobalProxy
 	}
 
-	if ip, ok := proxy.dnsCache.Get(host); ok && ip.(string) != "" { // we have cached the host
+	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
 		return lookup.IsPrivateIP(ip.(string)) || isChineseIP(ip.(string))
 	}
 
@@ -236,7 +239,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	}
 
 	if lookup.IsPrivateIP(ip) {
-		proxy.dnsCache.Add(host, ip)
+		proxy.DNSCache.Add(host, ip)
 		return true
 	}
 
@@ -244,7 +247,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	// but if it is a chinese ip, we withhold and query the upstream to double check
 	maybeChinese := isChineseIP(ip)
 	if !maybeChinese {
-		proxy.dnsCache.Add(host, ip)
+		proxy.DNSCache.Add(host, ip)
 		return false
 	}
 
@@ -278,7 +281,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		return maybeChinese
 	}
 
-	proxy.dnsCache.Add(host, ip2.String())
+	proxy.DNSCache.Add(host, ip2.String())
 	return isChineseIP(ip2.String())
 }
 
@@ -395,7 +398,30 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	}
 }
 
-func StartClient(localaddr string, config *ClientConfig) {
+func (proxy *ProxyClient) PleaseUnlockMe() {
+	upConn := proxy.dialUpstream()
+	if upConn != nil {
+		token := base64.StdEncoding.EncodeToString(proxy.Encrypt(genTrustedToken("unlock", proxy.GCipher)))
+
+		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", proxy.rkeyHeader, token)
+		if proxy.UserAuth != "" {
+			payload += AUTH_HEADER + ": " + proxy.UserAuth + "\r\n"
+		}
+
+		upConn.SetWriteDeadline(time.Now().Add(time.Second))
+		upConn.Write([]byte(payload + "\r\n"))
+		upConn.Close()
+	}
+}
+
+func (proxy *ProxyClient) UpdateKey(newKey string) {
+	proxy.GCipher.KeyString = newKey
+	proxy.GCipher.New()
+	proxy.Nickname = genWord(proxy.GCipher)
+	proxy.rkeyHeader = "X-" + proxy.Nickname
+}
+
+func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	var mux net.Listener
 	var err error
 
@@ -416,8 +442,9 @@ func StartClient(localaddr string, config *ClientConfig) {
 		},
 
 		dummies:    lru.NewCache(len(DUMMY_FIELDS)),
-		dnsCache:   lru.NewCache(config.DNSCacheSize),
+		DNSCache:   lru.NewCache(config.DNSCacheSize),
 		rkeyHeader: "X-" + word,
+		Nickname:   word,
 
 		ClientConfig: config,
 	}
@@ -438,8 +465,6 @@ func StartClient(localaddr string, config *ClientConfig) {
 		proxy.udp.relay = relay
 	}
 
-	GClientProxy = proxy
-
 	if port, lerr := strconv.Atoi(localaddr); lerr == nil {
 		mux, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv6zero, Port: port})
 		localaddr = "localhost:" + localaddr
@@ -451,6 +476,7 @@ func StartClient(localaddr string, config *ClientConfig) {
 		logg.F(err)
 	}
 
-	logg.L("Hi! ", word, ", proxy is listening at ", localaddr, ", upstream is ", config.Upstream)
-	logg.F(http.Serve(&listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}, proxy))
+	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}
+	proxy.Localaddr = localaddr
+	return proxy
 }

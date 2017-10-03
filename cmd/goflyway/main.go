@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"runtime"
 )
 
@@ -125,15 +126,18 @@ func main() {
 
 	if *G_Auth != "" {
 		sc.Users = map[string]proxy.UserConfig{
-			*G_Auth: proxy.UserConfig{},
+			*G_Auth: {},
 		}
 	}
 
+	var client *proxy.ProxyClient
 	if *G_Debug {
 		logg.L("debug mode on, proxy listening port 8100")
 
 		cc.Upstream = "127.0.0.1:8101"
-		go proxy.StartClient(":8100", cc)
+		client = proxy.NewClient(":8100", cc)
+		go logg.F(http.Serve(client.Listener, client))
+
 		proxy.StartServer(":8101", sc)
 		return
 	}
@@ -141,10 +145,13 @@ func main() {
 	if *G_Upstream != "" {
 		if *G_Local2 != "" {
 			// -p has higher priority than -l, for the sack of SS users
-			proxy.StartClient(*G_Local2, cc)
+			client = proxy.NewClient(*G_Local2, cc)
 		} else {
-			proxy.StartClient(*G_Local, cc)
+			client = proxy.NewClient(*G_Local, cc)
 		}
+
+		logg.L("Hi! ", client.Nickname, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
+		logg.F(http.Serve(client.Listener, client))
 	} else {
 		// save some space because server doesn't need lookup
 		lookup.ChinaList = nil

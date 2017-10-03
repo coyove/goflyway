@@ -3,12 +3,10 @@ package proxy
 import (
 	"github.com/coyove/goflyway/pkg/lru"
 
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
 	"text/template"
-	"time"
 )
 
 var webConsoleHTML, _ = template.New("console").Parse(`
@@ -143,7 +141,7 @@ var _i18n = map[string]map[string]string{
 	},
 }
 
-func handleWebConsole(w http.ResponseWriter, r *http.Request) {
+func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		payload := struct {
 			ProxyAll bool
@@ -151,9 +149,9 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 			Auth     string
 			I18N     map[string]string
 		}{
-			GClientProxy.GlobalProxy,
-			GClientProxy.GCipher.KeyString,
-			GClientProxy.UserAuth,
+			proxy.GlobalProxy,
+			proxy.GCipher.KeyString,
+			proxy.UserAuth,
 			nil,
 		}
 
@@ -166,7 +164,7 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		webConsoleHTML.Execute(w, payload)
 
 		flag := false
-		GClientProxy.dnsCache.Info(func(k lru.Key, v interface{}, h int64) {
+		proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
 			flag = true
 			w.Write([]byte(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h)))
 		})
@@ -178,32 +176,17 @@ func handleWebConsole(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("</table></html>"))
 	} else if r.Method == "POST" {
 		if r.FormValue("clearc") != "" {
-			GClientProxy.dnsCache.Clear()
+			proxy.DNSCache.Clear()
 		}
 
 		if r.FormValue("proxy") != "" {
-			GClientProxy.GlobalProxy = r.FormValue("proxyall") == "on"
-			GClientProxy.UserAuth = r.FormValue("auth")
-
-			GClientProxy.GCipher.KeyString = r.FormValue("key")
-			GClientProxy.GCipher.New()
-			GClientProxy.rkeyHeader = "X-" + genWord(GClientProxy.GCipher)
+			proxy.GlobalProxy = r.FormValue("proxyall") == "on"
+			proxy.UserAuth = r.FormValue("auth")
+			proxy.UpdateKey(r.FormValue("key"))
 		}
 
 		if r.FormValue("unlock") != "" {
-			upConn := GClientProxy.dialUpstream()
-			if upConn != nil {
-				token := base64.StdEncoding.EncodeToString(GClientProxy.Encrypt(genTrustedToken("unlock", GClientProxy.GCipher)))
-
-				payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", GClientProxy.rkeyHeader, token)
-				if GClientProxy.UserAuth != "" {
-					payload += AUTH_HEADER + ": " + GClientProxy.UserAuth + "\r\n"
-				}
-
-				upConn.SetWriteDeadline(time.Now().Add(time.Second))
-				upConn.Write([]byte(payload + "\r\n"))
-				upConn.Close()
-			}
+			proxy.PleaseUnlockMe()
 		}
 
 		http.Redirect(w, r, "/?goflyway-console", 301)
