@@ -312,7 +312,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 	return upstreamConn, str, true
 }
 
-func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
+func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, auth string, src net.Addr) {
 	_, dst, ok := parseDstFrom(nil, b, true)
 	if !ok {
 		return
@@ -418,7 +418,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
 				ln = len(buf) + len(UDP_REQUEST_HEADER6)
 			}
 
-			_, err = proxy.udp.relay.WriteTo(xbuf[:ln], src)
+			_, err = relay.WriteTo(xbuf[:ln], src)
 
 			if err != nil {
 				logg.E("utt: write: ", err)
@@ -434,4 +434,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, auth string, src net.Addr) {
 	proxy.udp.upstream.Unlock()
 
 	upstreamConn.Close()
+	client.Close()
+	relay.Close()
+	logg.D("udp close: ", client)
 }

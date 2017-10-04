@@ -96,7 +96,7 @@ func print(l string, params ...interface{}) {
 			} else {
 				m.message += fmt.Sprintf("%s %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
 
-				if op.Source != nil {
+				if op.Source != nil && op.Addr != nil {
 					m.dst, _, _ = net.SplitHostPort(op.Addr.String())
 				}
 			}

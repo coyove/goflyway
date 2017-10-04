@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"runtime"
 )
 
@@ -136,7 +135,7 @@ func main() {
 
 		cc.Upstream = "127.0.0.1:8101"
 		client = proxy.NewClient(":8100", cc)
-		go logg.F(http.Serve(client.Listener, client))
+		go logg.F(client.Start())
 
 		proxy.StartServer(":8101", sc)
 		return
@@ -151,7 +150,7 @@ func main() {
 		}
 
 		logg.L("Hi! ", client.Nickname, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
-		logg.F(http.Serve(client.Listener, client))
+		logg.F(client.Start())
 	} else {
 		// save some space because server doesn't need lookup
 		lookup.ChinaList = nil

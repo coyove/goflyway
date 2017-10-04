@@ -39,9 +39,6 @@ type ProxyClient struct {
 	tpd     *http.Transport
 	dummies *lru.Cache
 	udp     struct {
-		relay    *net.UDPConn
-		response []byte
-
 		upstream struct {
 			sync.Mutex
 			conns map[string]net.Conn
@@ -378,22 +375,31 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
 	} else if method == 0x03 {
-		if proxy.udp.relay != nil {
-			conn.Write(proxy.udp.response)
+		if proxy.UDPRelayPort != 0 {
+			relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+			if err != nil {
+				log_close("udp relay server: ", err)
+				return
+			}
+
+			response := []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+			port := relay.LocalAddr().(*net.UDPAddr).Port
+			binary.BigEndian.PutUint16(response[8:], uint16(port))
+
+			conn.Write(response)
+			logg.D("udp relay listening port: ", port, ", sync conn: ", conn)
 
 			for {
 				buf := make([]byte, 2048)
-				n, src, err := proxy.udp.relay.ReadFrom(buf)
+				n, src, err := relay.ReadFrom(buf)
 				if err != nil {
-					logg.E("relay readfrom: ", err)
-					continue
+					break
 				}
 
-				go proxy.handleUDPtoTCP(buf[:n], auth, src)
+				go proxy.handleUDPtoTCP(buf[:n], relay, conn, auth, src)
 			}
 		} else {
-			logg.W("use command -udp to enable udp relay")
-			conn.Close()
+			log_close("use command -udp to enable udp relay")
 		}
 	}
 }
@@ -419,6 +425,10 @@ func (proxy *ProxyClient) UpdateKey(newKey string) {
 	proxy.GCipher.New()
 	proxy.Nickname = genWord(proxy.GCipher)
 	proxy.rkeyHeader = "X-" + proxy.Nickname
+}
+
+func (proxy *ProxyClient) Start() error {
+	return http.Serve(proxy.Listener, proxy)
 }
 
 func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
@@ -449,20 +459,8 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		ClientConfig: config,
 	}
 
-	if config.UDPRelayPort != 0 {
-		r := []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-		binary.BigEndian.PutUint16(r[8:], uint16(config.UDPRelayPort))
-		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: config.UDPRelayPort})
-		if err != nil {
-			logg.F("udp relay server: ", err)
-		}
-
-		if proxy.UDPRelayCoconn <= 0 {
-			proxy.UDPRelayCoconn = 1
-		}
-
-		proxy.udp.response = r
-		proxy.udp.relay = relay
+	if proxy.UDPRelayCoconn <= 0 {
+		proxy.UDPRelayCoconn = 1
 	}
 
 	if port, lerr := strconv.Atoi(localaddr); lerr == nil {
