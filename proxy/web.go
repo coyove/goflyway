@@ -87,11 +87,11 @@ var webConsoleHTML, _ = template.New("console").Parse(`
         <tr><td colspan=2><h3>{{.I18N.Basic}}</h3></td></tr>
         <tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
         <tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
-        <tr><td colspan=2><input type='checkbox' name='proxyall' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
-        <tr><td colspan=2><input type='submit' name='proxy' value='{{.I18N.Update}}'/></td></tr>
+        <tr><td colspan=2><input type='checkbox' name='gproxy' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
+        <tr><td colspan=2><input type='submit' name='update' value='{{.I18N.Update}}'/></td></tr>
         <tr><td colspan=2><hr></td></tr>
         <tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
-        <tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='clearc' value='{{.I18N.Clear}}'/></td></tr>
+        <tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='cleardns' value='{{.I18N.Clear}}'/></td></tr>
         <tr><td colspan=2><span class=r>{{.I18N.UnlockMeText}}:</span><input type='submit' name='unlock' value='{{.I18N.UnlockMe}}'></td></tr>
     </table>
     </form>
@@ -175,18 +175,43 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 
 		w.Write([]byte("</table></html>"))
 	} else if r.Method == "POST" {
-		if r.FormValue("clearc") != "" {
+		if r.FormValue("cleardns") != "" {
 			proxy.DNSCache.Clear()
 		}
 
-		if r.FormValue("proxy") != "" {
-			proxy.GlobalProxy = r.FormValue("proxyall") == "on"
+		if r.FormValue("update") != "" {
+			proxy.GlobalProxy = r.FormValue("gproxy") == "on"
 			proxy.UserAuth = r.FormValue("auth")
 			proxy.UpdateKey(r.FormValue("key"))
 		}
 
 		if r.FormValue("unlock") != "" {
 			proxy.PleaseUnlockMe()
+		}
+
+		if s := r.FormValue("switch"); s != "" {
+			switch s {
+			case "none":
+				proxy.NoProxy = true
+			case "global":
+				proxy.NoProxy = false
+				proxy.GlobalProxy = true
+			case "iplist":
+				proxy.NoProxy = false
+				proxy.GlobalProxy = false
+			default:
+				w.WriteHeader(400)
+				return
+			}
+
+			w.WriteHeader(200)
+			return
+		}
+
+		if r.FormValue("ping") != "" {
+			w.WriteHeader(200)
+			w.Write([]byte("pong"))
+			return
 		}
 
 		http.Redirect(w, r, "/?goflyway-console", 301)

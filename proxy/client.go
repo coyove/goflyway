@@ -22,6 +22,7 @@ import (
 type ClientConfig struct {
 	Upstream       string
 	GlobalProxy    bool
+	NoProxy        bool
 	DisableConsole bool
 	UserAuth       string
 	DNSCacheSize   int
@@ -211,6 +212,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
+	if proxy.NoProxy {
+		return true
+	}
+
 	host, _ = splitHostPort(host)
 
 	isChineseIP := func(ip string) bool {
