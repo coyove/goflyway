@@ -116,6 +116,11 @@ type listenerWrapper struct {
 func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
+	if err != nil || c == nil {
+		logg.E("listener: ", err)
+		goto CONTINUE
+	}
+
 	wrapper := &connWrapper{
 		Conn: c,
 		sbuffer: &prefetchReader{
