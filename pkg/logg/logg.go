@@ -10,7 +10,9 @@ import (
 )
 
 var ignoreLocalhost = true
+var fatalAsError = false
 var logLevel = 0
+var logCallback func(ts int64, msg string)
 
 func RecordLocalhostError(r bool) {
 	ignoreLocalhost = !r
@@ -31,6 +33,14 @@ func SetLevel(lv string) {
 	default:
 		panic("unexpected log level: " + lv)
 	}
+}
+
+func SetCallback(f func(ts int64, msg string)) {
+	logCallback = f
+}
+
+func TreatFatalAsError(flag bool) {
+	fatalAsError = flag
 }
 
 func timestamp() string {
@@ -73,13 +83,14 @@ func tryShortenWSAError(err interface{}) (ret string) {
 type msg_t struct {
 	dst     string
 	lead    string
+	ts      int64
 	message string
 }
 
 var msgQueue = make(chan msg_t)
 
 func print(l string, params ...interface{}) {
-	m := msg_t{lead: lead(l)}
+	m := msg_t{lead: lead(l), ts: time.Now().UnixNano()}
 
 	for _, p := range params {
 		switch p.(type) {
@@ -137,11 +148,20 @@ func Start() {
 						}
 
 						if count > 0 {
-							fmt.Printf(strings.Repeat(" ", len(m.lead))+"... %d similar message(s)\n", count)
+							str := fmt.Sprintf(strings.Repeat(" ", len(m.lead))+"... %d similar message(s)", count)
+							if logCallback != nil {
+								logCallback(m.ts, str)
+							} else {
+								fmt.Println(str)
+							}
 						}
 					}
 
-					fmt.Println(m.lead + m.message)
+					if logCallback != nil {
+						logCallback(m.ts, m.lead+m.message)
+					} else {
+						fmt.Println(m.lead + m.message)
+					}
 					lastMsg, lastTime, count = &m, time.Now(), 0
 				default:
 					// nothing in queue to print, quit loop
@@ -180,5 +200,8 @@ func E(params ...interface{}) {
 
 func F(params ...interface{}) {
 	print("X", params...)
-	os.Exit(1)
+
+	if !fatalAsError {
+		os.Exit(1)
+	}
 }

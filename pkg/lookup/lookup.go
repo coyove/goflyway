@@ -47,15 +47,19 @@ func init() {
 	fill(&IPv4PrivateLookupTable, PRIVATE_IP)
 }
 
-func LoadOrCreateChinaList() bool {
-	buf, err := ioutil.ReadFile("./chinalist.txt")
-	if err != nil {
-		return false
+func LoadOrCreateChinaList(raw string) bool {
+	if raw == "" {
+		buf, err := ioutil.ReadFile("./chinalist.txt")
+		if err != nil {
+			return false
+		}
+
+		raw = string(buf)
 	}
 
 	ChinaList = make(China_list_t)
 
-	for _, domain := range strings.Split(string(buf), "\n") {
+	for _, domain := range strings.Split(raw, "\n") {
 		subs := strings.Split(strings.Trim(domain, "\r "), ".")
 		if len(subs) == 0 || len(domain) == 0 || domain[0] == '#' {
 			continue

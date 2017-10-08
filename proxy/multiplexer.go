@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -118,6 +119,11 @@ CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
 		logg.E("listener: ", err)
+
+		if strings.Contains(err.Error(), "use of closed network connection") {
+			return nil, err
+		}
+
 		goto CONTINUE
 	}
 

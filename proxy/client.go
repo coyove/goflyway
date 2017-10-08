@@ -443,6 +443,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	upstreamUrl, err := url.Parse("http://" + config.Upstream)
 	if err != nil {
 		logg.F(err)
+		return nil
 	}
 
 	word := genWord(config.GCipher)
@@ -477,6 +478,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if err != nil {
 		logg.F(err)
+		return nil
 	}
 
 	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}

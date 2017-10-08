@@ -93,7 +93,7 @@ func main() {
 	}
 
 	if *G_Upstream != "" {
-		if !lookup.LoadOrCreateChinaList() {
+		if !lookup.LoadOrCreateChinaList("") {
 			logg.W("cannot read chinalist.txt (but it's fine, you can ignore this msg)")
 		}
 	}
