@@ -1,6 +1,6 @@
 top-1m.csv
-goflyway.exe
-goflyway.dll
+*.exe
+*.dll
 *.a
 build/
 

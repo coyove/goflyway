@@ -1,15 +1,18 @@
 ﻿using System.Reflection;
+using System.Resources;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+[assembly: NeutralResourcesLanguage("zh-CN")]
 
 // 有关程序集的一般信息由以下
 // 控制。更改这些特性值可修改
 // 与程序集关联的信息。
-[assembly: AssemblyTitle("WindowsFormsApp1")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyTitle("goflywin")]
+[assembly: AssemblyDescription("goflywin, a GUI frontend for goflyway")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("WindowsFormsApp1")]
+[assembly: AssemblyProduct("goflywin")]
 [assembly: AssemblyCopyright("Copyright ©  2017")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

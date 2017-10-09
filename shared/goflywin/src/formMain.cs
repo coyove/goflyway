@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Globalization;
 using System.Linq;
+using System.Resources;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -14,11 +17,12 @@ namespace goflywin
     public partial class formMain : Form
     {
         private static uint SVR_ERROR_CODE   = 1 << 15;
-	    private static uint SVR_ERROR_EXITED = 1 << 1;
-	    private static uint SVR_ERROR_CREATE = 1 << 2;
-        private static  int SVR_GLOBAL = 1 << 16 + 0;
-        private static  int SVR_IPLIST = 1 << 16 + 1;
-        private static  int SVR_NONE = 1 << 16 + 2;
+        private static uint SVR_ERROR_EXITED = 1 << 1;
+        private static uint SVR_ERROR_CREATE = 1 << 2;
+        private static uint SVR_ERROR_PANIC  = 1 << 3;
+        private static  int SVR_GLOBAL       = 1 << 16 + 0;
+        private static  int SVR_IPLIST       = 1 << 16 + 1;
+        private static  int SVR_NONE         = 1 << 16 + 2;
 
         private NotifyIcon notifyIcon;
         private ContextMenu contextMenu;
@@ -30,15 +34,19 @@ namespace goflywin
 
         private Dictionary<string, Server> serverlist = new Dictionary<string, Server>();
 
+        private List<string> logs = new List<string>();
+
+        private ResourceManager rm = new ResourceManager("goflywin.Form", typeof(Program).Assembly);
+
         public delegate void LogCallback(long ts, string msg);
 
-        [DllImport("main.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern string gofw_nickname();
 
-        [DllImport("main.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_switch(int type);
 
-        [DllImport("main.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern int gofw_start(
             string log_level, string china_list,
             [MarshalAs(UnmanagedType.FunctionPtr)]LogCallback log,
@@ -46,7 +54,7 @@ namespace goflywin
             string upstream, string localaddr, string auth, string key,
             int partial, int dns_size, int udp_port, int udp_tcp);
 
-        [DllImport("main.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_stop();
 
         public formMain()
@@ -61,7 +69,14 @@ namespace goflywin
                 listLog.Items.RemoveAt(0);
             }
 
+            if (logs.Count() == 100)
+            {
+                System.IO.File.AppendAllLines("log.txt", logs);
+                logs.Clear();
+            }
+
             listLog.Items.Add(msg);
+            logs.Add(msg);
             listLog.TopIndex = listLog.Items.Count - 1;
         }
 
@@ -70,7 +85,7 @@ namespace goflywin
             buttonStart.Enabled = true;
             buttonStop.Enabled = false;
             enableMenuProxyType(false, -1);
-            labelState.Text = "NOT RUNNING";
+            labelState.Text = rm.GetString("NOTRUNNING");
         }
 
         private void handleError(long ts, string msg)
@@ -80,6 +95,12 @@ namespace goflywin
             if ((flag & SVR_ERROR_EXITED) != 0)
             {
                 addLog(0, "==== proxy server exited ====");
+            }
+
+            if ((flag & SVR_ERROR_PANIC) != 0)
+            {
+                addLog(0, "==== proxy server panicked ====");
+                addLog(0, msg);
             }
 
             notifyStop();
@@ -98,6 +119,12 @@ namespace goflywin
 
         private void buttonStart_Click(object sender, EventArgs e)
         {
+            if (comboServer.Text == "" || textPort.Text == "" || textKey.Text == "")
+            {
+                MessageBox.Show(rm.GetString("msgPleaseCheckInput"), Application.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                return;
+            }
+
             Server s = Server.FromUI(this);
             serverlist[s.ServerAddr] = s;
             updateServerListToDisk();
@@ -130,7 +157,7 @@ namespace goflywin
                         break;
                 }
 
-                labelState.Text = ">> RUNNING <<";
+                labelState.Text = rm.GetString("RUNNING");
                 if (checkAutoMin.Checked) this.WindowState = FormWindowState.Minimized;
                 enableMenuProxyType(true, idx);
             }
@@ -145,29 +172,45 @@ namespace goflywin
             }
         }
 
+        private void translateUI(Control ctrl)
+        {
+            foreach (Control control in ctrl.Controls)
+            {
+                try
+                {
+                    control.Text = rm.GetString(control.Name);
+                }
+                catch (MissingManifestResourceException) { }
+
+                if (control is GroupBox) translateUI(control);
+            }
+        }
+
         private void Form1_Load(object sender, EventArgs e)
         {
             comboLogLevel.SelectedIndex = 0;
             comboProxyType.SelectedIndex = 0;
 
+            translateUI(this);
+
             contextMenu = new ContextMenu();
             menuShow = new MenuItem();
-            menuShow.Text = "Show goflywin";
+            menuShow.Text = rm.GetString("menuShow");
             menuShow.Click += new System.EventHandler(notifyIcon_DoubleClick);
 
             menuExit = new MenuItem();
-            menuExit.Text = "Exit";
+            menuExit.Text = rm.GetString("menuExit");
             menuExit.Click += new System.EventHandler(buttonQuit_Click);
 
             menuProxyType = new MenuItem[3];
             for (int i = 0; i < menuProxyType.Count(); i++)
             {
                 menuProxyType[i] = new MenuItem();
-                menuProxyType[i].Text = "Proxy: iplist only|Proxy: global|Proxy: do not proxy".Split('|')[i];
+                menuProxyType[i].Text = rm.GetString("menuProxyType").Split('|')[i];
                 menuProxyType[i].Click += new System.EventHandler(proxy_Click);
             }
 
-            enableMenuProxyType(false, -1);
+            notifyStop();
 
             contextMenu.MenuItems.AddRange(menuProxyType);
             contextMenu.MenuItems.Add("-");
@@ -176,9 +219,9 @@ namespace goflywin
 
             notifyIcon = new NotifyIcon();
             notifyIcon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
-            notifyIcon.BalloonTipText = "goflywin is minimized";
+            notifyIcon.BalloonTipText = rm.GetString("msgSystray");
             notifyIcon.Icon = Resource1.logo_ZS6_icon;
-            notifyIcon.Text = "goflywin";
+            notifyIcon.Text = Application.ProductName;
             notifyIcon.Visible = false;
             notifyIcon.ContextMenu = contextMenu;
             notifyIcon.DoubleClick += new System.EventHandler(notifyIcon_DoubleClick);
@@ -246,7 +289,7 @@ namespace goflywin
         private void notifyUser()
         {
             notifyIcon.Visible = true;
-            notifyIcon.ShowBalloonTip(3000);
+            notifyIcon.ShowBalloonTip(2000);
             this.ShowInTaskbar = false;
         }
 
@@ -281,9 +324,12 @@ namespace goflywin
 
         private void buttonDelServer_Click(object sender, EventArgs e)
         {
-            serverlist.Remove(comboServer.Text);
-            comboServer.Items.RemoveAt(comboServer.SelectedIndex);
-            updateServerListToDisk();
+            if (MessageBox.Show(rm.GetString("msgConfirmDelete"), Application.ProductName, MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                serverlist.Remove(comboServer.Text);
+                comboServer.Items.RemoveAt(comboServer.SelectedIndex);
+                updateServerListToDisk();
+            }
         }
     }
 }
