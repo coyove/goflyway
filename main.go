@@ -13,6 +13,9 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/proxy"
+
+	"fmt"
+	_ "runtime/cgo"
 )
 
 const (
@@ -22,6 +25,7 @@ const (
 	SVR_ERROR_CODE   = C.int(1 << 15)
 	SVR_ERROR_EXITED = C.int(1 << 1)
 	SVR_ERROR_CREATE = C.int(1 << 2)
+	SVR_ERROR_PANIC  = C.int(1 << 3)
 
 	SVR_GLOBAL = C.int(1<<16) + 0
 	SVR_IPLIST = C.int(1<<16) + 1
@@ -93,6 +97,12 @@ func StartServer(
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				C.invoke(errCallback, C.ulonglong(SVR_ERROR_CODE|SVR_ERROR_PANIC), C.CString(fmt.Sprintf("%v", r)))
+			}
+		}()
+
 		if err := client.Start(); err != nil {
 			client = nil
 			C.invoke(errCallback, C.ulonglong(SVR_ERROR_CODE|SVR_ERROR_EXITED), C.CString(err.Error()))

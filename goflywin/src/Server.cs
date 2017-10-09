@@ -10,16 +10,12 @@ namespace goflywin
     {
         public static string Escape(string text)
         {
-            if (text == "") return " ";
-
-            return text.Replace("|", "\\|").Replace(" ", "\\ ");
+            return text.Replace("|", "\\|");
         }
 
         public static string Unecape(string text)
         {
-            if (text == " ") return "";
-
-            return text.Replace("\\|", "|").Replace("\\ ", " ");
+            return text.Replace("\\|", "|");
         }
     }
 
@@ -39,24 +35,14 @@ namespace goflywin
             List<string> parts = new List<string>();
             int i = 0, ii = 0;
 
-            text += "||";
+            text += "|";
             while (i < text.Length)
             {
-                if (text[i] == '|' && i + 1 < text.Length && text[i + 1] == '|')
+                if (text[i] == '|' && i > 0 && text[i - 1] != '\\')
                 {
-                    if (i + 2 < text.Length && text[i + 2] == '|')
-                    {
-                        parts.Add(Util.Unecape(text.Substring(ii, i + 1 - ii)));
-                        i += 3;
-                        ii = i;
-                    }
-                    else
-                    {
-                        parts.Add(Util.Unecape(text.Substring(ii, i - ii)));
-                        i += 2;
-                        ii = i;
-                    }
-
+                    parts.Add(Util.Unecape(text.Substring(ii, i - ii)));
+                    i++;
+                    ii = i;
                     continue;
                 }
 
@@ -93,12 +79,9 @@ namespace goflywin
 
         public override string ToString()
         {
-            return Util.Escape(ServerAddr) + "||" +
-                Util.Escape(LocalAddr) + "||" +
-                Util.Escape(Key) + "||" +
-                Util.Escape(AuthUser) + "||" +
-                Util.Escape(AuthPass) + "||" +
-                (Partial ? "1" : "0") + "||" + UDP.ToString() + "||" + UDP_TCP.ToString();
+            return Util.Escape(ServerAddr) + "|" + Util.Escape(LocalAddr) + "|" + Util.Escape(Key) + "|" +
+                Util.Escape(AuthUser) + "|" + Util.Escape(AuthPass) + "|" +
+                (Partial ? "1" : "0") + "|" + UDP.ToString() + "|" + UDP_TCP.ToString();
         }
 
         public void ToUI(formMain form)

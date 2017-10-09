@@ -31,8 +31,7 @@ EXPORT void gofw_switch(int type)
 
 int main(int argc, char const *argv[])
 {
-    gofw_start("dbg", "", callback, callback, "128.wipe.pw:8100", ":8200", "", "01234567890abcdef",
-            1, 1024, 8731, 3);
+    gofw_start("dbg", "", callback, callback, ":8100", ":8100", "", "0123456789abcdef", 1, 1024, 8731, 3);
     printf("%s", gofw_nickname());
     while(1){}
     return 0;

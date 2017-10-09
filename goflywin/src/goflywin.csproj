@@ -80,6 +80,8 @@
       <DependentUpon>Resource1.resx</DependentUpon>
     </Compile>
     <Compile Include="Server.cs" />
+    <EmbeddedResource Include="Form.en-US.resx" />
+    <EmbeddedResource Include="Form.zh-CN.resx" />
     <EmbeddedResource Include="formMain.resx">
       <DependentUpon>formMain.cs</DependentUpon>
     </EmbeddedResource>
@@ -109,9 +111,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Resources\Systray.ico" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\logo_ZS6_icon.ico" />

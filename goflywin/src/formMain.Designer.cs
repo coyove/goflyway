@@ -44,22 +44,23 @@
             this.buttonStop = new System.Windows.Forms.Button();
             this.buttonQuit = new System.Windows.Forms.Button();
             this.buttonDelServer = new System.Windows.Forms.Button();
-            this.groupBox1 = new System.Windows.Forms.GroupBox();
+            this.groupLog = new System.Windows.Forms.GroupBox();
             this.listLog = new System.Windows.Forms.ListBox();
             this.labelPort = new System.Windows.Forms.Label();
             this.textPort = new System.Windows.Forms.TextBox();
             this.textUDP_TCP = new System.Windows.Forms.NumericUpDown();
             this.textUDP = new System.Windows.Forms.NumericUpDown();
-            this.label1 = new System.Windows.Forms.Label();
+            this.labelLogLevel = new System.Windows.Forms.Label();
             this.comboLogLevel = new System.Windows.Forms.ComboBox();
             this.comboProxyType = new System.Windows.Forms.ComboBox();
-            this.label2 = new System.Windows.Forms.Label();
+            this.labelProxyType = new System.Windows.Forms.Label();
             this.checkAutoMin = new System.Windows.Forms.CheckBox();
             this.labelState = new System.Windows.Forms.Label();
-            this.label3 = new System.Windows.Forms.Label();
+            this.labelDNS = new System.Windows.Forms.Label();
             this.textDNS = new System.Windows.Forms.NumericUpDown();
+            this.comboBox1 = new System.Windows.Forms.ComboBox();
             this.groupAuth.SuspendLayout();
-            this.groupBox1.SuspendLayout();
+            this.groupLog.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP_TCP)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.textDNS)).BeginInit();
@@ -68,29 +69,29 @@
             // labelServer
             // 
             this.labelServer.AutoSize = true;
-            this.labelServer.Location = new System.Drawing.Point(8, 9);
+            this.labelServer.Location = new System.Drawing.Point(8, 10);
             this.labelServer.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelServer.Name = "labelServer";
-            this.labelServer.Size = new System.Drawing.Size(149, 12);
+            this.labelServer.Size = new System.Drawing.Size(120, 13);
             this.labelServer.TabIndex = 0;
             this.labelServer.Text = "Server Address (IP:Port)";
             // 
             // labelKey
             // 
             this.labelKey.AutoSize = true;
-            this.labelKey.Location = new System.Drawing.Point(8, 86);
+            this.labelKey.Location = new System.Drawing.Point(8, 93);
             this.labelKey.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelKey.Name = "labelKey";
-            this.labelKey.Size = new System.Drawing.Size(23, 12);
+            this.labelKey.Size = new System.Drawing.Size(25, 13);
             this.labelKey.TabIndex = 2;
             this.labelKey.Text = "Key";
             // 
             // textKey
             // 
-            this.textKey.Location = new System.Drawing.Point(96, 83);
+            this.textKey.Location = new System.Drawing.Point(96, 90);
             this.textKey.Margin = new System.Windows.Forms.Padding(2);
             this.textKey.Name = "textKey";
-            this.textKey.Size = new System.Drawing.Size(194, 21);
+            this.textKey.Size = new System.Drawing.Size(194, 20);
             this.textKey.TabIndex = 3;
             this.textKey.Text = "0123456789abcdef";
             // 
@@ -100,68 +101,68 @@
             this.groupAuth.Controls.Add(this.labelAuthPass);
             this.groupAuth.Controls.Add(this.textAuthUser);
             this.groupAuth.Controls.Add(this.labelAuthUser);
-            this.groupAuth.Location = new System.Drawing.Point(10, 134);
+            this.groupAuth.Location = new System.Drawing.Point(10, 145);
             this.groupAuth.Margin = new System.Windows.Forms.Padding(2);
             this.groupAuth.Name = "groupAuth";
             this.groupAuth.Padding = new System.Windows.Forms.Padding(2);
-            this.groupAuth.Size = new System.Drawing.Size(279, 73);
+            this.groupAuth.Size = new System.Drawing.Size(279, 79);
             this.groupAuth.TabIndex = 4;
             this.groupAuth.TabStop = false;
             this.groupAuth.Text = "User Authentication";
             // 
             // textAuthPass
             // 
-            this.textAuthPass.Location = new System.Drawing.Point(86, 44);
+            this.textAuthPass.Location = new System.Drawing.Point(86, 48);
             this.textAuthPass.Margin = new System.Windows.Forms.Padding(2);
             this.textAuthPass.Name = "textAuthPass";
-            this.textAuthPass.Size = new System.Drawing.Size(190, 21);
+            this.textAuthPass.Size = new System.Drawing.Size(190, 20);
             this.textAuthPass.TabIndex = 8;
             // 
             // labelAuthPass
             // 
             this.labelAuthPass.AutoSize = true;
-            this.labelAuthPass.Location = new System.Drawing.Point(4, 46);
+            this.labelAuthPass.Location = new System.Drawing.Point(4, 50);
             this.labelAuthPass.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelAuthPass.Name = "labelAuthPass";
-            this.labelAuthPass.Size = new System.Drawing.Size(53, 12);
+            this.labelAuthPass.Size = new System.Drawing.Size(53, 13);
             this.labelAuthPass.TabIndex = 7;
             this.labelAuthPass.Text = "Password";
             // 
             // textAuthUser
             // 
-            this.textAuthUser.Location = new System.Drawing.Point(86, 19);
+            this.textAuthUser.Location = new System.Drawing.Point(86, 21);
             this.textAuthUser.Margin = new System.Windows.Forms.Padding(2);
             this.textAuthUser.Name = "textAuthUser";
-            this.textAuthUser.Size = new System.Drawing.Size(190, 21);
+            this.textAuthUser.Size = new System.Drawing.Size(190, 20);
             this.textAuthUser.TabIndex = 6;
             // 
             // labelAuthUser
             // 
             this.labelAuthUser.AutoSize = true;
-            this.labelAuthUser.Location = new System.Drawing.Point(4, 22);
+            this.labelAuthUser.Location = new System.Drawing.Point(4, 24);
             this.labelAuthUser.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelAuthUser.Name = "labelAuthUser";
-            this.labelAuthUser.Size = new System.Drawing.Size(53, 12);
+            this.labelAuthUser.Size = new System.Drawing.Size(55, 13);
             this.labelAuthUser.TabIndex = 5;
             this.labelAuthUser.Text = "Username";
             // 
             // comboServer
             // 
             this.comboServer.FormattingEnabled = true;
-            this.comboServer.Location = new System.Drawing.Point(10, 26);
+            this.comboServer.Location = new System.Drawing.Point(10, 28);
             this.comboServer.Margin = new System.Windows.Forms.Padding(2);
             this.comboServer.Name = "comboServer";
-            this.comboServer.Size = new System.Drawing.Size(220, 20);
+            this.comboServer.Size = new System.Drawing.Size(220, 21);
             this.comboServer.TabIndex = 5;
             this.comboServer.SelectedIndexChanged += new System.EventHandler(this.comboServer_SelectedIndexChanged);
             // 
             // checkPartial
             // 
             this.checkPartial.AutoSize = true;
-            this.checkPartial.Location = new System.Drawing.Point(10, 212);
+            this.checkPartial.Location = new System.Drawing.Point(10, 230);
             this.checkPartial.Margin = new System.Windows.Forms.Padding(2);
             this.checkPartial.Name = "checkPartial";
-            this.checkPartial.Size = new System.Drawing.Size(132, 16);
+            this.checkPartial.Size = new System.Drawing.Size(107, 17);
             this.checkPartial.TabIndex = 7;
             this.checkPartial.Text = "Partial encryption";
             this.checkPartial.UseVisualStyleBackColor = true;
@@ -169,29 +170,29 @@
             // labelUDP
             // 
             this.labelUDP.AutoSize = true;
-            this.labelUDP.Location = new System.Drawing.Point(8, 235);
+            this.labelUDP.Location = new System.Drawing.Point(8, 255);
             this.labelUDP.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelUDP.Name = "labelUDP";
-            this.labelUDP.Size = new System.Drawing.Size(53, 12);
+            this.labelUDP.Size = new System.Drawing.Size(52, 13);
             this.labelUDP.TabIndex = 8;
             this.labelUDP.Text = "UDP Port";
             // 
             // labelUDP_TCP
             // 
             this.labelUDP_TCP.AutoSize = true;
-            this.labelUDP_TCP.Location = new System.Drawing.Point(8, 260);
+            this.labelUDP_TCP.Location = new System.Drawing.Point(8, 282);
             this.labelUDP_TCP.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelUDP_TCP.Name = "labelUDP_TCP";
-            this.labelUDP_TCP.Size = new System.Drawing.Size(47, 12);
+            this.labelUDP_TCP.Size = new System.Drawing.Size(78, 13);
             this.labelUDP_TCP.TabIndex = 10;
-            this.labelUDP_TCP.Text = "UDP-TCP";
+            this.labelUDP_TCP.Text = "UDP over TCP";
             // 
             // buttonStart
             // 
-            this.buttonStart.Location = new System.Drawing.Point(10, 357);
+            this.buttonStart.Location = new System.Drawing.Point(10, 387);
             this.buttonStart.Margin = new System.Windows.Forms.Padding(2);
             this.buttonStart.Name = "buttonStart";
-            this.buttonStart.Size = new System.Drawing.Size(90, 26);
+            this.buttonStart.Size = new System.Drawing.Size(90, 28);
             this.buttonStart.TabIndex = 13;
             this.buttonStart.Text = "Start";
             this.buttonStart.UseVisualStyleBackColor = true;
@@ -200,10 +201,10 @@
             // buttonStop
             // 
             this.buttonStop.Enabled = false;
-            this.buttonStop.Location = new System.Drawing.Point(105, 357);
+            this.buttonStop.Location = new System.Drawing.Point(105, 387);
             this.buttonStop.Margin = new System.Windows.Forms.Padding(2);
             this.buttonStop.Name = "buttonStop";
-            this.buttonStop.Size = new System.Drawing.Size(90, 26);
+            this.buttonStop.Size = new System.Drawing.Size(90, 28);
             this.buttonStop.TabIndex = 14;
             this.buttonStop.Text = "Stop";
             this.buttonStop.UseVisualStyleBackColor = true;
@@ -211,10 +212,10 @@
             // 
             // buttonQuit
             // 
-            this.buttonQuit.Location = new System.Drawing.Point(199, 357);
+            this.buttonQuit.Location = new System.Drawing.Point(199, 387);
             this.buttonQuit.Margin = new System.Windows.Forms.Padding(2);
             this.buttonQuit.Name = "buttonQuit";
-            this.buttonQuit.Size = new System.Drawing.Size(90, 26);
+            this.buttonQuit.Size = new System.Drawing.Size(90, 28);
             this.buttonQuit.TabIndex = 15;
             this.buttonQuit.Text = "Quit";
             this.buttonQuit.UseVisualStyleBackColor = true;
@@ -222,62 +223,61 @@
             // 
             // buttonDelServer
             // 
-            this.buttonDelServer.Location = new System.Drawing.Point(234, 22);
+            this.buttonDelServer.Location = new System.Drawing.Point(234, 24);
             this.buttonDelServer.Margin = new System.Windows.Forms.Padding(2);
             this.buttonDelServer.Name = "buttonDelServer";
-            this.buttonDelServer.Size = new System.Drawing.Size(56, 26);
+            this.buttonDelServer.Size = new System.Drawing.Size(56, 28);
             this.buttonDelServer.TabIndex = 17;
             this.buttonDelServer.Text = "Delete";
             this.buttonDelServer.UseVisualStyleBackColor = true;
             this.buttonDelServer.Click += new System.EventHandler(this.buttonDelServer_Click);
             // 
-            // groupBox1
+            // groupLog
             // 
-            this.groupBox1.Controls.Add(this.listLog);
-            this.groupBox1.Location = new System.Drawing.Point(294, 56);
-            this.groupBox1.Margin = new System.Windows.Forms.Padding(2);
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Padding = new System.Windows.Forms.Padding(2);
-            this.groupBox1.Size = new System.Drawing.Size(279, 327);
-            this.groupBox1.TabIndex = 18;
-            this.groupBox1.TabStop = false;
-            this.groupBox1.Text = "Sever Log";
+            this.groupLog.Controls.Add(this.listLog);
+            this.groupLog.Location = new System.Drawing.Point(295, 61);
+            this.groupLog.Margin = new System.Windows.Forms.Padding(2);
+            this.groupLog.Name = "groupLog";
+            this.groupLog.Padding = new System.Windows.Forms.Padding(2);
+            this.groupLog.Size = new System.Drawing.Size(328, 321);
+            this.groupLog.TabIndex = 18;
+            this.groupLog.TabStop = false;
+            this.groupLog.Text = "Sever Log";
             // 
             // listLog
             // 
             this.listLog.FormattingEnabled = true;
             this.listLog.HorizontalScrollbar = true;
-            this.listLog.ItemHeight = 12;
-            this.listLog.Location = new System.Drawing.Point(4, 17);
+            this.listLog.Location = new System.Drawing.Point(4, 18);
             this.listLog.Margin = new System.Windows.Forms.Padding(2);
             this.listLog.Name = "listLog";
-            this.listLog.Size = new System.Drawing.Size(271, 304);
+            this.listLog.Size = new System.Drawing.Size(320, 290);
             this.listLog.TabIndex = 0;
             // 
             // labelPort
             // 
             this.labelPort.AutoSize = true;
-            this.labelPort.Location = new System.Drawing.Point(8, 58);
+            this.labelPort.Location = new System.Drawing.Point(8, 63);
             this.labelPort.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelPort.Name = "labelPort";
-            this.labelPort.Size = new System.Drawing.Size(83, 12);
+            this.labelPort.Size = new System.Drawing.Size(67, 13);
             this.labelPort.TabIndex = 19;
             this.labelPort.Text = "Local Listen ";
             // 
             // textPort
             // 
-            this.textPort.Location = new System.Drawing.Point(96, 56);
+            this.textPort.Location = new System.Drawing.Point(96, 61);
             this.textPort.Margin = new System.Windows.Forms.Padding(2);
             this.textPort.Name = "textPort";
-            this.textPort.Size = new System.Drawing.Size(194, 21);
+            this.textPort.Size = new System.Drawing.Size(194, 20);
             this.textPort.TabIndex = 20;
             this.textPort.Text = ":8100";
             // 
             // textUDP_TCP
             // 
-            this.textUDP_TCP.Location = new System.Drawing.Point(96, 258);
+            this.textUDP_TCP.Location = new System.Drawing.Point(96, 280);
             this.textUDP_TCP.Name = "textUDP_TCP";
-            this.textUDP_TCP.Size = new System.Drawing.Size(194, 21);
+            this.textUDP_TCP.Size = new System.Drawing.Size(194, 20);
             this.textUDP_TCP.TabIndex = 21;
             this.textUDP_TCP.Value = new decimal(new int[] {
             3,
@@ -287,7 +287,7 @@
             // 
             // textUDP
             // 
-            this.textUDP.Location = new System.Drawing.Point(96, 232);
+            this.textUDP.Location = new System.Drawing.Point(96, 251);
             this.textUDP.Maximum = new decimal(new int[] {
             65535,
             0,
@@ -299,7 +299,7 @@
             0,
             0});
             this.textUDP.Name = "textUDP";
-            this.textUDP.Size = new System.Drawing.Size(194, 21);
+            this.textUDP.Size = new System.Drawing.Size(194, 20);
             this.textUDP.TabIndex = 22;
             this.textUDP.Value = new decimal(new int[] {
             8731,
@@ -307,15 +307,15 @@
             0,
             0});
             // 
-            // label1
+            // labelLogLevel
             // 
-            this.label1.AutoSize = true;
-            this.label1.Location = new System.Drawing.Point(8, 288);
-            this.label1.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
-            this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(59, 12);
-            this.label1.TabIndex = 23;
-            this.label1.Text = "Log Level";
+            this.labelLogLevel.AutoSize = true;
+            this.labelLogLevel.Location = new System.Drawing.Point(8, 312);
+            this.labelLogLevel.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.labelLogLevel.Name = "labelLogLevel";
+            this.labelLogLevel.Size = new System.Drawing.Size(54, 13);
+            this.labelLogLevel.TabIndex = 23;
+            this.labelLogLevel.Text = "Log Level";
             // 
             // comboLogLevel
             // 
@@ -327,9 +327,9 @@
             "warn",
             "err",
             "off"});
-            this.comboLogLevel.Location = new System.Drawing.Point(96, 285);
+            this.comboLogLevel.Location = new System.Drawing.Point(96, 309);
             this.comboLogLevel.Name = "comboLogLevel";
-            this.comboLogLevel.Size = new System.Drawing.Size(193, 20);
+            this.comboLogLevel.Size = new System.Drawing.Size(193, 21);
             this.comboLogLevel.TabIndex = 24;
             // 
             // comboProxyType
@@ -340,30 +340,30 @@
             "iplist",
             "global",
             "none"});
-            this.comboProxyType.Location = new System.Drawing.Point(96, 109);
+            this.comboProxyType.Location = new System.Drawing.Point(96, 118);
             this.comboProxyType.Name = "comboProxyType";
-            this.comboProxyType.Size = new System.Drawing.Size(193, 20);
+            this.comboProxyType.Size = new System.Drawing.Size(193, 21);
             this.comboProxyType.TabIndex = 26;
             // 
-            // label2
+            // labelProxyType
             // 
-            this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(8, 113);
-            this.label2.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
-            this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(65, 12);
-            this.label2.TabIndex = 25;
-            this.label2.Text = "Proxy Type";
+            this.labelProxyType.AutoSize = true;
+            this.labelProxyType.Location = new System.Drawing.Point(8, 122);
+            this.labelProxyType.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.labelProxyType.Name = "labelProxyType";
+            this.labelProxyType.Size = new System.Drawing.Size(60, 13);
+            this.labelProxyType.TabIndex = 25;
+            this.labelProxyType.Text = "Proxy Type";
             // 
             // checkAutoMin
             // 
             this.checkAutoMin.AutoSize = true;
             this.checkAutoMin.Checked = true;
             this.checkAutoMin.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.checkAutoMin.Location = new System.Drawing.Point(10, 337);
+            this.checkAutoMin.Location = new System.Drawing.Point(10, 365);
             this.checkAutoMin.Margin = new System.Windows.Forms.Padding(2);
             this.checkAutoMin.Name = "checkAutoMin";
-            this.checkAutoMin.Size = new System.Drawing.Size(252, 16);
+            this.checkAutoMin.Size = new System.Drawing.Size(205, 17);
             this.checkAutoMin.TabIndex = 27;
             this.checkAutoMin.Text = "Minimize to systray when proxy started";
             this.checkAutoMin.UseVisualStyleBackColor = true;
@@ -371,28 +371,28 @@
             // labelState
             // 
             this.labelState.Font = new System.Drawing.Font("Consolas", 18F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.labelState.Location = new System.Drawing.Point(296, 9);
+            this.labelState.Location = new System.Drawing.Point(296, 10);
             this.labelState.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.labelState.Name = "labelState";
-            this.labelState.Size = new System.Drawing.Size(274, 37);
+            this.labelState.Size = new System.Drawing.Size(327, 40);
             this.labelState.TabIndex = 28;
             this.labelState.Text = "NOT RUNNING";
             this.labelState.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             this.labelState.Click += new System.EventHandler(this.labelState_Click);
             // 
-            // label3
+            // labelDNS
             // 
-            this.label3.AutoSize = true;
-            this.label3.Location = new System.Drawing.Point(7, 313);
-            this.label3.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
-            this.label3.Name = "label3";
-            this.label3.Size = new System.Drawing.Size(59, 12);
-            this.label3.TabIndex = 29;
-            this.label3.Text = "DNS Cache";
+            this.labelDNS.AutoSize = true;
+            this.labelDNS.Location = new System.Drawing.Point(7, 339);
+            this.labelDNS.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.labelDNS.Name = "labelDNS";
+            this.labelDNS.Size = new System.Drawing.Size(64, 13);
+            this.labelDNS.TabIndex = 29;
+            this.labelDNS.Text = "DNS Cache";
             // 
             // textDNS
             // 
-            this.textDNS.Location = new System.Drawing.Point(96, 311);
+            this.textDNS.Location = new System.Drawing.Point(96, 337);
             this.textDNS.Maximum = new decimal(new int[] {
             65535,
             0,
@@ -404,7 +404,7 @@
             0,
             0});
             this.textDNS.Name = "textDNS";
-            this.textDNS.Size = new System.Drawing.Size(194, 21);
+            this.textDNS.Size = new System.Drawing.Size(194, 20);
             this.textDNS.TabIndex = 30;
             this.textDNS.Value = new decimal(new int[] {
             1024,
@@ -412,24 +412,33 @@
             0,
             0});
             // 
+            // comboBox1
+            // 
+            this.comboBox1.FormattingEnabled = true;
+            this.comboBox1.Location = new System.Drawing.Point(455, 392);
+            this.comboBox1.Name = "comboBox1";
+            this.comboBox1.Size = new System.Drawing.Size(167, 21);
+            this.comboBox1.TabIndex = 31;
+            // 
             // formMain
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(581, 394);
+            this.ClientSize = new System.Drawing.Size(634, 427);
+            this.Controls.Add(this.comboBox1);
             this.Controls.Add(this.textDNS);
-            this.Controls.Add(this.label3);
+            this.Controls.Add(this.labelDNS);
             this.Controls.Add(this.labelState);
             this.Controls.Add(this.checkAutoMin);
             this.Controls.Add(this.comboProxyType);
-            this.Controls.Add(this.label2);
+            this.Controls.Add(this.labelProxyType);
             this.Controls.Add(this.comboLogLevel);
-            this.Controls.Add(this.label1);
+            this.Controls.Add(this.labelLogLevel);
             this.Controls.Add(this.textUDP);
             this.Controls.Add(this.textUDP_TCP);
             this.Controls.Add(this.textPort);
             this.Controls.Add(this.labelPort);
-            this.Controls.Add(this.groupBox1);
+            this.Controls.Add(this.groupLog);
             this.Controls.Add(this.buttonDelServer);
             this.Controls.Add(this.buttonQuit);
             this.Controls.Add(this.buttonStop);
@@ -454,7 +463,7 @@
             this.Resize += new System.EventHandler(this.formMain_Resize);
             this.groupAuth.ResumeLayout(false);
             this.groupAuth.PerformLayout();
-            this.groupBox1.ResumeLayout(false);
+            this.groupLog.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.textUDP_TCP)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.textDNS)).EndInit();
@@ -476,11 +485,11 @@
         private System.Windows.Forms.Button buttonStop;
         private System.Windows.Forms.Button buttonQuit;
         private System.Windows.Forms.Button buttonDelServer;
-        private System.Windows.Forms.GroupBox groupBox1;
+        private System.Windows.Forms.GroupBox groupLog;
         private System.Windows.Forms.ListBox listLog;
         private System.Windows.Forms.Label labelPort;
-        private System.Windows.Forms.Label label1;
-        private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.Label labelLogLevel;
+        private System.Windows.Forms.Label labelProxyType;
         private System.Windows.Forms.CheckBox checkAutoMin;
         private System.Windows.Forms.Label labelState;
         public System.Windows.Forms.TextBox textKey;
@@ -493,8 +502,9 @@
         public System.Windows.Forms.NumericUpDown textUDP;
         public System.Windows.Forms.ComboBox comboLogLevel;
         public System.Windows.Forms.ComboBox comboProxyType;
-        private System.Windows.Forms.Label label3;
+        private System.Windows.Forms.Label labelDNS;
         public System.Windows.Forms.NumericUpDown textDNS;
+        private System.Windows.Forms.ComboBox comboBox1;
     }
 }
 
