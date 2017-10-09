@@ -58,7 +58,7 @@
             this.labelState = new System.Windows.Forms.Label();
             this.labelDNS = new System.Windows.Forms.Label();
             this.textDNS = new System.Windows.Forms.NumericUpDown();
-            this.comboBox1 = new System.Windows.Forms.ComboBox();
+            this.checkLogtxt = new System.Windows.Forms.CheckBox();
             this.groupAuth.SuspendLayout();
             this.groupLog.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP_TCP)).BeginInit();
@@ -234,12 +234,13 @@
             // 
             // groupLog
             // 
+            this.groupLog.Controls.Add(this.checkLogtxt);
             this.groupLog.Controls.Add(this.listLog);
             this.groupLog.Location = new System.Drawing.Point(295, 61);
             this.groupLog.Margin = new System.Windows.Forms.Padding(2);
             this.groupLog.Name = "groupLog";
             this.groupLog.Padding = new System.Windows.Forms.Padding(2);
-            this.groupLog.Size = new System.Drawing.Size(328, 321);
+            this.groupLog.Size = new System.Drawing.Size(328, 354);
             this.groupLog.TabIndex = 18;
             this.groupLog.TabStop = false;
             this.groupLog.Text = "Sever Log";
@@ -251,7 +252,7 @@
             this.listLog.Location = new System.Drawing.Point(4, 18);
             this.listLog.Margin = new System.Windows.Forms.Padding(2);
             this.listLog.Name = "listLog";
-            this.listLog.Size = new System.Drawing.Size(320, 290);
+            this.listLog.Size = new System.Drawing.Size(320, 303);
             this.listLog.TabIndex = 0;
             // 
             // labelPort
@@ -412,20 +413,21 @@
             0,
             0});
             // 
-            // comboBox1
+            // checkLogtxt
             // 
-            this.comboBox1.FormattingEnabled = true;
-            this.comboBox1.Location = new System.Drawing.Point(455, 392);
-            this.comboBox1.Name = "comboBox1";
-            this.comboBox1.Size = new System.Drawing.Size(167, 21);
-            this.comboBox1.TabIndex = 31;
+            this.checkLogtxt.AutoSize = true;
+            this.checkLogtxt.Location = new System.Drawing.Point(4, 326);
+            this.checkLogtxt.Name = "checkLogtxt";
+            this.checkLogtxt.Size = new System.Drawing.Size(54, 17);
+            this.checkLogtxt.TabIndex = 1;
+            this.checkLogtxt.Text = "log.txt";
+            this.checkLogtxt.UseVisualStyleBackColor = true;
             // 
             // formMain
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(634, 427);
-            this.Controls.Add(this.comboBox1);
             this.Controls.Add(this.textDNS);
             this.Controls.Add(this.labelDNS);
             this.Controls.Add(this.labelState);
@@ -464,6 +466,7 @@
             this.groupAuth.ResumeLayout(false);
             this.groupAuth.PerformLayout();
             this.groupLog.ResumeLayout(false);
+            this.groupLog.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP_TCP)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.textUDP)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.textDNS)).EndInit();
@@ -504,7 +507,7 @@
         public System.Windows.Forms.ComboBox comboProxyType;
         private System.Windows.Forms.Label labelDNS;
         public System.Windows.Forms.NumericUpDown textDNS;
-        private System.Windows.Forms.ComboBox comboBox1;
+        private System.Windows.Forms.CheckBox checkLogtxt;
     }
 }
 
