@@ -141,6 +141,9 @@
   <data name="groupLog" xml:space="preserve">
     <value>Server Log</value>
   </data>
+  <data name="groupMisc" xml:space="preserve">
+    <value>Misc</value>
+  </data>
   <data name="labelAuthPass" xml:space="preserve">
     <value>Password</value>
   </data>

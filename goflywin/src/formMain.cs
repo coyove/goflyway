@@ -186,8 +186,10 @@ namespace goflywin
         {
             System.IO.File.Delete("log.txt");
 
-            comboLogLevel.SelectedIndex = 0;
-            comboProxyType.SelectedIndex = 0;
+            comboLogLevel.Text = Properties.Settings.Default.LogLevel;
+            comboProxyType.Text = Properties.Settings.Default.ProxyType;
+            checkAutoMin.Checked = Properties.Settings.Default.AutoMin;
+            textDNS.Value = Properties.Settings.Default.DNSCache;
 
             translateUI(this);
 
@@ -301,7 +303,15 @@ namespace goflywin
 
         private void formMain_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (realExit) return;
+            if (realExit)
+            {
+                Properties.Settings.Default.LogLevel = comboLogLevel.Text;
+                Properties.Settings.Default.ProxyType = comboProxyType.Text;
+                Properties.Settings.Default.AutoMin = checkAutoMin.Checked;
+                Properties.Settings.Default.DNSCache = (int)textDNS.Value;
+                Properties.Settings.Default.Save();
+                return;
+            }
 
             e.Cancel = true;
             this.Visible = false;
