@@ -1,10 +1,5 @@
 #include "main.h"
 
-void callback(unsigned long long ts, char* msg)
-{
-    printf("%s zzz\n", msg);
-}
-
 #define EXPORT __declspec(dllexport) 
 
 EXPORT int gofw_start(
@@ -29,10 +24,19 @@ EXPORT void gofw_switch(int type)
     SwitchProxyType(type);
 }
 
+EXPORT void gofw_unlock()
+{
+    Unlock();
+}
+
+// void callback(unsigned long long ts, char* msg)
+// {
+//     printf("%s callback\n", msg);
+// }
+
 int main(int argc, char const *argv[])
 {
-    gofw_start("dbg", "", callback, callback, ":8100", ":8100", "", "0123456789abcdef", 1, 1024, 8731, 3);
-    printf("%s", gofw_nickname());
-    while(1){}
+    // gofw_start("dbg", "", callback, callback, ":8100", ":8100", "", "0123456789abcdef", 1, 1024, 8731, 3);
+    // while(1){}
     return 0;
 }

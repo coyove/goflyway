@@ -12,6 +12,7 @@ import (
 var ignoreLocalhost = true
 var fatalAsError = false
 var logLevel = 0
+var started = false
 var logCallback func(ts int64, msg string)
 
 func RecordLocalhostError(r bool) {
@@ -126,6 +127,11 @@ func print(l string, params ...interface{}) {
 }
 
 func Start() {
+	if started {
+		return
+	}
+
+	started = true
 	go func() {
 		var count int
 		var lastMsg *msg_t

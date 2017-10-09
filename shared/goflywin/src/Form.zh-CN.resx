@@ -130,7 +130,7 @@
     <value>停止</value>
   </data>
   <data name="checkAutoMin" xml:space="preserve">
-    <value>代理启动后最小化goflywin</value>
+    <value>代理启动后最小化 goflywin</value>
   </data>
   <data name="checkPartial" xml:space="preserve">
     <value>半加密模式</value>
@@ -197,5 +197,14 @@
   </data>
   <data name="groupMisc" xml:space="preserve">
     <value>其他</value>
+  </data>
+  <data name="buttonConsole" xml:space="preserve">
+    <value>控制台</value>
+  </data>
+  <data name="checkAutostart" xml:space="preserve">
+    <value>开机启动 goflywin</value>
+  </data>
+  <data name="checkLogtxt" xml:space="preserve">
+    <value>将日志写入“log.txt”</value>
   </data>
 </root>

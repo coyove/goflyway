@@ -14,6 +14,7 @@ var IPv4PrivateLookupTable [][]uint32
 type China_list_t map[string]interface{}
 
 var ChinaList China_list_t
+var listLoaded bool
 
 func init() {
 	IPv4LookupTable, IPv4PrivateLookupTable = make([][]uint32, 0), make([][]uint32, 0)
@@ -48,6 +49,10 @@ func init() {
 }
 
 func LoadOrCreateChinaList(raw string) bool {
+	if listLoaded {
+		return false
+	}
+
 	if raw == "" {
 		buf, err := ioutil.ReadFile("./chinalist.txt")
 		if err != nil {
@@ -79,6 +84,7 @@ func LoadOrCreateChinaList(raw string) bool {
 		}
 	}
 
+	listLoaded = true
 	return true
 }
 

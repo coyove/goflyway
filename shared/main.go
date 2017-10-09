@@ -15,7 +15,11 @@ import (
 	"github.com/coyove/goflyway/proxy"
 
 	"fmt"
+	"os"
+	"runtime"
 	_ "runtime/cgo"
+	"sync"
+	"syscall"
 )
 
 const (
@@ -32,17 +36,47 @@ const (
 	SVR_NONE   = C.int(1<<16) + 2
 )
 
+var (
+	kernel32         = syscall.MustLoadDLL("kernel32.dll")
+	procSetStdHandle = kernel32.MustFindProc("SetStdHandle")
+)
+
+func setStdHandle(stdhandle int32, handle syscall.Handle) error {
+	r0, _, e1 := syscall.Syscall(procSetStdHandle.Addr(), 2, uintptr(stdhandle), uintptr(handle), 0)
+	if r0 == 0 {
+		if e1 != 0 {
+			return error(e1)
+		}
+		return syscall.EINVAL
+	}
+	return nil
+}
+
+// redirectStderr to the file passed in
+func redirectStderr(f *os.File) {
+	setStdHandle(syscall.STD_ERROR_HANDLE, syscall.Handle(f.Fd()))
+}
+
 // client means "client" of goflyway, server means "server" of local proxy
 // both words can be used here
 var client *proxy.ProxyClient
+var clientStarted bool
+var stopMutex sync.Mutex
 
 //export GetNickname
 func GetNickname() *C.char {
-	if client == nil {
-		return nil
+	if !clientStarted {
+		return C.CString("")
 	}
 
 	return C.CString(client.Nickname)
+}
+
+//export Unlock
+func Unlock() {
+	if clientStarted {
+		client.PleaseUnlockMe()
+	}
 }
 
 //export StartServer
@@ -60,16 +94,23 @@ func StartServer(
 	udpPort C.int,
 	udptcp C.int,
 ) C.int {
+	stopMutex.Lock()
 
-	if client != nil {
+	if clientStarted {
+		stopMutex.Unlock()
 		return SVR_ALREADY_STARTED
 	}
+
+	ferr, _ := os.Create("error.txt")
+	redirectStderr(ferr)
 
 	logg.SetLevel(C.GoString(logLevel))
 	logg.RecordLocalhostError(false)
 	logg.TreatFatalAsError(true)
 	logg.SetCallback(func(ts int64, msg string) {
+		runtime.LockOSThread()
 		C.invoke(logCallback, C.ulonglong(ts), C.CString(msg))
+		runtime.UnlockOSThread()
 	})
 
 	logg.Start()
@@ -93,36 +134,52 @@ func StartServer(
 
 	client = proxy.NewClient(C.GoString(localaddr), cc)
 	if client == nil {
+		stopMutex.Unlock()
 		return SVR_ERROR_CODE | SVR_ERROR_CREATE
 	}
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				runtime.LockOSThread()
 				C.invoke(errCallback, C.ulonglong(SVR_ERROR_CODE|SVR_ERROR_PANIC), C.CString(fmt.Sprintf("%v", r)))
+				runtime.UnlockOSThread()
 			}
 		}()
 
-		if err := client.Start(); err != nil {
-			client = nil
+		client2 := client
+		clientStarted = true
+		stopMutex.Unlock()
+
+		if err := client2.Start(); err != nil {
+			setNil()
+			runtime.LockOSThread()
 			C.invoke(errCallback, C.ulonglong(SVR_ERROR_CODE|SVR_ERROR_EXITED), C.CString(err.Error()))
+			runtime.UnlockOSThread()
 		}
 	}()
 
 	return SVR_STARTED
 }
 
+func setNil() {
+	stopMutex.Lock()
+	// client = nil
+	clientStarted = false
+	stopMutex.Unlock()
+}
+
 //export StopServer
 func StopServer() {
-	if client != nil {
+	if clientStarted {
 		client.Listener.Close()
-		client = nil
+		setNil()
 	}
 }
 
 //export SwitchProxyType
 func SwitchProxyType(t C.int) {
-	if client == nil {
+	if !clientStarted {
 		return
 	}
 

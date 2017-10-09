@@ -198,4 +198,13 @@
   <data name="RUNNING" xml:space="preserve">
     <value>&gt;&gt; RUNNING &lt;&lt;</value>
   </data>
+  <data name="buttonConsole" xml:space="preserve">
+    <value>Open Console</value>
+  </data>
+  <data name="checkAutostart" xml:space="preserve">
+    <value>Launch goflywin at startup</value>
+  </data>
+  <data name="checkLogtxt" xml:space="preserve">
+    <value>Explicitly log to 'log.txt'</value>
+  </data>
 </root>
