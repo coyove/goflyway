@@ -34,8 +34,6 @@ namespace goflywin
 
         private Dictionary<string, Server> serverlist = new Dictionary<string, Server>();
 
-        private List<string> logs = new List<string>();
-
         private ResourceManager rm = new ResourceManager("goflywin.Form", typeof(Program).Assembly);
 
         public delegate void LogCallback(long ts, string msg);
@@ -69,14 +67,12 @@ namespace goflywin
                 listLog.Items.RemoveAt(0);
             }
 
-            if (logs.Count() == 100)
+            if (checkLogtxt.Checked)
             {
-                System.IO.File.AppendAllLines("log.txt", logs);
-                logs.Clear();
+                System.IO.File.AppendAllText("log.txt", msg + "\n");
             }
 
             listLog.Items.Add(msg);
-            logs.Add(msg);
             listLog.TopIndex = listLog.Items.Count - 1;
         }
 
@@ -188,6 +184,8 @@ namespace goflywin
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            System.IO.File.Delete("log.txt");
+
             comboLogLevel.SelectedIndex = 0;
             comboProxyType.SelectedIndex = 0;
 
