@@ -64,6 +64,8 @@ extern "C" {
 
 extern char* GetNickname();
 
+extern void Unlock();
+
 extern int StartServer(char* p0, char* p1, g_callback p2, g_callback p3, char* p4, char* p5, char* p6, char* p7, int p8, int p9, int p10, int p11);
 
 extern void StopServer();

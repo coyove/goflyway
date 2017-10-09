@@ -14,5 +14,11 @@
     <Setting Name="DNSCache" Type="System.Int32" Scope="User">
       <Value Profile="(Default)">1024</Value>
     </Setting>
+    <Setting Name="Lang" Type="System.String" Scope="User">
+      <Value Profile="(Default)">zh-CN</Value>
+    </Setting>
+    <Setting Name="Autostart" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
   </Settings>
 </SettingsFile>

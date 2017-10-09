@@ -1,10 +1,12 @@
-﻿using System;
+﻿using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Resources;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -25,9 +27,6 @@ namespace goflywin
         private static  int SVR_NONE         = 1 << 16 + 2;
 
         private NotifyIcon notifyIcon;
-        private ContextMenu contextMenu;
-        private MenuItem menuShow;
-        private MenuItem menuExit;
         private MenuItem[] menuProxyType;
 
         private bool realExit = false;
@@ -43,6 +42,9 @@ namespace goflywin
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_switch(int type);
+
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void gofw_unlock();
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern int gofw_start(
@@ -62,24 +64,28 @@ namespace goflywin
 
         private void addLog(long ts, string msg)
         {
-            if (listLog.Items.Count > 1000)
+            lock (listLog)
             {
-                listLog.Items.RemoveAt(0);
-            }
+                if (listLog.Items.Count > 10)
+                {
+                    listLog.Items.RemoveAt(0);
+                }
 
-            if (checkLogtxt.Checked)
-            {
-                System.IO.File.AppendAllText("log.txt", msg + "\n");
-            }
+                if (checkLogtxt.Checked)
+                {
+                    System.IO.File.AppendAllText("log.txt", msg + "\n");
+                }
 
-            listLog.Items.Add(msg);
-            listLog.TopIndex = listLog.Items.Count - 1;
+                listLog.Items.Add(msg);
+                //listLog.TopIndex = listLog.Items.Count - 1;
+            }
         }
 
         private void notifyStop()
         {
             buttonStart.Enabled = true;
             buttonStop.Enabled = false;
+            buttonConsole.Enabled = false;
             enableMenuProxyType(false, -1);
             labelState.Text = rm.GetString("NOTRUNNING");
         }
@@ -139,6 +145,7 @@ namespace goflywin
             {
                 buttonStart.Enabled = false;
                 buttonStop.Enabled = true;
+                buttonConsole.Enabled = true;
                 int idx = 0;
 
                 switch (comboProxyType.Text)
@@ -170,6 +177,10 @@ namespace goflywin
 
         private void translateUI(Control ctrl)
         {
+            CultureInfo zh = new CultureInfo(Properties.Settings.Default.Lang);
+            Thread.CurrentThread.CurrentCulture = zh;
+            Thread.CurrentThread.CurrentUICulture = zh;
+
             foreach (Control control in ctrl.Controls)
             {
                 try
@@ -180,27 +191,36 @@ namespace goflywin
 
                 if (control is GroupBox) translateUI(control);
             }
+
+            comboLang.Text = Properties.Settings.Default.Lang;
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
             System.IO.File.Delete("log.txt");
+            System.IO.File.Delete("error.txt");
 
             comboLogLevel.Text = Properties.Settings.Default.LogLevel;
             comboProxyType.Text = Properties.Settings.Default.ProxyType;
+            comboLang.Text = Properties.Settings.Default.Lang;
             checkAutoMin.Checked = Properties.Settings.Default.AutoMin;
+            checkAutostart.Checked = Properties.Settings.Default.Autostart;
             textDNS.Value = Properties.Settings.Default.DNSCache;
 
             translateUI(this);
 
-            contextMenu = new ContextMenu();
-            menuShow = new MenuItem();
+            ContextMenu contextMenu = new ContextMenu();
+            MenuItem menuShow = new MenuItem();
             menuShow.Text = rm.GetString("menuShow");
             menuShow.Click += new System.EventHandler(notifyIcon_DoubleClick);
 
-            menuExit = new MenuItem();
+            MenuItem menuExit = new MenuItem();
             menuExit.Text = rm.GetString("menuExit");
             menuExit.Click += new System.EventHandler(buttonQuit_Click);
+
+            MenuItem menuConsole = new MenuItem();
+            menuConsole.Text = rm.GetString("buttonConsole");
+            menuConsole.Click += new System.EventHandler(buttonUnlock_Click);
 
             menuProxyType = new MenuItem[3];
             for (int i = 0; i < menuProxyType.Count(); i++)
@@ -214,6 +234,7 @@ namespace goflywin
 
             contextMenu.MenuItems.AddRange(menuProxyType);
             contextMenu.MenuItems.Add("-");
+            contextMenu.MenuItems.Add(menuConsole);
             contextMenu.MenuItems.Add(menuShow);
             contextMenu.MenuItems.Add(menuExit);
 
@@ -309,6 +330,8 @@ namespace goflywin
                 Properties.Settings.Default.ProxyType = comboProxyType.Text;
                 Properties.Settings.Default.AutoMin = checkAutoMin.Checked;
                 Properties.Settings.Default.DNSCache = (int)textDNS.Value;
+                Properties.Settings.Default.Autostart = checkAutostart.Checked;
+                Properties.Settings.Default.Lang = comboLang.Text;
                 Properties.Settings.Default.Save();
                 return;
             }
@@ -338,6 +361,33 @@ namespace goflywin
                 comboServer.Items.RemoveAt(comboServer.SelectedIndex);
                 updateServerListToDisk();
             }
+        }
+
+        private void comboLang_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.Lang = comboLang.Text;
+            translateUI(this);
+        }
+
+        private void checkAutostart_CheckedChanged(object sender, EventArgs e)
+        {
+            RegistryKey rkApp = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+
+            if (checkAutostart.Checked)
+            {
+                rkApp.SetValue(Application.ProductName, Application.ExecutablePath);
+            }
+            else
+            {
+                rkApp.DeleteValue(Application.ProductName, false);
+            }
+        }
+
+        private void buttonUnlock_Click(object sender, EventArgs e)
+        {
+            string addr = textPort.Text;
+            int idx = addr.LastIndexOf(':');
+            System.Diagnostics.Process.Start("http://127.0.0.1:" + addr.Substring(idx + 1) + "/?goflyway-console");
         }
     }
 }
