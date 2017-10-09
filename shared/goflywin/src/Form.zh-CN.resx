@@ -195,4 +195,7 @@
   <data name="RUNNING" xml:space="preserve">
     <value>&gt;&gt; 代理中 &lt;&lt;</value>
   </data>
+  <data name="groupMisc" xml:space="preserve">
+    <value>其他</value>
+  </data>
 </root>
