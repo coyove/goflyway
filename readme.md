@@ -1,6 +1,6 @@
 # goflyway, HTTP tunnel in Go
 
-goflyway is a tunnel proxy helping you fly across the wall. It is based entirely on HTTP protocol without any other 3rd party libraries.
+goflyway is a tunnel proxy based entirely on HTTP protocol without any other 3rd party libraries.
 
 [中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)
 
