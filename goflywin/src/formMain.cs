@@ -18,6 +18,7 @@ namespace goflywin
 {
     public partial class formMain : Form
     {
+        private static uint SVR_ALREADY_STARTED = 1;
         private static uint SVR_ERROR_CODE   = 1 << 15;
         private static uint SVR_ERROR_EXITED = 1 << 1;
         private static uint SVR_ERROR_CREATE = 1 << 2;
@@ -35,10 +36,10 @@ namespace goflywin
 
         private ResourceManager rm = new ResourceManager("goflywin.Form", typeof(Program).Assembly);
 
-        public delegate void LogCallback(long ts, string msg);
+        public delegate void LogCallback();
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        public static extern string gofw_nickname();
+        public static extern void gofw_nickname([Out, MarshalAs(UnmanagedType.LPArray)] byte[] buf);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_switch(int type);
@@ -48,14 +49,21 @@ namespace goflywin
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern int gofw_start(
-            string log_level, string china_list,
-            [MarshalAs(UnmanagedType.FunctionPtr)]LogCallback log,
-            [MarshalAs(UnmanagedType.FunctionPtr)]LogCallback err,
-            string upstream, string localaddr, string auth, string key,
+            [MarshalAs(UnmanagedType.FunctionPtr)]LogCallback created,
+            string log_level, string china_list, string upstream, string localaddr, string auth, string key,
             int partial, int dns_size, int udp_port, int udp_tcp);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_stop();
+
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ulong gofw_log_len();
+
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ulong gofw_log_read(ulong idx, [Out, MarshalAs(UnmanagedType.LPArray)] byte[] buf);
+
+        [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void gofw_log_delete_since(ulong idx);
 
         public formMain()
         {
@@ -64,9 +72,11 @@ namespace goflywin
 
         private void addLog(long ts, string msg)
         {
-            lock (listLog)
+            if (msg == "") return;
+
+            listLog.PerformSafely(() =>
             {
-                if (listLog.Items.Count > 10)
+                if (listLog.Items.Count > 100)
                 {
                     listLog.Items.RemoveAt(0);
                 }
@@ -77,35 +87,22 @@ namespace goflywin
                 }
 
                 listLog.Items.Add(msg);
-                //listLog.TopIndex = listLog.Items.Count - 1;
-            }
+                listLog.TopIndex = listLog.Items.Count - 1;
+
+            });
         }
 
         private void notifyStop()
         {
-            buttonStart.Enabled = true;
-            buttonStop.Enabled = false;
-            buttonConsole.Enabled = false;
-            enableMenuProxyType(false, -1);
-            labelState.Text = rm.GetString("NOTRUNNING");
-        }
-
-        private void handleError(long ts, string msg)
-        {
-            ulong flag = (ulong)ts;
-
-            if ((flag & SVR_ERROR_EXITED) != 0)
+            this.PerformSafely(() =>
             {
-                addLog(0, "==== proxy server exited ====");
-            }
-
-            if ((flag & SVR_ERROR_PANIC) != 0)
-            {
-                addLog(0, "==== proxy server panicked ====");
-                addLog(0, msg);
-            }
-
-            notifyStop();
+                buttonStart.Enabled = true;
+                buttonStop.Enabled = false;
+                buttonConsole.Enabled = false;
+                enableMenuProxyType(false, -1);
+                labelState.Text = rm.GetString("NOTRUNNING");
+                this.WindowState = FormWindowState.Normal;
+            });
         }
 
         private void updateServerListToDisk()
@@ -117,6 +114,16 @@ namespace goflywin
             }
 
             System.IO.File.WriteAllText("server.txt", string.Join("\n", lines));
+        }
+
+        private void setTitle(string title, bool start)
+        {
+            this.PerformSafely(() => 
+            {
+                this.Text = title;
+                labelServer.Enabled = !start;
+                notifyIcon.Text = title;
+            });
         }
 
         private void buttonStart_Click(object sender, EventArgs e)
@@ -131,39 +138,90 @@ namespace goflywin
             serverlist[s.ServerAddr] = s;
             updateServerListToDisk();
 
-            string auth = "";
+            string auth = "", logl = comboLogLevel.Text, server = comboServer.Text, local = textPort.Text, key = textKey.Text;
+            int partial = checkPartial.Checked ? 1 : 0, dns = (int)textDNS.Value, udp = (int)textUDP.Value, udptcp = (int)textUDP_TCP.Value;
+
             if (textAuthUser.Text != "" && textAuthPass.Text != "")
-            {
                 auth = textAuthUser.Text + ":" + textAuthPass.Text;
-            }
 
-            uint flag = (uint)gofw_start(comboLogLevel.Text, "", addLog, handleError, 
-                comboServer.Text, textPort.Text, auth, textKey.Text, checkPartial.Checked ? 1 : 0, 
-                (int)textDNS.Value, (int)textUDP.Value, (int)textUDP_TCP.Value);
-
-            if ((flag & SVR_ERROR_CREATE) == 0)
+            // gofw_start is a blocking method, so start it in a new thread
+            new Thread(() =>
             {
-                buttonStart.Enabled = false;
-                buttonStop.Enabled = true;
-                buttonConsole.Enabled = true;
-                int idx = 0;
+                Thread.CurrentThread.CurrentUICulture = new CultureInfo(Properties.Settings.Default.Lang);
+                Thread.CurrentThread.IsBackground = true;
 
-                switch (comboProxyType.Text)
+                bool running = true;
+                setTitle(Application.ProductName + " " + server, true);
+                uint flag = (uint)gofw_start(() =>
                 {
-                    case "global":
-                        gofw_switch(SVR_GLOBAL);
-                        idx = 1;
-                        break;
-                    case "none":
-                        gofw_switch(SVR_NONE);
-                        idx = 2;
-                        break;
-                }
+                    byte[] buf = new byte[32];
+                    gofw_nickname(buf);
+                    labelState.Text = Encoding.ASCII.GetString(buf);
 
-                labelState.Text = rm.GetString("RUNNING");
-                if (checkAutoMin.Checked) this.WindowState = FormWindowState.Minimized;
-                enableMenuProxyType(true, idx);
-            }
+                    buttonStart.Enabled = false;
+                    buttonStop.Enabled = true;
+                    buttonConsole.Enabled = true;
+                    int idx = 0;
+
+                    switch (comboProxyType.Text)
+                    {
+                        case "global":
+                            gofw_switch(SVR_GLOBAL);
+                            idx = 1;
+                            break;
+                        case "none":
+                            gofw_switch(SVR_NONE);
+                            idx = 2;
+                            break;
+                    }
+
+                    if (checkAutoMin.Checked) this.WindowState = FormWindowState.Minimized;
+                    enableMenuProxyType(true, idx);
+
+                    // client has been created (but may not start to serve)
+                    // start a thread to fetch logs
+                    new Thread(() =>
+                    {
+                        while (true)
+                        {
+                            ulong ln = gofw_log_len();
+                            if (ln == ulong.MaxValue || !running) break;
+                            if (ln > 0)
+                            {
+                                for (ulong i = 0; i < ln; i++)
+                                {
+                                    byte[] pbuf = new byte[2048];
+                                    ulong ts = gofw_log_read(i, pbuf);
+                                    addLog((long)ts, Encoding.ASCII.GetString(pbuf).Replace("\0", string.Empty));
+                                }
+
+                                gofw_log_delete_since(ln - 1);
+                            }
+
+                            Thread.Sleep(200);
+                        }
+
+                        addLog(0, "==== logging thread exited ====");
+                    }).Start(); 
+                }, 
+                logl, "", server, local, auth, key, partial, dns, udp, udptcp);
+                running = false;
+                setTitle(Application.ProductName, false);
+
+                if (flag == SVR_ALREADY_STARTED)
+                    addLog(flag, "==== proxy already started ====");
+
+                if ((flag & SVR_ERROR_EXITED) != 0)
+                    addLog(flag, "==== proxy exited ====");
+
+                if ((flag & SVR_ERROR_PANIC) != 0)
+                    addLog(flag, "==== proxy panicked ====");
+
+                if ((flag & SVR_ERROR_CREATE) != 0)
+                    addLog(flag, "==== proxy cannot be created ====");
+
+                notifyStop();
+            }).Start();
         }
 
         private void enableMenuProxyType(bool flag, int check)
@@ -281,6 +339,11 @@ namespace goflywin
             }
 
             enableMenuProxyType(true, i);
+            switchType(i);
+        }
+
+        private void switchType(int i)
+        {
             switch (i)
             {
                 case 0:
@@ -346,6 +409,7 @@ namespace goflywin
             buttonStop.PerformClick();
             realExit = true;
             this.Close();
+            Application.Exit();
         }
 
         private void labelState_Click(object sender, EventArgs e)
@@ -358,7 +422,9 @@ namespace goflywin
             if (MessageBox.Show(rm.GetString("msgConfirmDelete"), Application.ProductName, MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
                 serverlist.Remove(comboServer.Text);
+                int old = comboServer.SelectedIndex;
                 comboServer.Items.RemoveAt(comboServer.SelectedIndex);
+                comboServer.SelectedIndex = old;
                 updateServerListToDisk();
             }
         }
@@ -388,6 +454,11 @@ namespace goflywin
             string addr = textPort.Text;
             int idx = addr.LastIndexOf(':');
             System.Diagnostics.Process.Start("http://127.0.0.1:" + addr.Substring(idx + 1) + "/?goflyway-console");
+        }
+
+        private void comboProxyType_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            switchType(comboProxyType.SelectedIndex);
         }
     }
 }

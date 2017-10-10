@@ -1,12 +1,28 @@
 #include "main.h"
+#include <stdlib.h>
 
-#define EXPORT __declspec(dllexport) 
+#define EXPORT __declspec(dllexport)
+#define uint64 unsigned long long
 
-EXPORT int gofw_start(
-    char* log_level, char* china_list, g_callback log_callback, g_callback err_callback, 
-    char* upstream, char* localaddr, char* auth, char* key, int partial, int dns_size, int udp_port, int udp_tcp)
+EXPORT uint64 gofw_log_len()
 {
-    return StartServer(log_level, china_list, log_callback, err_callback, upstream, localaddr, auth, key, partial, dns_size, udp_port, udp_tcp);
+    return GetLastestLogIndex();
+}
+
+EXPORT uint64 gofw_log_read(uint64 idx, char *buf)
+{
+    return ReadLog(idx, buf);
+}
+
+EXPORT void gofw_log_delete_since(uint64 idx)
+{
+    return DeleteLogSince(idx);
+}
+
+EXPORT int gofw_start(g_callback created,
+    char *log_level, char *china_list, char *upstream, char *localaddr, char *auth, char *key, int partial, int dns_size, int udp_port, int udp_tcp)
+{
+    return StartServer(created, log_level, china_list, upstream, localaddr, auth, key, partial, dns_size, udp_port, udp_tcp);
 }
 
 EXPORT void gofw_stop()
@@ -14,9 +30,9 @@ EXPORT void gofw_stop()
     StopServer();
 }
 
-EXPORT char* gofw_nickname()
+EXPORT void gofw_nickname(char *buf)
 {
-    return GetNickname();
+    GetNickname(buf);
 }
 
 EXPORT void gofw_switch(int type)
@@ -28,11 +44,6 @@ EXPORT void gofw_unlock()
 {
     Unlock();
 }
-
-// void callback(unsigned long long ts, char* msg)
-// {
-//     printf("%s callback\n", msg);
-// }
 
 int main(int argc, char const *argv[])
 {
