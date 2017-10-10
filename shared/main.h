@@ -7,11 +7,9 @@
 
 #line 3 "C:\\Go\\golib\\src\\github.com\\coyove\\goflyway\\shared\\main.go"
 
-typedef void (*g_callback)(unsigned long long, const char*);
+typedef void (*g_callback)();
 
-static void invoke(g_callback f, unsigned long long ts, const char* msg) {
-	if (f) f(ts, msg);
-}
+static void invoke(g_callback f) { f(); }
 
 #line 1 "cgo-generated-wrapper"
 
@@ -62,11 +60,17 @@ extern "C" {
 #endif
 
 
-extern char* GetNickname();
+extern void GetNickname(char* p0);
 
 extern void Unlock();
 
-extern int StartServer(char* p0, char* p1, g_callback p2, g_callback p3, char* p4, char* p5, char* p6, char* p7, int p8, int p9, int p10, int p11);
+extern long long unsigned int GetLastestLogIndex();
+
+extern long long unsigned int ReadLog(long long unsigned int p0, char* p1);
+
+extern void DeleteLogSince(long long unsigned int p0);
+
+extern int StartServer(g_callback p0, char* p1, char* p2, char* p3, char* p4, char* p5, char* p6, int p7, int p8, int p9, int p10);
 
 extern void StopServer();
 
