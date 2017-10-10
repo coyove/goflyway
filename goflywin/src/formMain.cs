@@ -133,8 +133,9 @@ namespace goflywin
                 MessageBox.Show(rm.GetString("msgPleaseCheckInput"), Application.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                 return;
             }
-
+            
             Server s = Server.FromUI(this);
+            if (!serverlist.ContainsKey(s.ServerAddr)) comboServer.Items.Add(s.ServerAddr);
             serverlist[s.ServerAddr] = s;
             updateServerListToDisk();
 
@@ -177,6 +178,7 @@ namespace goflywin
 
                     if (checkAutoMin.Checked) this.WindowState = FormWindowState.Minimized;
                     enableMenuProxyType(true, idx);
+                    addLog(0, "====     proxy started      ====");
 
                     // client has been created (but may not start to serve)
                     // start a thread to fetch logs
@@ -201,7 +203,7 @@ namespace goflywin
                             Thread.Sleep(200);
                         }
 
-                        addLog(0, "==== logging thread exited ====");
+                        addLog(0, "====  logging thread exited  ====");
                     }).Start(); 
                 }, 
                 logl, "", server, local, auth, key, partial, dns, udp, udptcp);
@@ -209,13 +211,13 @@ namespace goflywin
                 setTitle(Application.ProductName, false);
 
                 if (flag == SVR_ALREADY_STARTED)
-                    addLog(flag, "==== proxy already started ====");
+                    addLog(flag, "====  proxy already started  ====");
 
                 if ((flag & SVR_ERROR_EXITED) != 0)
-                    addLog(flag, "==== proxy exited ====");
+                    addLog(flag, "====      proxy exited       ====");
 
                 if ((flag & SVR_ERROR_PANIC) != 0)
-                    addLog(flag, "==== proxy panicked ====");
+                    addLog(flag, "====     proxy panicked      ====");
 
                 if ((flag & SVR_ERROR_CREATE) != 0)
                     addLog(flag, "==== proxy cannot be created ====");
