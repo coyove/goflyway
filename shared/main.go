@@ -31,6 +31,8 @@ const (
 	SVR_GLOBAL = C.int(1<<16) + 0
 	SVR_IPLIST = C.int(1<<16) + 1
 	SVR_NONE   = C.int(1<<16) + 2
+
+	CHAR_BUF_SIZE = 2048
 )
 
 type msg_t struct {
@@ -49,6 +51,10 @@ var (
 )
 
 func copyToBuf(pbuf *C.char, str string) {
+	if len(str) >= CHAR_BUF_SIZE-1 {
+		str = str[:CHAR_BUF_SIZE-1] // an extra '\0' for C style string
+	}
+
 	buf := (*[1 << 24]byte)(unsafe.Pointer(pbuf))
 	copy(buf[:len(str)], []byte(str))
 	buf[len(str)] = 0
