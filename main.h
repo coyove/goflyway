@@ -74,7 +74,7 @@ extern int StartServer(g_callback p0, char* p1, char* p2, char* p3, char* p4, ch
 
 extern void StopServer();
 
-extern void SwitchProxyType(int p0);
+extern int SwitchProxyType(int p0);
 
 #ifdef __cplusplus
 }
