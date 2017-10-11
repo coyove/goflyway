@@ -204,12 +204,12 @@ func StopServer() {
 }
 
 //export SwitchProxyType
-func SwitchProxyType(t C.int) {
+func SwitchProxyType(t C.int) C.int {
 	stopMutex.Lock()
 	defer stopMutex.Unlock()
 
 	if client == nil {
-		return
+		return C.int(0)
 	}
 
 	switch t {
@@ -224,6 +224,8 @@ func SwitchProxyType(t C.int) {
 		client.NoProxy = false
 		client.GlobalProxy = false
 	}
+
+	return t
 }
 
 func main() {}

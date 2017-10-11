@@ -35,9 +35,9 @@ EXPORT void gofw_nickname(char *buf)
     GetNickname(buf);
 }
 
-EXPORT void gofw_switch(int type)
+EXPORT int gofw_switch(int type)
 {
-    SwitchProxyType(type);
+    return SwitchProxyType(type);
 }
 
 EXPORT void gofw_unlock()

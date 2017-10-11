@@ -1,17 +1,12 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Resources;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace goflywin
@@ -23,9 +18,9 @@ namespace goflywin
         private static uint SVR_ERROR_EXITED = 1 << 1;
         private static uint SVR_ERROR_CREATE = 1 << 2;
         private static uint SVR_ERROR_PANIC  = 1 << 3;
-        private static  int SVR_GLOBAL       = 1 << 16 + 0;
-        private static  int SVR_IPLIST       = 1 << 16 + 1;
-        private static  int SVR_NONE         = 1 << 16 + 2;
+        private static  int SVR_GLOBAL       = (1 << 16) + 0;
+        private static  int SVR_IPLIST       = (1 << 16) + 1;
+        private static  int SVR_NONE         = (1 << 16) + 2;
 
         private NotifyIcon notifyIcon;
         private MenuItem[] menuProxyType;
@@ -36,13 +31,15 @@ namespace goflywin
 
         private ResourceManager rm = new ResourceManager("goflywin.Form", typeof(Program).Assembly);
 
+        private bool running = false;
+
         public delegate void LogCallback();
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_nickname([Out, MarshalAs(UnmanagedType.LPArray)] byte[] buf);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void gofw_switch(int type);
+        public static extern int gofw_switch(int type);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gofw_unlock();
@@ -116,12 +113,15 @@ namespace goflywin
             System.IO.File.WriteAllText("server.txt", string.Join("\n", lines));
         }
 
-        private void setTitle(string title, bool start)
+        private void updateControls(string title, bool start)
         {
             this.PerformSafely(() => 
             {
                 this.Text = title;
                 labelServer.Enabled = !start;
+                labelLogLevel.Enabled = comboLogLevel.Enabled = !start;
+                labelDNS.Enabled = textDNS.Enabled = !start;
+                checkAutoMin.Enabled = !start;
                 notifyIcon.Text = title;
             });
         }
@@ -139,7 +139,13 @@ namespace goflywin
             serverlist[s.ServerAddr] = s;
             updateServerListToDisk();
 
-            string auth = "", logl = comboLogLevel.Text, server = comboServer.Text, local = textPort.Text, key = textKey.Text;
+            string auth = "", chinalist =  "", logl = comboLogLevel.Text, server = comboServer.Text, local = textPort.Text, key = textKey.Text;
+            try
+            {
+                // sliently read chinalist.txt
+                chinalist = System.IO.File.ReadAllText("chinalist.txt");
+            } catch (Exception) { }
+
             int partial = checkPartial.Checked ? 1 : 0, dns = (int)textDNS.Value, udp = (int)textUDP.Value, udptcp = (int)textUDP_TCP.Value;
 
             if (textAuthUser.Text != "" && textAuthPass.Text != "")
@@ -151,8 +157,8 @@ namespace goflywin
                 Thread.CurrentThread.CurrentUICulture = new CultureInfo(Properties.Settings.Default.Lang);
                 Thread.CurrentThread.IsBackground = true;
 
-                bool running = true;
-                setTitle(Application.ProductName + " " + server, true);
+                running = true;
+                updateControls(Application.ProductName + " " + server, true);
                 uint flag = (uint)gofw_start(() =>
                 {
                     byte[] buf = new byte[32];
@@ -162,23 +168,9 @@ namespace goflywin
                     buttonStart.Enabled = false;
                     buttonStop.Enabled = true;
                     buttonConsole.Enabled = true;
-                    int idx = 0;
-
-                    switch (comboProxyType.Text)
-                    {
-                        case "global":
-                            gofw_switch(SVR_GLOBAL);
-                            idx = 1;
-                            break;
-                        case "none":
-                            gofw_switch(SVR_NONE);
-                            idx = 2;
-                            break;
-                    }
 
                     if (checkAutoMin.Checked) this.WindowState = FormWindowState.Minimized;
-                    enableMenuProxyType(true, idx);
-                    addLog(0, "====     proxy started      ====");
+                    addLog(0, "====      proxy started      ====");
 
                     // client has been created (but may not start to serve)
                     // start a thread to fetch logs
@@ -204,11 +196,29 @@ namespace goflywin
                         }
 
                         addLog(0, "====  logging thread exited  ====");
-                    }).Start(); 
+                    }).Start();
+
+                    new Thread(() =>
+                    {
+                        Thread.Sleep(2000);
+                        int idx = 0;
+                        switch (comboProxyType.Text)
+                        {
+                            case "global":
+                                gofw_switch(SVR_GLOBAL);
+                                idx = 1;
+                                break;
+                            case "none":
+                                gofw_switch(SVR_NONE);
+                                idx = 2;
+                                break;
+                        }
+                        enableMenuProxyType(true, idx);
+                    }).Start();
                 }, 
-                logl, "", server, local, auth, key, partial, dns, udp, udptcp);
+                logl, chinalist, server, local, auth, key, partial, dns, udp, udptcp);
                 running = false;
-                setTitle(Application.ProductName, false);
+                updateControls(Application.ProductName, false);
 
                 if (flag == SVR_ALREADY_STARTED)
                     addLog(flag, "====  proxy already started  ====");
@@ -249,7 +259,7 @@ namespace goflywin
                 }
                 catch (MissingManifestResourceException) { }
 
-                if (control is GroupBox) translateUI(control);
+                if (control.HasChildren) translateUI(control);
             }
 
             comboLang.Text = Properties.Settings.Default.Lang;
@@ -349,13 +359,13 @@ namespace goflywin
             switch (i)
             {
                 case 0:
-                    gofw_switch(SVR_IPLIST);
+                    i = gofw_switch(SVR_IPLIST);
                     break;
                 case 1:
-                    gofw_switch(SVR_GLOBAL);
+                    i = gofw_switch(SVR_GLOBAL);
                     break;
                 case 2:
-                    gofw_switch(SVR_NONE);
+                    i = gofw_switch(SVR_NONE);
                     break;
             }
         }
@@ -408,7 +418,7 @@ namespace goflywin
 
         private void buttonQuit_Click(object sender, EventArgs e)
         {
-            buttonStop.PerformClick();
+            if (running) buttonStop.PerformClick();
             realExit = true;
             this.Close();
             Application.Exit();
@@ -461,6 +471,7 @@ namespace goflywin
         private void comboProxyType_SelectedIndexChanged(object sender, EventArgs e)
         {
             switchType(comboProxyType.SelectedIndex);
+            if (running) enableMenuProxyType(true, comboProxyType.SelectedIndex);
         }
     }
 }
