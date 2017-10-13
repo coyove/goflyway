@@ -5,13 +5,13 @@ goflyway is a tunnel proxy based entirely on HTTP protocol without any other 3rd
 [中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)
 
 ## Build & Run
-Download the binary from [releases](https://github.com/coyove/goflyway/releases), on your VPS, launch the server by:
+Download the binary from [releases](https://github.com/coyove/goflyway/releases), on your sevrer, launch goflyway:
 ```
 ./goflyway -k=KEY
 ```
-where `KEY` is the password, then at local run the client to connect:
+where `KEY` is the password, then at your local run the client to connect:
 ```
-./goflyway -up=VPS_IP:8100 -k=KEY
+./goflyway -up=SERVER_IP:8100 -k=KEY
 ```
 Set your Internet proxy to 127.0.0.1:8100 (HTTP or SOCKS5 protocol) and enjoy.
 
@@ -76,7 +76,7 @@ Currently there is no client on Android, here is a workaround:
 
 1. Install [Termux](https://f-droid.org/packages/com.termux/) and launch it
 2. `pkg install golang`
-3. `go run main.go -k=KEY -up=VPS_IP:8100`
+3. `go run main.go -k=KEY -up=SERVER_IP:8100`
 4. Connect to your WIFI and set its proxy to `127.0.0.1:8100`
 
 Works on my XZP Android 7.0
