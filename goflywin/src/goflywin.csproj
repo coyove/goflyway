@@ -112,5 +112,8 @@
   <ItemGroup>
     <None Include="Resources\logo_ZS6_icon.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="chinalist.txt" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

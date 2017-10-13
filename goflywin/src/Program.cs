@@ -16,13 +16,13 @@ namespace goflywin
         [STAThread]
         static void Main()
         {
-            //if (!SingletonInstance.Start()) return;
+            if (!SingletonInstance.Start()) return;
             
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new formMain());
 
-            //SingletonInstance.Stop();
+            SingletonInstance.Stop();
         }
     }
 
