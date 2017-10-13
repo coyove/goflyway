@@ -29,8 +29,6 @@ namespace goflywin
 
         private Dictionary<string, Server> serverlist = new Dictionary<string, Server>();
 
-        private ResourceManager rm = new ResourceManager("goflywin.Form", typeof(Program).Assembly);
-
         private bool running = false;
 
         public delegate void LogCallback();
@@ -97,20 +95,17 @@ namespace goflywin
                 buttonStop.Enabled = false;
                 buttonConsole.Enabled = false;
                 enableMenuProxyType(false, -1);
-                labelState.Text = rm.GetString("NOTRUNNING");
+                labelState.Text = Util.ResourceManager.GetString("NOTRUNNING");
                 this.WindowState = FormWindowState.Normal;
             });
         }
 
         private void updateServerListToDisk()
         {
-            List<string> lines = new List<string>();
             foreach (var server in serverlist)
             {
-                lines.Add(server.Value.ToString());
+                server.Value.ToSection();
             }
-
-            System.IO.File.WriteAllText("server.txt", string.Join("\n", lines));
         }
 
         private void updateControls(string title, bool start)
@@ -130,7 +125,8 @@ namespace goflywin
         {
             if (comboServer.Text == "" || textPort.Text == "" || textKey.Text == "")
             {
-                MessageBox.Show(rm.GetString("msgPleaseCheckInput"), Application.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                MessageBox.Show(Util.ResourceManager.GetString("msgPleaseCheckInput"), 
+                    Application.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                 return;
             }
             
@@ -154,11 +150,11 @@ namespace goflywin
             // gofw_start is a blocking method, so start it in a new thread
             new Thread(() =>
             {
-                Thread.CurrentThread.CurrentUICulture = new CultureInfo(Properties.Settings.Default.Lang);
+                Thread.CurrentThread.CurrentUICulture = new CultureInfo(Config.Read("default", "Lang", ""));
                 Thread.CurrentThread.IsBackground = true;
 
                 running = true;
-                updateControls(Application.ProductName + " " + server, true);
+                updateControls(Application.ProductName + " - " + server, true);
                 uint flag = (uint)gofw_start(() =>
                 {
                     byte[] buf = new byte[32];
@@ -247,56 +243,53 @@ namespace goflywin
 
         private void translateUI(Control ctrl)
         {
-            CultureInfo zh = new CultureInfo(Properties.Settings.Default.Lang);
-            Thread.CurrentThread.CurrentCulture = zh;
-            Thread.CurrentThread.CurrentUICulture = zh;
+            string lang = Config.Read("default", "Lang", "zh-CN");
+            Util.ResourceManager.Use(lang);
 
             foreach (Control control in ctrl.Controls)
             {
-                try
-                {
-                    control.Text = rm.GetString(control.Name);
-                }
-                catch (MissingManifestResourceException) { }
+                string v;
+                if (Util.ResourceManager.GetString(control.Name, out v))
+                    control.Text = v;
 
-                if (control.HasChildren) translateUI(control);
+                if (control.HasChildren)
+                    translateUI(control);
             }
 
-            comboLang.Text = Properties.Settings.Default.Lang;
+            comboLang.Text = lang;
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            System.IO.File.Delete("log.txt");
-            System.IO.File.Delete("error.txt");
+            if (!System.IO.File.Exists("chinalist.txt")) System.IO.File.WriteAllText("chinalist.txt", Form_Resource.chinalist);
 
-            comboLogLevel.Text = Properties.Settings.Default.LogLevel;
-            comboProxyType.Text = Properties.Settings.Default.ProxyType;
-            comboLang.Text = Properties.Settings.Default.Lang;
-            checkAutoMin.Checked = Properties.Settings.Default.AutoMin;
-            checkAutostart.Checked = Properties.Settings.Default.Autostart;
-            textDNS.Value = Properties.Settings.Default.DNSCache;
+            comboLogLevel.Text = Config.Read("default", "LogLevel", "log");
+            comboProxyType.Text = Config.Read("default", "ProxyType", "iplist");
+            comboLang.Text = Config.Read("default", "Lang", "zh-CN");
+            checkAutoMin.Checked = Config.ReadBool("default", "AutoMin", true);
+            checkAutostart.Checked = Config.ReadBool("default", "Autostart", false);
+            textDNS.Value = Config.ReadInt("default", "DNSCache", 1024);
 
             translateUI(this);
 
             ContextMenu contextMenu = new ContextMenu();
             MenuItem menuShow = new MenuItem();
-            menuShow.Text = rm.GetString("menuShow");
+            menuShow.Text = Util.ResourceManager.GetString("menuShow");
             menuShow.Click += new System.EventHandler(notifyIcon_DoubleClick);
 
             MenuItem menuExit = new MenuItem();
-            menuExit.Text = rm.GetString("menuExit");
+            menuExit.Text = Util.ResourceManager.GetString("menuExit");
             menuExit.Click += new System.EventHandler(buttonQuit_Click);
 
             MenuItem menuConsole = new MenuItem();
-            menuConsole.Text = rm.GetString("buttonConsole");
+            menuConsole.Text = Util.ResourceManager.GetString("buttonConsole");
             menuConsole.Click += new System.EventHandler(buttonUnlock_Click);
 
             menuProxyType = new MenuItem[3];
             for (int i = 0; i < menuProxyType.Count(); i++)
             {
                 menuProxyType[i] = new MenuItem();
-                menuProxyType[i].Text = rm.GetString("menuProxyType").Split('|')[i];
+                menuProxyType[i].Text = Util.ResourceManager.GetString("menuProxyType").Split('|')[i];
                 menuProxyType[i].Click += new System.EventHandler(proxy_Click);
             }
 
@@ -310,27 +303,20 @@ namespace goflywin
 
             notifyIcon = new NotifyIcon();
             notifyIcon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
-            notifyIcon.BalloonTipText = rm.GetString("msgSystray");
-            notifyIcon.Icon = Resource1.logo_ZS6_icon;
+            notifyIcon.BalloonTipText = Util.ResourceManager.GetString("msgSystray");
+            notifyIcon.Icon = Form_Resource.logo_ZS6_icon;
             notifyIcon.Text = Application.ProductName;
             notifyIcon.Visible = false;
             notifyIcon.ContextMenu = contextMenu;
             notifyIcon.DoubleClick += new System.EventHandler(notifyIcon_DoubleClick);
 
-            try
+            Config.GetSections().Where(x => x.StartsWith("server-")).ToList().ForEach(section =>
             {
-                foreach (string line in System.IO.File.ReadAllText("server.txt").Split('\n'))
-                {
-                    Server s = Server.FromString(line);
-                    if (s != null)
-                    {
-                        serverlist[s.ServerAddr] = s;
-                        comboServer.Items.Add(s.ServerAddr);
-                    }
-                }
-
+                Server s = Server.FromSection(section);
+                serverlist[s.ServerAddr] = s;
+                comboServer.Items.Add(s.ServerAddr);
                 comboServer.SelectedIndex = 0;
-             } catch { }
+            });
         }
 
         private void notifyIcon_DoubleClick(object sender, EventArgs e)
@@ -401,13 +387,12 @@ namespace goflywin
         {
             if (realExit)
             {
-                Properties.Settings.Default.LogLevel = comboLogLevel.Text;
-                Properties.Settings.Default.ProxyType = comboProxyType.Text;
-                Properties.Settings.Default.AutoMin = checkAutoMin.Checked;
-                Properties.Settings.Default.DNSCache = (int)textDNS.Value;
-                Properties.Settings.Default.Autostart = checkAutostart.Checked;
-                Properties.Settings.Default.Lang = comboLang.Text;
-                Properties.Settings.Default.Save();
+                Config.Write("default", "LogLevel", comboLogLevel.Text);
+                Config.Write("default", "ProxyType", comboProxyType.Text);
+                Config.Write("default", "AutoMin", checkAutoMin.Checked);
+                Config.Write("default", "DNSCache", (int)textDNS.Value);
+                Config.Write("default", "Autostart", checkAutostart.Checked);
+                Config.Write("default", "Lang", comboLang.Text);
                 return;
             }
 
@@ -420,6 +405,7 @@ namespace goflywin
         {
             if (running) buttonStop.PerformClick();
             realExit = true;
+            notifyIcon.Visible = false;
             this.Close();
             Application.Exit();
         }
@@ -431,19 +417,22 @@ namespace goflywin
 
         private void buttonDelServer_Click(object sender, EventArgs e)
         {
-            if (MessageBox.Show(rm.GetString("msgConfirmDelete"), Application.ProductName, MessageBoxButtons.YesNo) == DialogResult.Yes)
+            if (MessageBox.Show(Util.ResourceManager.GetString("msgConfirmDelete"), 
+                Application.ProductName, MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
                 serverlist.Remove(comboServer.Text);
+                Config.DeleteSection("server-" + comboServer.Text);
+
                 int old = comboServer.SelectedIndex;
                 comboServer.Items.RemoveAt(comboServer.SelectedIndex);
-                comboServer.SelectedIndex = old;
+                comboServer.SelectedIndex = old > comboServer.Items.Count - 1 ? 0 : old;
                 updateServerListToDisk();
             }
         }
 
         private void comboLang_SelectedIndexChanged(object sender, EventArgs e)
         {
-            Properties.Settings.Default.Lang = comboLang.Text;
+            Config.Write("default", "Lang", comboLang.Text);
             translateUI(this);
         }
 

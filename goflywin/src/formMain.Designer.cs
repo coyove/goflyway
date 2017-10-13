@@ -457,6 +457,7 @@
             this.buttonDelServer.TabIndex = 48;
             this.buttonDelServer.Text = "Delete";
             this.buttonDelServer.UseVisualStyleBackColor = true;
+            this.buttonDelServer.Click += new System.EventHandler(this.buttonDelServer_Click);
             // 
             // tableLayoutPanel2
             // 
