@@ -106,6 +106,8 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 	}
 
 	req.Header.Set("Cookie", strings.Join(cookies, ";"))
+	req.Header.Set("Origin", proxy.EncryptString(req.Header.Get("Origin"))+".com")
+	req.Header.Set("Referer", proxy.EncryptString(req.Header.Get("Referer")))
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -135,6 +137,8 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
 	}
 
 	req.Header.Set("Cookie", strings.Join(cookies, ";"))
+	req.Header.Set("Origin", proxy.DecryptString(strings.Replace(req.Header.Get("Origin"), ".com", "", -1)))
+	req.Header.Set("Referer", proxy.DecryptString(req.Header.Get("Referer")))
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -284,9 +288,14 @@ func (proxy *ProxyUpstream) tryDecryptHost(c *GCipher, text string) (h string, m
 
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds.TLDs[parts[i]] {
-			buf := c.Decrypt(Base32Decode(parts[i]))
+			bbuf, err := Base32Decode(parts[i])
+			if err != nil {
+				return text, 0xff
+			}
+
+			buf := c.Decrypt(bbuf)
 			if len(buf) == 0 {
-				return text, 0
+				return text, 0xff
 			}
 
 			mark := buf[0] >> 5
@@ -294,13 +303,13 @@ func (proxy *ProxyUpstream) tryDecryptHost(c *GCipher, text string) (h string, m
 				if ipv6 := net.IP(buf[1:]).To16(); ipv6 != nil {
 					return "[" + ipv6.String() + "]" + port, mark - HOST_IPV6
 				} else {
-					return "", 0
+					return "", 0xff
 				}
 			}
 
 			m, parts[i] = bitsop.Decompress(buf)
 			if len(parts[i]) == 0 {
-				return text, 0
+				return text, 0xff
 			}
 
 			break
@@ -350,19 +359,14 @@ func Base32Encode(buf []byte) string {
 	return str[:idx] //+ base32Replace[len(str)-idx-1]
 }
 
-func Base32Decode(text string) []byte {
+func Base32Decode(text string) ([]byte, error) {
 	const paddings = "======"
 
 	if m := len(text) % 8; m > 1 {
 		text = text + paddings[:8-m]
 	}
 
-	buf, err := base32Encoding.DecodeString(text)
-	if err != nil {
-		return []byte{}
-	}
-
-	return buf
+	return base32Encoding.DecodeString(text)
 }
 
 func genWord(gc *GCipher) string {

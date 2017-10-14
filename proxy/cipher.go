@@ -9,7 +9,6 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"io"
 	"math/rand"
 	"net"
@@ -169,7 +168,7 @@ func (gc *GCipher) Encrypt(buf []byte) []byte {
 
 func (gc *GCipher) Decrypt(buf []byte) []byte {
 	if len(buf) < 2 {
-		return buf
+		return []byte{}
 	}
 
 	b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
@@ -177,11 +176,11 @@ func (gc *GCipher) Decrypt(buf []byte) []byte {
 }
 
 func (gc *GCipher) EncryptString(text string) string {
-	return hex.EncodeToString(gc.Encrypt([]byte(text)))
+	return Base32Encode(gc.Encrypt([]byte(text)))
 }
 
 func (gc *GCipher) DecryptString(text string) string {
-	buf, err := hex.DecodeString(text)
+	buf, err := Base32Decode(text)
 	if err != nil {
 		return ""
 	}

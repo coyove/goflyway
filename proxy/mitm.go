@@ -33,22 +33,22 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 	client.Write(OK_HTTP)
 
 	go func() {
-		bufClient := bufio.NewReader(client)
-		bufioClient := &bufioConn{Conn: client, m: bufClient}
+		// bufClient := bufio.NewReader(client)
+		// bufioClient := &bufioConn{Conn: client, m: bufClient}
 
-		buf, err := bufClient.Peek(3)
-		if err == nil {
-			switch string(buf) {
-			case "GET", "POS" /*T*/, "HEA" /*D*/, "PUT", "DEL" /*ETE*/, "OPT" /*ION*/, "PAT" /*CH*/, "TRA" /*CE*/ :
-				// we are having http requests inside CONNECT command
-				// e.g. websocket
-				// TODO
-				// proxy.dialUpstreamAndBridge(bufioClient, host, auth, DO_HTTP|DO_DROP_INIT_REP)
-			default:
-			}
-		}
+		// buf, err := bufClient.Peek(3)
+		// if err == nil {
+		// 	switch string(buf) {
+		// 	case "GET", "POS" /*T*/, "HEA" /*D*/, "PUT", "DEL" /*ETE*/, "OPT" /*ION*/, "PAT" /*CH*/, "TRA" /*CE*/ :
+		// 		// we are having http requests inside CONNECT command
+		// 		// e.g. websocket
+		// 		// TODO
+		// 		// proxy.dialUpstreamAndBridge(bufioClient, host, auth, DO_HTTP|DO_DROP_INIT_REP)
+		// 	default:
+		// 	}
+		// }
 
-		tlsClient := tls.Server(bufioClient, &tls.Config{
+		tlsClient := tls.Server(client, &tls.Config{
 			InsecureSkipVerify: true,
 			Certificates:       []tls.Certificate{*cert},
 		})
@@ -60,14 +60,9 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 
 		defer tlsClient.Close()
 		bufTLSClient := bufio.NewReader(tlsClient)
-		isWebsocket := false
+		// isWebsocket := false
 
 		for {
-			if isWebsocket {
-				proxy.dialUpstreamAndBridge(tlsClient, host, auth, DO_HTTP)
-				break
-			}
-
 			var err error
 			var rUrl string
 			if _, err := bufTLSClient.Peek(1); err == io.EOF {
@@ -86,7 +81,13 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 			req.Header.Del("Proxy-Connection")
 
 			if !isHttpsSchema.MatchString(req.URL.String()) {
-				req.URL, err = url.Parse("https://" + r.Host + req.URL.String())
+				// we can ignore 443 since it's by default
+				h := req.Host
+				if strings.HasSuffix(h, ":443") {
+					h = h[:len(h)-4]
+				}
+
+				req.URL, err = url.Parse("https://" + h + req.URL.String())
 				rUrl = req.URL.String()
 			}
 
@@ -98,18 +99,19 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 
 			defer tryClose(resp.Body)
 
-			tlsClient.Write([]byte("HTTP/1.1 " + resp.Status))
-
 			resp.Header.Del("Content-Length")
 			resp.Header.Set("Transfer-Encoding", "chunked")
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
+				tlsClient.Write([]byte("HTTP/1.1 " + resp.Status))
 			} else {
-				isWebsocket = true
+				// we don't support websocket
+				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden"))
+				break
 			}
 
-			// buf, _ := httputil.DumpResponse(resp, false)
+			// buf, _ := httputil.DumpResponse(resp, true)
 			_ = httputil.DumpResponse
 
 			hdr := http.Header{}
