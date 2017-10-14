@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	_ "net/http/httputil"
 	"net/url"
 	"regexp"
 	"strings"
@@ -55,6 +56,7 @@ var (
 	hostHeadExtract = regexp.MustCompile(`(\S+)\.com`)
 	urlExtract      = regexp.MustCompile(`\?q=(\S+)$`)
 	hasPort         = regexp.MustCompile(`:\d+$`)
+	isHttpsSchema   = regexp.MustCompile(`^https:\/\/`)
 
 	base32Encoding = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
 )
@@ -86,15 +88,24 @@ func (proxy *ProxyClient) addToDummies(req *http.Request) {
 }
 
 func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
-	req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+	if proxy.DummyDomain == "" {
+		req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+	} else {
+		req.Host = proxy.DummyDomain
+	}
+
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
 
 	rkey, rkeybuf := proxy.GCipher.RandomIV()
 	SafeAddHeader(req, proxy.rkeyHeader, rkey)
 
+	cookies := []string{}
 	for _, c := range req.Cookies() {
 		c.Value = proxy.GCipher.EncryptString(c.Value)
+		cookies = append(cookies, c.String())
 	}
+
+	req.Header.Set("Cookie", strings.Join(cookies, ";"))
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -106,16 +117,24 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 }
 
 func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
-	req.Host = DecryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
-
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
 		req.RequestURI = req.URL.String()
 	}
 
+	if proxy.DummyDomain == "" {
+		req.Host = proxy.decryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+	} else {
+		req.Host = req.URL.Host
+	}
+
+	cookies := []string{}
 	for _, c := range req.Cookies() {
 		c.Value = proxy.GCipher.DecryptString(c.Value)
+		cookies = append(cookies, c.String())
 	}
+
+	req.Header.Set("Cookie", strings.Join(cookies, ";"))
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -124,14 +143,43 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
 	}).Init())
 }
 
-func copyHeaders(dst, src http.Header) {
+func copyHeaders(dst, src http.Header, gc *GCipher, enc bool) {
 	for k := range dst {
 		dst.Del(k)
 	}
+
 	for k, vs := range src {
+
 		for _, v := range vs {
+			cip := func(ei, di int) {
+				if enc {
+					v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di]) + ";" + v[di+1:]
+				} else {
+					v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di]) + ";" + v[di+1:]
+				}
+			}
+
+			if k == "Set-Cookie" {
+				ei, di := strings.Index(v, "="), strings.Index(v, ";")
+
+				if ei > -1 && di > ei {
+					cip(ei, di)
+				}
+
+				ei = strings.Index(v, "main=") // [Dd]omain
+				if ei > -1 {
+					for di = ei + 5; di < len(v); di++ {
+						if v[di] == ';' {
+							cip(ei+4, di)
+							break
+						}
+					}
+				}
+			}
+
 			dst.Add(k, v)
 		}
+
 	}
 }
 
@@ -217,8 +265,8 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 	return enc(host) + port
 }
 
-func DecryptHost(c *GCipher, text string, mark byte) string {
-	host, m := TryDecryptHost(c, text)
+func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, mark byte) string {
+	host, m := proxy.tryDecryptHost(c, text)
 	if m != mark {
 		return ""
 	} else {
@@ -226,8 +274,12 @@ func DecryptHost(c *GCipher, text string, mark byte) string {
 	}
 }
 
-func TryDecryptHost(c *GCipher, text string) (h string, m byte) {
+func (proxy *ProxyUpstream) tryDecryptHost(c *GCipher, text string) (h string, m byte) {
 	host, port := splitHostPort(text)
+	if host != "" && host == proxy.DummyDomain {
+		return host, HOST_HTTP_FORWARD
+	}
+
 	parts := strings.Split(host, ".")
 
 	for i := len(parts) - 1; i >= 0; i-- {

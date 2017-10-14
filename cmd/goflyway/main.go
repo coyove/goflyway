@@ -14,9 +14,11 @@ import (
 
 var (
 	G_Config = flag.String("c", "", "config file path")
+	G_GenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
 
 	G_Key         = flag.String("k", "0123456789abcdef", "key, important")
 	G_Auth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	G_Domain      = flag.String("d", "", "dummy domain")
 	G_Upstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local       = flag.String("l", ":8100", "local listening port (remember the colon)")
 	G_Local2      = flag.String("p", "", "local listening port, alias of -l")
@@ -24,6 +26,7 @@ var (
 	G_UdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
 	G_LogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 	G_GlobalProxy = flag.Bool("g", false, "global proxy")
+	G_MITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, http only")
@@ -41,6 +44,26 @@ func LoadConfig() {
 
 	path := *G_Config
 
+	if *G_GenCA {
+		fmt.Println("generating CA...")
+
+		cert, key, err := proxy.GenCA("goflyway")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		err1, err2 := ioutil.WriteFile("ca.pem", cert, 0755), ioutil.WriteFile("key.pem", key, 0755)
+		if err1 != nil || err2 != nil {
+			fmt.Println("ca.pem:", err1)
+			fmt.Println("key.pem:", err2)
+			return
+		}
+
+		fmt.Println("done")
+		return
+	}
+
 	if path != "" {
 		buf, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -55,11 +78,13 @@ func LoadConfig() {
 		*G_Key = cf.GetString("default", "key", *G_Key)
 		*G_Auth = cf.GetString("default", "auth", *G_Auth)
 		*G_Local = cf.GetString("default", "listen", *G_Local)
+		*G_Domain = cf.GetString("default", "domain", *G_Domain)
 		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
 		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
 		*G_UdpTcp = cf.GetInt("default", "udptcp", *G_UdpTcp)
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
+		*G_MITM = cf.GetBool("default", "mitm", *G_MITM)
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
 		*G_ProxyPassAddr = cf.GetString("misc", "proxypass", *G_ProxyPassAddr)
 
@@ -108,7 +133,9 @@ func main() {
 		DNSCacheSize:   *G_DNSCacheEntries,
 		GlobalProxy:    *G_GlobalProxy,
 		DisableConsole: *G_DisableConsole,
+		ManInTheMiddle: *G_MITM,
 		UserAuth:       *G_Auth,
+		DummyDomain:    *G_Domain,
 		Upstream:       *G_Upstream,
 		UDPRelayPort:   int(*G_UdpRelay),
 		UDPRelayCoconn: int(*G_UdpTcp),
@@ -119,6 +146,7 @@ func main() {
 		GCipher:        cipher,
 		UDPRelayListen: int(*G_UdpRelay),
 		Throttling:     *G_Throttling,
+		DummyDomain:    *G_Domain,
 		ThrottlingMax:  *G_ThrottlingMax,
 		ProxyPassAddr:  *G_ProxyPassAddr,
 	}

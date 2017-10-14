@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -226,7 +227,15 @@ func (gc *GCipher) ReverseIV(key string) []byte {
 }
 
 type IOConfig struct {
-	Bucket *TokenBucket
+	Bucket  *TokenBucket
+	Chunked bool
+}
+
+func (i *IOConfig) Dup() *IOConfig {
+	return &IOConfig{
+		Bucket:  i.Bucket,
+		Chunked: i.Chunked,
+	}
 }
 
 func (gc *GCipher) blockedIO(target, source interface{}, key []byte, options *IOConfig) {
@@ -259,19 +268,15 @@ func (gc *GCipher) Bridge(target, source net.Conn, key []byte, options *IOConfig
 }
 
 func (gc *GCipher) WrapIO(dst io.Writer, src io.Reader, key []byte, options *IOConfig) *IOCopyCipher {
-	iocc := &IOCopyCipher{
+
+	return &IOCopyCipher{
 		Dst:     dst,
 		Src:     src,
 		Key:     key,
 		Partial: gc.Partial,
 		Cipher:  gc,
+		Config:  options,
 	}
-
-	if options != nil {
-		iocc.Throttling = options.Bucket
-	}
-
-	return iocc
 }
 
 func (gc *GCipher) ioCopyAndClose(dst, src *net.TCPConn, key []byte, options *IOConfig) {
@@ -296,12 +301,14 @@ func (gc *GCipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, option
 }
 
 type IOCopyCipher struct {
-	Dst        io.Writer
-	Src        io.Reader
-	Key        []byte
-	Throttling *TokenBucket
-	Partial    bool
-	Cipher     *GCipher
+	Dst    io.Writer
+	Src    io.Reader
+	Key    []byte
+	Cipher *GCipher
+	Config *IOConfig
+
+	// can be altered outside
+	Partial bool
 }
 
 func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
@@ -314,18 +321,19 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	buf := make([]byte, 32*1024)
 	ctr := cc.Cipher.GetCipherStream(cc.Key)
 	encrypted := 0
+	chunked := cc.Config != nil && cc.Config.Chunked
 
 	for {
 		nr, er := cc.Src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
+			xs := 0
 
 			if cc.Partial && encrypted == SSL_RECORD_MAX {
 				goto direct_transmission
 			}
 
 			if ctr != nil {
-				xs := 0
 				if written == 0 {
 					// ignore the header
 					if bytes.HasPrefix(xbuf, OK_HTTP) {
@@ -347,11 +355,23 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 			}
 
 		direct_transmission:
-			if cc.Throttling != nil {
-				cc.Throttling.Consume(int64(len(xbuf)))
+			if cc.Config != nil && cc.Config.Bucket != nil {
+				cc.Config.Bucket.Consume(int64(len(xbuf)))
 			}
 
-			nw, ew := cc.Dst.Write(xbuf)
+			var nw int
+			var ew error
+			if chunked {
+				hlen := strconv.FormatInt(int64(nr), 16)
+				if _, ew = cc.Dst.Write([]byte(hlen + "\r\n")); ew == nil {
+					if nw, ew = cc.Dst.Write(xbuf); ew == nil {
+						_, ew = cc.Dst.Write([]byte("\r\n"))
+					}
+				}
+
+			} else {
+				nw, ew = cc.Dst.Write(xbuf)
+			}
 
 			if nw > 0 {
 				written += int64(nw)
@@ -374,6 +394,10 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 			}
 			break
 		}
+	}
+
+	if chunked {
+		cc.Dst.Write([]byte("0\r\n\r\n"))
 	}
 
 	return written, err

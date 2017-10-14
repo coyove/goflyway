@@ -24,7 +24,9 @@ type ClientConfig struct {
 	GlobalProxy    bool
 	NoProxy        bool
 	DisableConsole bool
+	ManInTheMiddle bool
 	UserAuth       string
+	DummyDomain    string
 	DNSCacheSize   int
 
 	UDPRelayPort   int
@@ -113,6 +115,17 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
 }
 
+func (proxy *ProxyClient) encryptAndTransport(r *http.Request, auth string) (*http.Response, []byte, error) {
+	rkeybuf := proxy.encryptRequest(r)
+
+	if auth != "" {
+		SafeAddHeader(r, AUTH_HEADER, auth)
+	}
+
+	resp, err := proxy.tp.RoundTrip(r)
+	return resp, rkeybuf, err
+}
+
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logg.D(r.Method, " ", r.RequestURI)
 
@@ -153,7 +166,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if proxy.canDirectConnect(auth, host) {
 			proxy.dialHostAndBridge(proxyClient, host, DO_HTTP)
 		} else {
-			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
+			if proxy.ManInTheMiddle {
+				proxy.manInTheMiddle(proxyClient, host, auth, r)
+			} else {
+				proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
+			}
 		}
 	} else {
 		// normal http requests
@@ -176,14 +193,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if proxy.canDirectConnect(auth, r.Host) {
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			// encrypt req to pass GFW
-			rkeybuf = proxy.encryptRequest(r)
-
-			if auth != "" {
-				SafeAddHeader(r, AUTH_HEADER, auth)
-			}
-
-			resp, err = proxy.tp.RoundTrip(r)
+			resp, rkeybuf, err = proxy.encryptAndTransport(r, auth)
 		}
 
 		if err != nil {
@@ -196,7 +206,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", rUrl)
 		}
 
-		copyHeaders(w.Header(), resp.Header)
+		copyHeaders(w.Header(), resp.Header, proxy.GCipher, false)
 		w.WriteHeader(resp.StatusCode)
 
 		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, nil)
@@ -260,7 +270,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	}
 
 	// only http 1.0 allows request without Host
-	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.GCipher.EncryptString(auth+"-"+host))
+	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.GCipher.EncryptString(auth+"|"+host))
 
 	upstreamConn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 	if _, err = upstreamConn.Write([]byte(payload)); err != nil {

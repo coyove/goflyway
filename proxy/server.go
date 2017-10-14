@@ -22,6 +22,7 @@ type ServerConfig struct {
 	ThrottlingMax  int64
 	UDPRelayListen int
 	ProxyPassAddr  string
+	DummyDomain    string
 
 	Users map[string]UserConfig
 
@@ -57,7 +58,7 @@ func (proxy *ProxyUpstream) auth(auth string) bool {
 func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 	var ioc *IOConfig
 	if proxy.Throttling > 0 {
-		ioc = &IOConfig{NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
+		ioc = &IOConfig{Bucket: NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
 	}
 
 	return ioc
@@ -93,12 +94,15 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// remote dns lookup
 	if r.Method == "GET" && r.ProtoMajor == 1 && r.ProtoMinor == 0 && len(r.RequestURI) > 0 {
-		p := strings.Split(proxy.GCipher.DecryptString(r.RequestURI[1:]), "-")
-		if len(p) != 2 {
+		cob := proxy.GCipher.DecryptString(r.RequestURI[1:])
+		idx := strings.LastIndex(cob, "|")
+		if idx == -1 {
 			return
 		}
 
-		if proxy.Users != nil && !proxy.auth(p[0]) {
+		auth, host := cob[:idx], cob[idx+1:]
+
+		if proxy.Users != nil && !proxy.auth(auth) {
 			return
 		}
 
@@ -107,7 +111,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ip, err := net.ResolveIPAddr("ip4", p[1])
+		ip, err := net.ResolveIPAddr("ip4", host)
 		if err != nil {
 			return
 		}
@@ -185,7 +189,7 @@ AUTH_OK:
 		return
 	}
 
-	if host, mark := TryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
+	if host, mark := proxy.tryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
 		logg.D(mark, " ", host)
 		// dig tunnel
 		downstreamConn := proxy.hijack(w)
@@ -225,7 +229,7 @@ AUTH_OK:
 			logg.D("[", resp.Status, "] - ", r.URL)
 		}
 
-		copyHeaders(w.Header(), resp.Header)
+		copyHeaders(w.Header(), resp.Header, proxy.GCipher, true)
 		w.WriteHeader(resp.StatusCode)
 
 		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))

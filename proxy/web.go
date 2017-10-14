@@ -88,6 +88,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
         <tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
         <tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
         <tr><td colspan=2><input type='checkbox' name='gproxy' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
+        <tr><td colspan=2><input type='checkbox' name='mitm' {{if .MITM}}checked{{end}}/><label>{{.I18N.MITM}}</label></td></tr>
         <tr><td colspan=2><input type='submit' name='update' value='{{.I18N.Update}}'/></td></tr>
         <tr><td colspan=2><hr></td></tr>
         <tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
@@ -115,6 +116,7 @@ var _i18n = map[string]map[string]string{
 		"Key":          "Key",
 		"Auth":         "Auth",
 		"Global":       "Global proxy",
+		"MITM":         "Man-in-the-middle proxy (HTTP only)",
 		"Update":       "Update",
 		"Misc":         "Misc",
 		"ClearDNS":     "Clear goflyway's local DNS cache",
@@ -130,6 +132,7 @@ var _i18n = map[string]map[string]string{
 		"Key":          "密钥",
 		"Auth":         "用户认证",
 		"Global":       "全局代理",
+		"MITM":         "中间人代理模式（仅限HTTP）",
 		"Update":       "确定",
 		"Misc":         "杂项",
 		"ClearDNS":     "清除goflyway本地DNS缓存",
@@ -145,17 +148,19 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 	if r.Method == "GET" {
 		payload := struct {
 			ProxyAll bool
+			MITM     bool
 			Key      string
 			Auth     string
 			I18N     map[string]string
 		}{
 			proxy.GlobalProxy,
+			proxy.ManInTheMiddle,
 			proxy.GCipher.KeyString,
 			proxy.UserAuth,
 			nil,
 		}
 
-		if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("en") != "1" { // use en=1 to force english display
+		if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" { // use en=1 to force english display
 			payload.I18N = _i18n["zh"]
 		} else {
 			payload.I18N = _i18n["en"]
@@ -181,6 +186,7 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 
 		if r.FormValue("update") != "" {
 			proxy.GlobalProxy = r.FormValue("gproxy") == "on"
+			proxy.ManInTheMiddle = r.FormValue("mitm") == "on"
 			proxy.UserAuth = r.FormValue("auth")
 			proxy.UpdateKey(r.FormValue("key"))
 		}
