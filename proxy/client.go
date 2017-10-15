@@ -165,12 +165,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if proxy.canDirectConnect(auth, host) {
 			proxy.dialHostAndBridge(proxyClient, host, DO_HTTP)
+		} else if proxy.ManInTheMiddle {
+			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
-			if proxy.ManInTheMiddle {
-				proxy.manInTheMiddle(proxyClient, host, auth, r)
-			} else {
-				proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
-			}
+			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
 		}
 	} else {
 		// normal http requests

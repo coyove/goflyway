@@ -22,7 +22,7 @@ func (c *bufioConn) Read(buf []byte) (int, error) {
 	return c.m.Read(buf)
 }
 
-func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *http.Request) {
+func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 	_host, _ := splitHostPort(host)
 	// try self signing a cert of this host
 	cert := sign(_host)
@@ -33,20 +33,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 	client.Write(OK_HTTP)
 
 	go func() {
-		// bufClient := bufio.NewReader(client)
-		// bufioClient := &bufioConn{Conn: client, m: bufClient}
-
-		// buf, err := bufClient.Peek(3)
-		// if err == nil {
-		// 	switch string(buf) {
-		// 	case "GET", "POS" /*T*/, "HEA" /*D*/, "PUT", "DEL" /*ETE*/, "OPT" /*ION*/, "PAT" /*CH*/, "TRA" /*CE*/ :
-		// 		// we are having http requests inside CONNECT command
-		// 		// e.g. websocket
-		// 		// TODO
-		// 		// proxy.dialUpstreamAndBridge(bufioClient, host, auth, DO_HTTP|DO_DROP_INIT_REP)
-		// 	default:
-		// 	}
-		// }
 
 		tlsClient := tls.Server(client, &tls.Config{
 			InsecureSkipVerify: true,
@@ -54,7 +40,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 		})
 
 		if err := tlsClient.Handshake(); err != nil {
-			logg.E("handshake failed: ", r.Host, ", ", err)
+			logg.E("handshake failed: ", host, ", ", err)
 			return
 		}
 
@@ -72,11 +58,10 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
 				logg.E("cannot read request: ", err)
-				return
+				break
 			}
 
-			logg.D("mitm: ", req.Method, " ", req.RequestURI, " ", r.RemoteAddr)
-			req.RemoteAddr = r.RemoteAddr
+			logg.D("mitm: ", req.Method, " ", req.RequestURI)
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -94,7 +79,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 			resp, rkeybuf, err := proxy.encryptAndTransport(req, auth)
 			if err != nil {
 				logg.E("mitm proxy pass: ", rUrl, ", ", err)
-				return
+				tlsClient.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n" + err.Error()))
+				break
 			}
 
 			defer tryClose(resp.Body)
@@ -104,10 +90,10 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
-				tlsClient.Write([]byte("HTTP/1.1 " + resp.Status))
+				tlsClient.Write([]byte("HTTP/1.1 " + resp.Status + "\r\n"))
 			} else {
 				// we don't support websocket
-				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden"))
+				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 				break
 			}
 
@@ -118,11 +104,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string, r *
 			copyHeaders(hdr, resp.Header, proxy.GCipher, false)
 			if err := hdr.Write(tlsClient); err != nil {
 				logg.W("mitm write header: ", err)
-				return
+				break
 			}
 			if _, err = io.WriteString(tlsClient, "\r\n"); err != nil {
 				logg.W("mitm write header: ", err)
-				return
+				break
 			}
 
 			iocc := proxy.GCipher.WrapIO(tlsClient, resp.Body, rkeybuf, &IOConfig{Chunked: true})
