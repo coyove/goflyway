@@ -65,6 +65,13 @@ The goflyway server is actually an HTTP server with special proxy functions, so 
 +--------------+                          +----------------+
 ```
 
+## Man-in-the-Middle
+Import `ca.pem` into your system's trusted root certificates store and use `-mitm` to enable main-in-the-middle proxy mode (note it can only be activated when using HTTP proxy). 
+
+Under MITM all HTTPS data will be sent in plain HTTP with body and some important headers encrypted (like `Cookie`), also XMPP and Websocket won't work in MITM.
+
+Since `ca.pem` is public accessible in this repo, trusting it would be quite risky, it is recommended to use `./goflyway -gen-ca` to generate a new ca (then import).
+
 ## Speed
 When comes to speed, goflyway is nearly identical to shadowsocks. But HTTP has (quite large) overheads and goflyway will hardly be faster than those solutions running on their own protocols. (If your ISP deploys QoS, maybe goflyway gets some kinda faster.)
 
