@@ -62,7 +62,7 @@ extern "C" {
 
 extern void GetNickname(char* p0);
 
-extern void Unlock();
+extern void ManInTheMiddle(int p0);
 
 extern long long unsigned int GetLastestLogIndex();
 
@@ -70,7 +70,7 @@ extern long long unsigned int ReadLog(long long unsigned int p0, char* p1);
 
 extern void DeleteLogSince(long long unsigned int p0);
 
-extern int StartServer(g_callback p0, char* p1, char* p2, char* p3, char* p4, char* p5, char* p6, int p7, int p8, int p9, int p10);
+extern int StartServer(g_callback p0, char* p1, char* p2, char* p3, char* p4, char* p5, char* p6, char* p7, int p8, int p9, int p10, int p11);
 
 extern void StopServer();
 

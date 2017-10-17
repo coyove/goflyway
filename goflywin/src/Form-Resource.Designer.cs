@@ -61,6 +61,16 @@ namespace goflywin {
         }
         
         /// <summary>
+        ///   Looks up a localized resource of type System.Byte[].
+        /// </summary>
+        internal static byte[] ca {
+            get {
+                object obj = ResourceManager.GetObject("ca", resourceCulture);
+                return ((byte[])(obj));
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to 0-6.com
         ///0-gold.net
         ///00.net

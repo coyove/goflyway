@@ -207,4 +207,13 @@
   <data name="checkLogtxt" xml:space="preserve">
     <value>Explicitly log to 'log.txt'</value>
   </data>
+  <data name="checkMITM" xml:space="preserve">
+    <value>Enable man-in-the-middle</value>
+  </data>
+  <data name="labelDomain" xml:space="preserve">
+    <value>Dummy Domain</value>
+  </data>
+  <data name="labelMITMNote" xml:space="preserve">
+    <value>Please import 'ca.pem' into the 'Trusted Root Certification Authority' store first, then MITM can work properly.</value>
+  </data>
 </root>

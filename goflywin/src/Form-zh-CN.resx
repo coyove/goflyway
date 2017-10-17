@@ -199,12 +199,21 @@
     <value>其他</value>
   </data>
   <data name="buttonConsole" xml:space="preserve">
-    <value>控制台</value>
+    <value>打开控制台</value>
   </data>
   <data name="checkAutostart" xml:space="preserve">
     <value>开机启动 goflywin</value>
   </data>
   <data name="checkLogtxt" xml:space="preserve">
     <value>将日志写入“log.txt”</value>
+  </data>
+  <data name="checkMITM" xml:space="preserve">
+    <value>中间人代理模式</value>
+  </data>
+  <data name="labelDomain" xml:space="preserve">
+    <value>假域名</value>
+  </data>
+  <data name="labelMITMNote" xml:space="preserve">
+    <value>为了使用中间人模式，请首先将“ca.pem”添加至“受信任的根证书”里。</value>
   </data>
 </root>

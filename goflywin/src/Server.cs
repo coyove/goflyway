@@ -59,6 +59,11 @@ namespace goflywin
             }
         }
 
+        public static string BufferToString(byte[] buf)
+        {
+            return Encoding.ASCII.GetString(buf).Replace("\0", string.Empty);
+        }
+
         public static string Escape(string text)
         {
             return text.Replace("|", "\\|");
@@ -155,6 +160,7 @@ namespace goflywin
         public string ServerAddr;
         public string LocalAddr;
         public string Key;
+        public string Domain;
         public bool Partial;
         public int UDP;
         public int UDP_TCP;
@@ -170,6 +176,7 @@ namespace goflywin
             s.Partial = Config.ReadBool(section, "Partial", false);
             s.UDP = Config.ReadInt(section, "UDP", 8731);
             s.UDP_TCP = Config.ReadInt(section, "UDPoverTCP", 3);
+            s.Domain = Config.Read(section, "Domain", "");
             return s;
         }
 
@@ -184,6 +191,7 @@ namespace goflywin
             Config.Write(section, "Partial", Partial);
             Config.Write(section, "UDP", UDP);
             Config.Write(section, "UDPoverTCP", UDP_TCP);
+            Config.Write(section, "Domain", Domain);
         }
 
         public static Server FromUI(formMain form)
@@ -197,6 +205,7 @@ namespace goflywin
             s.Partial = form.checkPartial.Checked;
             s.UDP = (int)form.textUDP.Value;
             s.UDP_TCP = (int)form.textUDP_TCP.Value;
+            s.Domain = form.textDomain.Text;
             return s;
         }
 
@@ -210,6 +219,7 @@ namespace goflywin
             form.checkPartial.Checked = Partial;
             form.textUDP.Value = UDP;
             form.textUDP_TCP.Value = UDP_TCP;
+            form.textDomain.Text = Domain;
         }
     }
 }

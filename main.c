@@ -20,9 +20,9 @@ EXPORT void gofw_log_delete_since(uint64 idx)
 }
 
 EXPORT int gofw_start(g_callback created,
-    char *log_level, char *china_list, char *upstream, char *localaddr, char *auth, char *key, int partial, int dns_size, int udp_port, int udp_tcp)
+    char *log_level, char *china_list, char *upstream, char *localaddr, char *auth, char *key, char *domain, int partial, int dns_size, int udp_port, int udp_tcp)
 {
-    return StartServer(created, log_level, china_list, upstream, localaddr, auth, key, partial, dns_size, udp_port, udp_tcp);
+    return StartServer(created, log_level, china_list, upstream, localaddr, auth, key, domain, partial, dns_size, udp_port, udp_tcp);
 }
 
 EXPORT void gofw_stop()
@@ -40,9 +40,9 @@ EXPORT int gofw_switch(int type)
     return SwitchProxyType(type);
 }
 
-EXPORT void gofw_unlock()
+EXPORT void gofw_mitm(int enabled)
 {
-    Unlock();
+    ManInTheMiddle(enabled);
 }
 
 int main(int argc, char const *argv[])

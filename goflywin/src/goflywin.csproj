@@ -110,6 +110,7 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Resources\ca.pem" />
     <None Include="Resources\logo_ZS6_icon.ico" />
   </ItemGroup>
   <ItemGroup>
