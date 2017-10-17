@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -25,13 +26,14 @@ const (
 	SOCKS_TYPE_Dm   = 3
 	SOCKS_TYPE_IPv6 = 4
 
-	DO_HTTP   = 0
-	DO_SOCKS5 = 1
-
-	HOST_HTTP_CONNECT  = byte(0x00)
-	HOST_HTTP_FORWARD  = byte(0x01)
-	HOST_SOCKS_CONNECT = byte(0x02)
-	HOST_IPV6          = byte(0x04)
+	DO_CONNECT  = 1
+	DO_FORWARD  = 1 << 1
+	DO_SOCKS5   = 1 << 2
+	DO_IPV6     = 1 << 3
+	DO_OMIT_HDR = 1 << 4
+	DO_RSV1     = 1 << 5
+	DO_RSV2     = 1 << 6
+	DO_RSV3     = 1 << 7
 
 	AUTH_HEADER     = "X-Authorization"
 	CANNOT_READ_BUF = "socks server: cannot read buffer: "
@@ -49,7 +51,7 @@ var (
 	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
-	DUMMY_FIELDS = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
+	DUMMY_FIELDS = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection", "URI0", "URI1", "URI2", "URI3"}
 
 	tlsSkip = &tls.Config{InsecureSkipVerify: true}
 
@@ -85,19 +87,23 @@ func (proxy *ProxyClient) addToDummies(req *http.Request) {
 			proxy.dummies.Add(field, x)
 		}
 	}
+
+	proxy.dummies.Add(fmt.Sprintf("URI%d", proxy.GCipher.Rand.Intn(4)), req.RequestURI)
 }
 
 func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
+	rkey, rkeybuf := proxy.GCipher.RandomIV(DO_FORWARD)
+	SafeAddHeader(req, proxy.rkeyHeader, rkey)
+
+	proxy.addToDummies(req)
+
 	if proxy.DummyDomain == "" {
-		req.Host = EncryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+		req.Host = encryptHost(proxy.GCipher, req.Host, rkeybuf[len(rkeybuf)-2:]...)
 	} else {
 		req.Host = proxy.DummyDomain
 	}
 
 	req.URL, _ = url.Parse("http://" + req.Host + "/?q=" + proxy.GCipher.EncryptString(req.URL.String()))
-
-	rkey, rkeybuf := proxy.GCipher.RandomIV()
-	SafeAddHeader(req, proxy.rkeyHeader, rkey)
 
 	cookies := []string{}
 	for _, c := range req.Cookies() {
@@ -106,8 +112,13 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 	}
 
 	req.Header.Set("Cookie", strings.Join(cookies, ";"))
-	req.Header.Set("Origin", proxy.EncryptString(req.Header.Get("Origin"))+".com")
-	req.Header.Set("Referer", proxy.EncryptString(req.Header.Get("Referer")))
+	if req.Header.Get("Origin") != "" {
+		req.Header.Set("Origin", proxy.EncryptString(req.Header.Get("Origin"))+".com")
+	}
+
+	if req.Header.Get("Referer") != "" {
+		req.Header.Set("Referer", proxy.EncryptString(req.Header.Get("Referer")))
+	}
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -118,14 +129,14 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
 	return rkeybuf
 }
 
-func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
+func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkeybuf []byte) {
 	if p := urlExtract.FindStringSubmatch(req.URL.String()); len(p) > 1 {
 		req.URL, _ = url.Parse(proxy.GCipher.DecryptString(p[1]))
 		req.RequestURI = req.URL.String()
 	}
 
 	if proxy.DummyDomain == "" {
-		req.Host = proxy.decryptHost(proxy.GCipher, req.Host, HOST_HTTP_FORWARD)
+		req.Host = proxy.decryptHost(proxy.GCipher, req.Host, options, rkeybuf[len(rkeybuf)-2:]...)
 	} else {
 		req.Host = req.URL.Host
 	}
@@ -137,8 +148,13 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) {
 	}
 
 	req.Header.Set("Cookie", strings.Join(cookies, ";"))
-	req.Header.Set("Origin", proxy.DecryptString(strings.Replace(req.Header.Get("Origin"), ".com", "", -1)))
-	req.Header.Set("Referer", proxy.DecryptString(req.Header.Get("Referer")))
+	if req.Header.Get("Origin") != "" {
+		req.Header.Set("Origin", proxy.DecryptString(strings.Replace(req.Header.Get("Origin"), ".com", "", -1)))
+	}
+
+	if req.Header.Get("Referer") != "" {
+		req.Header.Set("Referer", proxy.DecryptString(req.Header.Get("Referer")))
+	}
 
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
@@ -233,23 +249,32 @@ func splitHostPort(host string) (string, string) {
 	return strings.ToLower(host), ""
 }
 
-func EncryptHost(c *GCipher, text string, mark byte) string {
+func IsIPv6Address(host string) (net.IP, bool) {
+	host, _ = splitHostPort(host)
+
+	if len(host) > 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		ip := net.ParseIP(host[1 : len(host)-1])
+		if ip != nil && len(ip) == net.IPv6len {
+			return ip, true
+		}
+	}
+
+	return nil, false
+}
+
+func encryptHost(c *GCipher, text string, ss ...byte) string {
 	host, port := splitHostPort(text)
 
 	enc := func(in string) string {
-		return Base32Encode(c.Encrypt(bitsop.Compress(mark, in)))
+		return Base32Encode(c.Encrypt(bitsop.Compress(in), ss...))
 	}
 
 	if lookup.IPAddressToInteger(host) != 0 {
 		return enc(host) + port
 	}
 
-	if len(host) > 2 && host[0] == '[' && host[len(host)-1] == ']' {
-		ip := net.ParseIP(host[1 : len(host)-1])
-		if ip != nil {
-			buf := append([]byte{(mark | HOST_IPV6) << 5}, ip...)
-			return Base32Encode(c.Encrypt(buf)) + port
-		}
+	if ipv6, ok := IsIPv6Address(host); ok {
+		return Base32Encode(c.Encrypt([]byte(ipv6), ss...)) + port
 	}
 
 	parts := strings.Split(host, ".")
@@ -269,54 +294,45 @@ func EncryptHost(c *GCipher, text string, mark byte) string {
 	return enc(host) + port
 }
 
-func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, mark byte) string {
-	host, m := proxy.tryDecryptHost(c, text)
-	if m != mark {
-		return ""
-	} else {
-		return host
-	}
-}
-
-func (proxy *ProxyUpstream) tryDecryptHost(c *GCipher, text string) (h string, m byte) {
+func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, options byte, ss ...byte) string {
 	host, port := splitHostPort(text)
 	if host != "" && host == proxy.DummyDomain {
-		return host, HOST_HTTP_FORWARD
+		return host
 	}
 
 	parts := strings.Split(host, ".")
+	ipv6 := (options & DO_IPV6) > 0
 
 	for i := len(parts) - 1; i >= 0; i-- {
 		if !tlds.TLDs[parts[i]] {
 			bbuf, err := Base32Decode(parts[i])
 			if err != nil {
-				return text, 0xff
+				return ""
 			}
 
-			buf := c.Decrypt(bbuf)
+			buf := c.Decrypt(bbuf, ss...)
 			if len(buf) == 0 {
-				return text, 0xff
+				return ""
 			}
 
-			mark := buf[0] >> 5
-			if (mark & HOST_IPV6) != 0 {
-				if ipv6 := net.IP(buf[1:]).To16(); ipv6 != nil {
-					return "[" + ipv6.String() + "]" + port, mark - HOST_IPV6
+			if ipv6 {
+				if ipv6 := net.IP(buf).To16(); ipv6 != nil {
+					return "[" + ipv6.String() + "]" + port
 				} else {
-					return "", 0xff
+					return ""
 				}
 			}
 
-			m, parts[i] = bitsop.Decompress(buf)
+			parts[i] = bitsop.Decompress(buf)
 			if len(parts[i]) == 0 {
-				return text, 0xff
+				return ""
 			}
 
 			break
 		}
 	}
 
-	return strings.Join(parts, ".") + port, m
+	return strings.Join(parts, ".") + port
 }
 
 func isTrustedToken(mark string, rkeybuf []byte) bool {
@@ -369,20 +385,32 @@ func Base32Decode(text string) ([]byte, error) {
 	return base32Encoding.DecodeString(text)
 }
 
-func genWord(gc *GCipher) string {
+func genWord(gc *GCipher, random bool) string {
 	const (
 		vowels = "aeiou"
 		cons   = "bcdfghlmnprst"
 	)
 
 	ret := make([]byte, 16)
-	gc.Block.Encrypt(ret, gc.Key)
-	ret[0] = (vowels + cons)[ret[0]/15]
-	i, ln := 1, int(ret[15]/85)+6
+	i, ln := 0, 0
+
+	if random {
+		ret[0] = (vowels + cons)[gc.Rand.Intn(19)]
+		i, ln = 1, gc.Rand.Intn(5)+2
+	} else {
+		gc.Block.Encrypt(ret, gc.Key)
+		ret[0] = (vowels + cons)[ret[0]/15]
+		i, ln = 1, int(ret[15]/85)+6
+	}
 
 	link := func(prev string, this string, thisidx byte) {
 		if strings.ContainsRune(prev, rune(ret[i-1])) {
-			ret[i] = this[ret[i]/thisidx]
+			if random {
+				ret[i] = this[gc.Rand.Intn(len(this))]
+			} else {
+				ret[i] = this[ret[i]/thisidx]
+			}
+
 			i++
 		}
 	}

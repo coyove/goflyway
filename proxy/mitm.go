@@ -44,15 +44,22 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			return
 		}
 
-		defer tlsClient.Close()
 		bufTLSClient := bufio.NewReader(tlsClient)
-		// isWebsocket := false
 
 		for {
 			var err error
 			var rUrl string
-			if _, err := bufTLSClient.Peek(1); err == io.EOF {
+			var buf []byte
+			if buf, err = bufTLSClient.Peek(3); err == io.EOF || len(buf) != 3 {
 				break
+			}
+
+			switch string(buf) {
+			case "GET", "POS", "HEA", "PUT", "OPT", "DEL", "PAT", "TRA":
+				// good
+			default:
+				proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
+				return
 			}
 
 			req, err := http.ReadRequest(bufTLSClient)
@@ -120,5 +127,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 		}
 
 		logg.D("mitm close connection: ", host)
+		tlsClient.Close()
 	}()
 }

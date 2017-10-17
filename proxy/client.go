@@ -66,24 +66,27 @@ func (proxy *ProxyClient) dialUpstream() net.Conn {
 	return upstreamConn
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options int) {
+func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options byte) net.Conn {
 	upstreamConn := proxy.dialUpstream()
 	if upstreamConn == nil {
-		return
+		return nil
 	}
 
-	rkey, rkeybuf := proxy.GCipher.RandomIV()
-
-	if (options & DO_SOCKS5) != 0 {
-		host = EncryptHost(proxy.GCipher, host, HOST_SOCKS_CONNECT)
-	} else {
-		host = EncryptHost(proxy.GCipher, host, HOST_HTTP_CONNECT)
+	if _, ok := IsIPv6Address(host); ok {
+		options |= DO_IPV6
 	}
 
-	payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n", host)
+	rkey, rkeybuf := proxy.GCipher.RandomIV(options)
+	host = encryptHost(proxy.GCipher, host, rkeybuf[len(rkeybuf)-2:]...)
+	uri := "/"
+	if u, _ := proxy.dummies.Get(fmt.Sprintf("URI%d", proxy.GCipher.Rand.Intn(4))); u != nil && u.(string) != "" {
+		uri = u.(string)
+	}
+
+	payload := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\n", uri, host)
 
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
-		if v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
+		if v != nil && v.(string) != "" && k.(string)[:3] != "URI" && proxy.GCipher.Rand.Intn(5) > 1 {
 			payload += k.(string) + ": " + v.(string) + "\r\n"
 		}
 	})
@@ -96,6 +99,8 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
 	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
+
+	return upstreamConn
 }
 
 func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, options int) {
@@ -108,7 +113,6 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 	if (options & DO_SOCKS5) != 0 {
 		downstreamConn.Write(OK_SOCKS)
 	} else {
-		// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
 		downstreamConn.Write(OK_HTTP)
 	}
 
@@ -164,11 +168,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if proxy.canDirectConnect(auth, host) {
-			proxy.dialHostAndBridge(proxyClient, host, DO_HTTP)
+			proxy.dialHostAndBridge(proxyClient, host, DO_CONNECT)
 		} else if proxy.ManInTheMiddle {
 			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
-			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_HTTP)
+			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_CONNECT)
 		}
 	} else {
 		// normal http requests
@@ -436,7 +440,7 @@ func (proxy *ProxyClient) PleaseUnlockMe() {
 func (proxy *ProxyClient) UpdateKey(newKey string) {
 	proxy.GCipher.KeyString = newKey
 	proxy.GCipher.New()
-	proxy.Nickname = genWord(proxy.GCipher)
+	proxy.Nickname = genWord(proxy.GCipher, false)
 	proxy.rkeyHeader = "X-" + proxy.Nickname
 }
 
@@ -454,7 +458,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	word := genWord(config.GCipher)
+	word := genWord(config.GCipher, false)
 	proxy := &ProxyClient{
 		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,

@@ -139,9 +139,8 @@ func idxToChar(b byte) byte {
 	}
 }
 
-func Compress(mark byte, str string) []byte {
+func Compress(str string) []byte {
 	b := NewBitsArray(len(str))
-	b.PushByte(mark, 3)
 
 	for i := 0; i < len(str); i++ {
 		n, w := charToIdx(str[i])
@@ -154,7 +153,7 @@ func Compress(mark byte, str string) []byte {
 	return b.GetBytes()
 }
 
-func Decompress(buf []byte) (byte, string) {
+func Decompress(buf []byte) string {
 	idx := 0
 	readidx := 0
 
@@ -204,11 +203,6 @@ func Decompress(buf []byte) (byte, string) {
 
 	ret := make([]byte, 0, len(buf))
 
-	mark, ok := _read(3)
-	if !ok {
-		return 0, ""
-	}
-
 	for b, ok := _read(5); ok; b, ok = _read(5) {
 		if b<<3>>3 == 31 {
 			b2, ok2 := _read(3)
@@ -222,5 +216,5 @@ func Decompress(buf []byte) (byte, string) {
 		ret = append(ret, idxToChar(b))
 	}
 
-	return mark, string(ret)
+	return string(ret)
 }

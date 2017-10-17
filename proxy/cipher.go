@@ -157,10 +157,14 @@ func (gc *GCipher) New() (err error) {
 	return
 }
 
-func (gc *GCipher) GenerateIV(s, s2 byte) []byte {
+func (gc *GCipher) GenerateIV(ss ...byte) []byte {
 	ret := make([]byte, IV_LENGTH)
 
-	var mul uint32 = uint32(primes[s]) * uint32(primes[s2])
+	var mul uint32 = 1
+	for _, s := range ss {
+		mul *= uint32(primes[s])
+	}
+
 	var seed uint32 = binary.LittleEndian.Uint32(gc.Key[:4])
 
 	for i := 0; i < IV_LENGTH/4; i++ {
@@ -171,19 +175,28 @@ func (gc *GCipher) GenerateIV(s, s2 byte) []byte {
 	return ret
 }
 
-func (gc *GCipher) Encrypt(buf []byte) []byte {
+func (gc *GCipher) Encrypt(buf []byte, ss ...byte) []byte {
 	r := gc.NewRand()
-	b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
-	return append(_xor(gc.Block, gc.GenerateIV(b, b2), buf), b, b2)
+
+	if len(ss) < 2 {
+		b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
+		return append(_xor(gc.Block, gc.GenerateIV(b, b2), buf), b, b2)
+	}
+
+	return _xor(gc.Block, gc.GenerateIV(ss...), buf)
 }
 
-func (gc *GCipher) Decrypt(buf []byte) []byte {
+func (gc *GCipher) Decrypt(buf []byte, ss ...byte) []byte {
 	if len(buf) < 2 {
 		return []byte{}
 	}
 
-	b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
-	return _xor(gc.Block, gc.GenerateIV(b, b2), buf[:len(buf)-2])
+	if len(ss) < 2 {
+		b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
+		return _xor(gc.Block, gc.GenerateIV(b, b2), buf[:len(buf)-2])
+	}
+
+	return _xor(gc.Block, gc.GenerateIV(ss...), buf)
 }
 
 func (gc *GCipher) EncryptString(text string) string {
@@ -206,34 +219,60 @@ func (gc *GCipher) NewRand() *rand.Rand {
 	return rand.New(rand.NewSource(k2 ^ k))
 }
 
-func (gc *GCipher) RandomIV() (string, []byte) {
+func (gc *GCipher) RandomIV(options byte, ss ...byte) (string, []byte) {
 	_rand := gc.NewRand()
-	retB := make([]byte, IV_LENGTH*2+2) // just avoid allocating 2 slices
+	ln := IV_LENGTH + 1
+	pad := _rand.Intn(4)
+	retB := make([]byte, 1+pad+IV_LENGTH+4+IV_LENGTH)
 
-	for i := 0; i < IV_LENGTH; i++ {
+	retB[0] = options
+
+	// +---+-------+-----------+--------+
+	// | 1 | pad 0 | iv 128bit | gen 4b |
+	// +---+-------+-----------+--------+
+
+	for i := pad + 1; i < ln; i++ {
 		retB[i] = byte(_rand.Intn(255) + 1)
-		retB[i+IV_LENGTH+2] = retB[i]
+		retB[i+IV_LENGTH+4] = retB[i]
 	}
 
-	return base64.StdEncoding.EncodeToString(gc.Encrypt(retB[:IV_LENGTH])), retB[IV_LENGTH+2:]
+	for len(ss) < 4 {
+		ss = append(ss, byte(_rand.Intn(256)))
+	}
+
+	ss = ss[:4]
+	return base64.StdEncoding.EncodeToString(append(_xor(gc.Block, gc.GenerateIV(ss...), retB[:ln+pad]), ss...)), retB[ln+4+pad:]
 }
 
-func (gc *GCipher) ReverseIV(key string) []byte {
+func (gc *GCipher) ReverseIV(key string) (byte, []byte) {
 	if key == "" {
-		return nil
+		return 0xff, nil
 	}
 
-	k, err := base64.StdEncoding.DecodeString(key)
-	if err != nil {
-		return nil
+	buf, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(buf) < 5 {
+		return 0xff, nil
 	}
 
-	buf := gc.Decrypt(k)
-	if len(buf) != IV_LENGTH {
-		return nil
+	b, b2, b3, b4 := buf[len(buf)-4], buf[len(buf)-3], buf[len(buf)-2], buf[len(buf)-1]
+	buf = _xor(gc.Block, gc.GenerateIV(b, b2, b3, b4), buf[:len(buf)-4])
+
+	if len(buf) < IV_LENGTH+1 {
+		return 0xff, nil
 	}
 
-	return buf
+	idx := 1
+	for idx = 1; idx < len(buf); idx++ {
+		if buf[idx] != 0 {
+			break
+		}
+	}
+
+	if len(buf[idx:]) != IV_LENGTH {
+		return 0xff, nil
+	}
+
+	return buf[0], buf[idx:]
 }
 
 type IOConfig struct {

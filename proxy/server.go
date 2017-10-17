@@ -65,7 +65,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 }
 
 func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	key := proxy.GCipher.ReverseIV(SafeGetHeader(r, proxy.rkeyHeader))
+	_, key := proxy.GCipher.ReverseIV(SafeGetHeader(r, proxy.rkeyHeader))
 
 	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
@@ -162,7 +162,8 @@ AUTH_OK:
 	}
 
 	rkey := SafeGetHeader(r, proxy.rkeyHeader)
-	rkeybuf := proxy.GCipher.ReverseIV(rkey)
+	options, rkeybuf := proxy.GCipher.ReverseIV(rkey)
+
 	if rkeybuf == nil {
 		logg.W("can't find header, check your client's key")
 		proxy.blacklist.Add(addr, nil)
@@ -189,8 +190,10 @@ AUTH_OK:
 		return
 	}
 
-	if host, mark := proxy.tryDecryptHost(proxy.GCipher, r.Host); mark == HOST_HTTP_CONNECT || mark == HOST_SOCKS_CONNECT {
-		logg.D(mark, " ", host)
+	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
+		host := proxy.decryptHost(proxy.GCipher, r.Host, options, rkeybuf[len(rkeybuf)-2:]...)
+		logg.D(options, " ", host)
+
 		// dig tunnel
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
@@ -206,16 +209,17 @@ AUTH_OK:
 			return
 		}
 
-		if mark == HOST_HTTP_CONNECT {
-			// response HTTP 200 OK to downstream, and it will not be xored in IOCopyCipher
-			downstreamConn.Write(OK_HTTP)
-		} else {
-			downstreamConn.Write(OK_SOCKS)
+		if (options & DO_OMIT_HDR) == 0 {
+			if (options & DO_CONNECT) > 0 {
+				downstreamConn.Write(OK_HTTP)
+			} else {
+				downstreamConn.Write(OK_SOCKS)
+			}
 		}
 
 		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
-	} else if mark == HOST_HTTP_FORWARD {
-		proxy.decryptRequest(r, rkeybuf)
+	} else if (options & DO_FORWARD) > 0 {
+		proxy.decryptRequest(r, options, rkeybuf)
 		logg.D(r.Method, " ", r.Host)
 
 		resp, err := proxy.tp.RoundTrip(r)
@@ -248,7 +252,7 @@ AUTH_OK:
 }
 
 func StartServer(addr string, config *ServerConfig) {
-	word := genWord(config.GCipher)
+	word := genWord(config.GCipher, false)
 	proxy := &ProxyUpstream{
 		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,
