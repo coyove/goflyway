@@ -61,7 +61,7 @@ namespace goflywin {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to 控制台.
+        ///   Looks up a localized string similar to 打开控制台.
         /// </summary>
         internal static string buttonConsole {
             get {
@@ -133,6 +133,15 @@ namespace goflywin {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to 中间人代理模式.
+        /// </summary>
+        internal static string checkMITM {
+            get {
+                return ResourceManager.GetString("checkMITM", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to 半加密模式.
         /// </summary>
         internal static string checkPartial {
@@ -196,6 +205,15 @@ namespace goflywin {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to 假域名.
+        /// </summary>
+        internal static string labelDomain {
+            get {
+                return ResourceManager.GetString("labelDomain", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to 密钥.
         /// </summary>
         internal static string labelKey {
@@ -210,6 +228,15 @@ namespace goflywin {
         internal static string labelLogLevel {
             get {
                 return ResourceManager.GetString("labelLogLevel", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 为了使用中间人模式，请首先将“ca.pem”添加至“受信任的根证书”里。.
+        /// </summary>
+        internal static string labelMITMNote {
+            get {
+                return ResourceManager.GetString("labelMITMNote", resourceCulture);
             }
         }
         

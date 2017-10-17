@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Resources;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -24,6 +25,7 @@ namespace goflywin
 
         private NotifyIcon notifyIcon;
         private MenuItem[] menuProxyType;
+        private MenuItem menuMITM;
 
         private bool realExit = false;
 
@@ -40,12 +42,12 @@ namespace goflywin
         public static extern int gofw_switch(int type);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void gofw_unlock();
+        public static extern void gofw_mitm(int enabled);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         public static extern int gofw_start(
             [MarshalAs(UnmanagedType.FunctionPtr)]LogCallback created,
-            string log_level, string china_list, string upstream, string localaddr, string auth, string key,
+            string log_level, string china_list, string upstream, string localaddr, string auth, string key, string domain,
             int partial, int dns_size, int udp_port, int udp_tcp);
 
         [DllImport("goflyway.dll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
@@ -95,7 +97,6 @@ namespace goflywin
                 buttonStop.Enabled = false;
                 buttonConsole.Enabled = false;
                 enableMenuProxyType(false, -1);
-                labelState.Text = Util.ResourceManager.GetString("NOTRUNNING");
                 this.WindowState = FormWindowState.Normal;
             });
         }
@@ -117,6 +118,7 @@ namespace goflywin
                 labelLogLevel.Enabled = comboLogLevel.Enabled = !start;
                 labelDNS.Enabled = textDNS.Enabled = !start;
                 checkAutoMin.Enabled = !start;
+                menuMITM.Enabled = start;
                 notifyIcon.Text = title;
             });
         }
@@ -135,14 +137,25 @@ namespace goflywin
             serverlist[s.ServerAddr] = s;
             updateServerListToDisk();
 
-            string auth = "", chinalist =  "", logl = comboLogLevel.Text, server = comboServer.Text, local = textPort.Text, key = textKey.Text;
+            string
+                auth = "",
+                chinalist = "",
+                logl = comboLogLevel.Text,
+                server = comboServer.Text,
+                local = textPort.Text,
+                key = textKey.Text,
+                domain = textDomain.Text;
             try
             {
                 // sliently read chinalist.txt
                 chinalist = System.IO.File.ReadAllText("chinalist.txt");
             } catch (Exception) { }
 
-            int partial = checkPartial.Checked ? 1 : 0, dns = (int)textDNS.Value, udp = (int)textUDP.Value, udptcp = (int)textUDP_TCP.Value;
+            int 
+                partial = checkPartial.Checked ? 1 : 0, 
+                dns = (int)textDNS.Value, 
+                udp = (int)textUDP.Value, 
+                udptcp = (int)textUDP_TCP.Value;
 
             if (textAuthUser.Text != "" && textAuthPass.Text != "")
                 auth = textAuthUser.Text + ":" + textAuthPass.Text;
@@ -154,12 +167,11 @@ namespace goflywin
                 Thread.CurrentThread.IsBackground = true;
 
                 running = true;
-                updateControls(Application.ProductName + " - " + server, true);
                 uint flag = (uint)gofw_start(() =>
                 {
                     byte[] buf = new byte[32];
                     gofw_nickname(buf);
-                    labelState.Text = Encoding.ASCII.GetString(buf);
+                    updateControls(Application.ProductName + " - " + Util.BufferToString(buf)  + "/" + server, true);
 
                     buttonStart.Enabled = false;
                     buttonStop.Enabled = true;
@@ -182,7 +194,7 @@ namespace goflywin
                                 {
                                     byte[] pbuf = new byte[2048];
                                     ulong ts = gofw_log_read(i, pbuf);
-                                    addLog((long)ts, Encoding.ASCII.GetString(pbuf).Replace("\0", string.Empty));
+                                    addLog((long)ts, Util.BufferToString(pbuf));
                                 }
 
                                 gofw_log_delete_since(ln - 1);
@@ -196,7 +208,12 @@ namespace goflywin
 
                     new Thread(() =>
                     {
+                        // an ugly workaround
                         Thread.Sleep(2000);
+
+                        if (menuMITM.Checked = checkMITM.Checked)
+                            gofw_mitm(1);
+
                         int idx = 0;
                         switch (comboProxyType.Text)
                         {
@@ -212,7 +229,7 @@ namespace goflywin
                         enableMenuProxyType(true, idx);
                     }).Start();
                 }, 
-                logl, chinalist, server, local, auth, key, partial, dns, udp, udptcp);
+                logl, chinalist, server, local, auth, key, domain, partial, dns, udp, udptcp);
                 running = false;
                 updateControls(Application.ProductName, false);
 
@@ -262,12 +279,14 @@ namespace goflywin
         private void Form1_Load(object sender, EventArgs e)
         {
             if (!System.IO.File.Exists("chinalist.txt")) System.IO.File.WriteAllText("chinalist.txt", Form_Resource.chinalist);
+            if (!System.IO.File.Exists("ca.pem")) System.IO.File.WriteAllBytes("ca.pem", Form_Resource.ca);
 
             comboLogLevel.Text = Config.Read("default", "LogLevel", "log");
             comboProxyType.Text = Config.Read("default", "ProxyType", "iplist");
             comboLang.Text = Config.Read("default", "Lang", "zh-CN");
             checkAutoMin.Checked = Config.ReadBool("default", "AutoMin", true);
             checkAutostart.Checked = Config.ReadBool("default", "Autostart", false);
+            checkMITM.Checked = Config.ReadBool("default", "MITM", false);
             textDNS.Value = Config.ReadInt("default", "DNSCache", 1024);
 
             translateUI(this);
@@ -285,6 +304,10 @@ namespace goflywin
             menuConsole.Text = Util.ResourceManager.GetString("buttonConsole");
             menuConsole.Click += new System.EventHandler(buttonUnlock_Click);
 
+            menuMITM = new MenuItem();
+            menuMITM.Text = Util.ResourceManager.GetString("checkMITM");
+            menuMITM.Click += new System.EventHandler(menuMITM_Click);
+
             menuProxyType = new MenuItem[3];
             for (int i = 0; i < menuProxyType.Count(); i++)
             {
@@ -295,6 +318,8 @@ namespace goflywin
 
             notifyStop();
 
+            contextMenu.MenuItems.Add(menuMITM);
+            contextMenu.MenuItems.Add("-");
             contextMenu.MenuItems.AddRange(menuProxyType);
             contextMenu.MenuItems.Add("-");
             contextMenu.MenuItems.Add(menuConsole);
@@ -393,6 +418,7 @@ namespace goflywin
                 Config.Write("default", "DNSCache", (int)textDNS.Value);
                 Config.Write("default", "Autostart", checkAutostart.Checked);
                 Config.Write("default", "Lang", comboLang.Text);
+                Config.Write("default", "MITM", checkMITM.Checked);
                 return;
             }
 
@@ -461,6 +487,21 @@ namespace goflywin
         {
             switchType(comboProxyType.SelectedIndex);
             if (running) enableMenuProxyType(true, comboProxyType.SelectedIndex);
+        }
+
+        private void checkMITM_CheckedChanged(object sender, EventArgs e)
+        {
+            if (running)
+            {
+                gofw_mitm(checkMITM.Checked ? 1 : 0);
+            }
+        }
+
+        private void menuMITM_Click(object sender, EventArgs e)
+        {
+            menuMITM.Checked = !menuMITM.Checked;
+            checkMITM.Checked = menuMITM.Checked;
+            checkMITM_CheckedChanged(sender, e);
         }
     }
 }

@@ -70,10 +70,16 @@ func GetNickname(pbuf *C.char) {
 	copyToBuf(pbuf, name)
 }
 
-//export Unlock
-func Unlock() {
-	if clientStarted {
-		client.PleaseUnlockMe()
+//export ManInTheMiddle
+func ManInTheMiddle(enabled C.int) {
+	if client != nil {
+		// if int(enabled) == 1 {
+		// 	proxy.CA_CERT = []byte(C.GoString(cert))
+		// 	proxy.CA_KEY = []byte(C.GoString(key))
+		// 	proxy.CA, _ = tls.X509KeyPair(proxy.CA_CERT, proxy.CA_KEY)
+		// }
+
+		client.ManInTheMiddle = int(enabled) == 1
 	}
 }
 
@@ -115,7 +121,7 @@ func DeleteLogSince(idx C.ulonglong) {
 //export StartServer
 func StartServer(
 	created C.g_callback,
-	logLevel *C.char, chinaList *C.char, upstream *C.char, localaddr *C.char, auth *C.char, key *C.char,
+	logLevel *C.char, chinaList *C.char, upstream *C.char, localaddr *C.char, auth *C.char, key *C.char, domain *C.char,
 	partial C.int, dnsSize C.int, udpPort C.int, udptcp C.int,
 ) C.int {
 	runtime.LockOSThread()
@@ -148,6 +154,7 @@ func StartServer(
 	cipher.New()
 
 	cc := &proxy.ClientConfig{
+		DummyDomain:    C.GoString(domain),
 		DNSCacheSize:   int(dnsSize),
 		UserAuth:       C.GoString(auth),
 		Upstream:       C.GoString(upstream),
