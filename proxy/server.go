@@ -192,7 +192,12 @@ AUTH_OK:
 
 	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
 		host := proxy.decryptHost(proxy.GCipher, r.Host, options, rkeybuf[len(rkeybuf)-2:]...)
-		logg.D(options, " ", host)
+		if host == "" {
+			replyRandom()
+			return
+		}
+
+		logg.D("CONNECT ", options, " ", host)
 
 		// dig tunnel
 		downstreamConn := proxy.hijack(w)
@@ -205,7 +210,7 @@ AUTH_OK:
 		// we are outside GFW and should pass data to the real target
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
-			logg.E(err)
+			logg.E("connect ", err)
 			return
 		}
 
@@ -222,6 +227,7 @@ AUTH_OK:
 		proxy.decryptRequest(r, options, rkeybuf)
 		logg.D(r.Method, " ", r.Host)
 
+		r.Header.Del(proxy.rkeyHeader)
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
 			logg.E("proxy pass: ", r.URL, ", ", err)

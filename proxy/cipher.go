@@ -223,17 +223,17 @@ func (gc *GCipher) RandomIV(options byte, ss ...byte) (string, []byte) {
 	_rand := gc.NewRand()
 	ln := IV_LENGTH + 1
 	pad := _rand.Intn(4)
-	retB := make([]byte, 1+pad+IV_LENGTH+4+IV_LENGTH)
+	ret, retB := make([]byte, IV_LENGTH), make([]byte, 1+pad+IV_LENGTH)
 
 	retB[0] = options
 
-	// +---+-------+-----------+--------+
-	// | 1 | pad 0 | iv 128bit | gen 4b |
-	// +---+-------+-----------+--------+
+	// +------------+-------+-----------+
+	// | options 1b | pad b | iv 128bit |
+	// +------------+-------+-----------+
 
-	for i := pad + 1; i < ln; i++ {
+	for i := pad + 1; i < IV_LENGTH+pad+1; i++ {
 		retB[i] = byte(_rand.Intn(255) + 1)
-		retB[i+IV_LENGTH+4] = retB[i]
+		ret[i-pad-1] = retB[i]
 	}
 
 	for len(ss) < 4 {
@@ -241,7 +241,7 @@ func (gc *GCipher) RandomIV(options byte, ss ...byte) (string, []byte) {
 	}
 
 	ss = ss[:4]
-	return base64.StdEncoding.EncodeToString(append(_xor(gc.Block, gc.GenerateIV(ss...), retB[:ln+pad]), ss...)), retB[ln+4+pad:]
+	return base64.StdEncoding.EncodeToString(append(_xor(gc.Block, gc.GenerateIV(ss...), retB[:ln+pad]), ss...)), ret
 }
 
 func (gc *GCipher) ReverseIV(key string) (byte, []byte) {

@@ -88,11 +88,23 @@ func (proxy *ProxyClient) addToDummies(req *http.Request) {
 		}
 	}
 
-	proxy.dummies.Add(fmt.Sprintf("URI%d", proxy.GCipher.Rand.Intn(4)), req.RequestURI)
+	uri := req.RequestURI
+	if strings.HasPrefix(uri, "http") && len(uri) > 8 {
+		// we need relative
+		uri = "/" + uri[8:]
+	}
+
+	proxy.dummies.Add(fmt.Sprintf("URI%d", proxy.GCipher.Rand.Intn(4)), uri)
+
 }
 
 func (proxy *ProxyClient) encryptRequest(req *http.Request) []byte {
-	rkey, rkeybuf := proxy.GCipher.RandomIV(DO_FORWARD)
+	opt := byte(DO_FORWARD)
+	if _, ok := IsIPv6Address(req.Host); ok {
+		opt |= DO_IPV6
+	}
+
+	rkey, rkeybuf := proxy.GCipher.RandomIV(opt)
 	SafeAddHeader(req, proxy.rkeyHeader, rkey)
 
 	proxy.addToDummies(req)

@@ -54,19 +54,26 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			switch string(buf) {
-			case "GET", "POS", "HEA", "PUT", "OPT", "DEL", "PAT", "TRA":
-				// good
-			default:
-				proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
-				return
-			}
+			// switch string(buf) {
+			// case "GET", "POS", "HEA", "PUT", "OPT", "DEL", "PAT", "TRA":
+			// 	// good
+			// default:
+			// 	proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
+			// 	return
+			// }
 
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
 				logg.E("cannot read request: ", err)
 				break
 			}
+
+			// if req.Header.Get("Upgrade") == "websocket" {
+			// 	reqbuf, _ := httputil.DumpRequest(req, false)
+			// 	up := proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
+			// 	logg.L(up.Write(reqbuf))
+			// 	return
+			// }
 
 			logg.D("mitm: ", req.Method, " ", req.RequestURI)
 			req.Header.Del("Proxy-Authorization")
