@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,8 @@ func SetLevel(lv string) {
 		logLevel = 2
 	case "off":
 		logLevel = 3
+	case "pp":
+		logLevel = 99
 	default:
 		panic("unexpected log level: " + lv)
 	}
@@ -53,7 +56,21 @@ func timestamp() string {
 }
 
 func lead(l string) string {
-	return ("[" + l + " " + timestamp() + "] ")
+	return ("[" + timestamp() + " " + l + "] ")
+}
+
+func trunc(fn string) string {
+	idx := strings.LastIndex(fn, "/")
+	if idx == -1 {
+		idx = strings.LastIndex(fn, "\\")
+	}
+
+	fn = fn[idx+1:]
+	if strings.HasSuffix(fn, ".go") {
+		fn = fn[:len(fn)-3]
+	}
+
+	return fn
 }
 
 // Widnows WSA error messages are way too long to print
@@ -91,7 +108,8 @@ type msg_t struct {
 var msgQueue = make(chan msg_t)
 
 func print(l string, params ...interface{}) {
-	m := msg_t{lead: lead(l), ts: time.Now().UnixNano()}
+	_, fn, line, _ := runtime.Caller(2)
+	m := msg_t{lead: lead(fmt.Sprintf("%s:%03d%s", trunc(fn), line, strings.ToLower(l))), ts: time.Now().UnixNano()}
 
 	for _, p := range params {
 		switch p.(type) {
@@ -188,7 +206,7 @@ func D(params ...interface{}) {
 
 func L(params ...interface{}) {
 	if logLevel <= 0 {
-		print(" ", params...)
+		print("_", params...)
 	}
 }
 
@@ -201,6 +219,12 @@ func W(params ...interface{}) {
 func E(params ...interface{}) {
 	if logLevel <= 2 {
 		print("E", params...)
+	}
+}
+
+func P(params ...interface{}) {
+	if logLevel == 99 {
+		print("P", params...)
 	}
 }
 

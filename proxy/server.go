@@ -210,7 +210,7 @@ AUTH_OK:
 		// we are outside GFW and should pass data to the real target
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
-			logg.E("connect ", err)
+			logg.E(err)
 			return
 		}
 

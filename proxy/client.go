@@ -278,7 +278,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	upstreamConn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 	if _, err = upstreamConn.Write([]byte(payload)); err != nil {
 		if !err.(net.Error).Timeout() {
-			logg.W("remote lookup: ", err)
+			logg.W(err)
 		}
 		return maybeChinese
 	}

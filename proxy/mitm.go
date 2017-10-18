@@ -75,7 +75,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			// 	return
 			// }
 
-			logg.D("mitm: ", req.Method, " ", req.RequestURI)
+			logg.D(req.Method, " ", req.RequestURI)
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -92,7 +92,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 
 			resp, rkeybuf, err := proxy.encryptAndTransport(req, auth)
 			if err != nil {
-				logg.E("mitm proxy pass: ", rUrl, ", ", err)
+				logg.E("proxy pass: ", rUrl, ", ", err)
 				tlsClient.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n" + err.Error()))
 				break
 			}
@@ -117,11 +117,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			hdr := http.Header{}
 			copyHeaders(hdr, resp.Header, proxy.GCipher, false)
 			if err := hdr.Write(tlsClient); err != nil {
-				logg.W("mitm write header: ", err)
+				logg.W("write header: ", err)
 				break
 			}
 			if _, err = io.WriteString(tlsClient, "\r\n"); err != nil {
-				logg.W("mitm write header: ", err)
+				logg.W("write header: ", err)
 				break
 			}
 
@@ -129,11 +129,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			iocc.Partial = false
 
 			if nr, err := iocc.DoCopy(); err != nil {
-				logg.E("mitm io.wrap ", nr, "bytes: ", err)
+				logg.E("io.wrap ", nr, "bytes: ", err)
 			}
 		}
 
-		logg.D("mitm close connection: ", host)
+		logg.D("close connection: ", host)
 		tlsClient.Close()
 	}()
 }
