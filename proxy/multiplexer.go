@@ -139,6 +139,7 @@ CONTINUE:
 	b, err := wrapper.sbuffer.prefetch()
 	if err != nil {
 		logg.E("mux got err: ", err)
+		wrapper.Close()
 		goto CONTINUE
 	}
 
