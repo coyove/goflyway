@@ -163,7 +163,9 @@ func main() {
 
 		cc.Upstream = "127.0.0.1:8101"
 		client = proxy.NewClient(":8100", cc)
-		go logg.F(client.Start())
+		go func() {
+			logg.F(client.Start())
+		}()
 
 		proxy.StartServer(":8101", sc)
 		return

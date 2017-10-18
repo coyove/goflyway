@@ -131,8 +131,6 @@ func (proxy *ProxyClient) encryptAndTransport(r *http.Request, auth string) (*ht
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	logg.D(r.Method, " ", r.RequestURI)
-
 	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.DisableConsole {
 		proxy.handleWebConsole(w, r)
 		return
@@ -148,7 +146,6 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "CONNECT" {
-		// dig tunnel
 		hij, ok := w.(http.Hijacker)
 		if !ok {
 			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
@@ -168,10 +165,12 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if proxy.canDirectConnect(auth, host) {
+			logg.D("CONNECT direct ", r.RequestURI)
 			proxy.dialHostAndBridge(proxyClient, host, DO_CONNECT)
 		} else if proxy.ManInTheMiddle {
 			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
+			logg.D("CONNECT ", r.RequestURI)
 			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_CONNECT)
 		}
 	} else {
@@ -193,8 +192,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var rkeybuf []byte
 
 		if proxy.canDirectConnect(auth, r.Host) {
+			logg.D(r.Method, " direct ", r.RequestURI)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
+			logg.D(r.Method, " ", r.RequestURI)
 			resp, rkeybuf, err = proxy.encryptAndTransport(r, auth)
 		}
 
