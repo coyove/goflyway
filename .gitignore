@@ -1,4 +1,6 @@
 top-1m.csv
+debug
+launch.json
 *.exe
 *.dll
 *.a

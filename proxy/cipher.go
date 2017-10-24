@@ -298,8 +298,21 @@ func (gc *GCipher) blockedIO(target, source interface{}, key []byte, options *IO
 
 func (gc *GCipher) Bridge(target, source net.Conn, key []byte, options *IOConfig) {
 
-	targetTCP, targetOK := target.(*net.TCPConn)
+	var targetTCP *net.TCPConn
+	var targetOK bool
+
+	switch target.(type) {
+	case *net.TCPConn:
+		targetTCP, targetOK = target.(*net.TCPConn)
+	case *connWrapper:
+		targetTCP, targetOK = target.(*connWrapper).Conn.(*net.TCPConn)
+	}
+
 	sourceTCP, sourceOK := source.(*net.TCPConn)
+
+	if targetTCP == nil || sourceTCP == nil {
+		return
+	}
 
 	if targetOK && sourceOK {
 		// copy from source, decrypt, to target
