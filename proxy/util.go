@@ -278,6 +278,10 @@ func encryptHost(c *GCipher, text string, ss ...byte) string {
 	host, port := splitHostPort(text)
 
 	enc := func(in string) string {
+		if len(in) <= 2 {
+			in += ".."
+		}
+
 		return Base32Encode(c.Encrypt(bitsop.Compress(in), ss...))
 	}
 
@@ -335,7 +339,7 @@ func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, options byte, s
 				}
 			}
 
-			parts[i] = bitsop.Decompress(buf)
+			parts[i] = strings.Replace(bitsop.Decompress(buf), ".." , "", -1)
 			if len(parts[i]) == 0 {
 				return ""
 			}
