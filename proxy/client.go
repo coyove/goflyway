@@ -5,7 +5,6 @@ import (
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -165,12 +164,12 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if proxy.canDirectConnect(auth, host) {
-			logg.D("CONNECT direct ", r.RequestURI)
+			logg.D("CONNECT · ", r.RequestURI)
 			proxy.dialHostAndBridge(proxyClient, host, DO_CONNECT)
 		} else if proxy.ManInTheMiddle {
 			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
-			logg.D("CONNECT ", r.RequestURI)
+			logg.D("CONNECT * ", r.RequestURI)
 			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_CONNECT)
 		}
 	} else {
@@ -192,10 +191,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var rkeybuf []byte
 
 		if proxy.canDirectConnect(auth, r.Host) {
-			logg.D(r.Method, " direct ", r.RequestURI)
+			logg.D(r.Method, " · ", r.Host, r.RequestURI)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			logg.D(r.Method, " ", r.RequestURI)
+			logg.D(r.Method, " * ", r.Host, r.RequestURI)
 			resp, rkeybuf, err = proxy.encryptAndTransport(r, auth)
 		}
 
@@ -386,10 +385,11 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	host := addr.String()
 
 	if method == 0x01 {
-		logg.D("SOCKS ", host)
 		if proxy.canDirectConnect(auth, host) {
+			logg.D("SCOKS * ", host)
 			proxy.dialHostAndBridge(conn, host, DO_SOCKS5)
 		} else {
+			logg.D("SCOKS · ", host)
 			proxy.dialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
 	} else if method == 0x03 {
@@ -425,7 +425,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 func (proxy *ProxyClient) PleaseUnlockMe() {
 	upConn := proxy.dialUpstream()
 	if upConn != nil {
-		token := base64.StdEncoding.EncodeToString(proxy.Encrypt(genTrustedToken("unlock", proxy.GCipher)))
+		token := genTrustedToken("unlock", proxy.GCipher)
 
 		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", proxy.rkeyHeader, token)
 		if proxy.UserAuth != "" {

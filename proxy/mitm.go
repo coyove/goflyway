@@ -75,7 +75,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			// 	return
 			// }
 
-			logg.D(req.Method, " ", req.RequestURI)
+			logg.D(req.Method, " * ", req.Host, req.RequestURI)
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -133,7 +133,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			}
 		}
 
-		logg.D("close connection: ", host)
+		logg.D("close: ", host)
 		tlsClient.Close()
 	}()
 }

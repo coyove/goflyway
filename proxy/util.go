@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"time"
+
 	"github.com/coyove/goflyway/pkg/bitsop"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
@@ -9,12 +11,12 @@ import (
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
-	_ "net/http/httputil"
 	"net/url"
 	"regexp"
 	"strings"
@@ -339,7 +341,7 @@ func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, options byte, s
 				}
 			}
 
-			parts[i] = strings.Replace(bitsop.Decompress(buf), ".." , "", -1)
+			parts[i] = strings.Replace(bitsop.Decompress(buf), "..", "", -1)
 			if len(parts[i]) == 0 {
 				return ""
 			}
@@ -351,33 +353,52 @@ func (proxy *ProxyUpstream) decryptHost(c *GCipher, text string, options byte, s
 	return strings.Join(parts, ".") + port
 }
 
-func isTrustedToken(mark string, rkeybuf []byte) bool {
-	if string(rkeybuf[:len(mark)]) != mark {
-		return false
+func checksum1b(buf []byte) byte {
+	s := int16(1)
+	for _, b := range buf {
+		s *= primes[b]
 	}
-
-	b := rkeybuf[len(mark)]
-
-	for i := len(mark) + 1; i < IV_LENGTH; i++ {
-		if rkeybuf[i] >= b {
-			return false
-		}
-	}
-
-	return true
+	return byte(s>>12) + byte(s&0x00f0)
 }
 
-func genTrustedToken(mark string, gc *GCipher) []byte {
-	ret := make([]byte, IV_LENGTH)
-	copy(ret, []byte(mark))
+func isTrustedToken(mark string, rkeybuf []byte) int {
+	logg.D("test token: ", rkeybuf)
 
-	n := gc.Rand.Intn(128)
-	ret[len(mark)] = byte(n)
-	for i := len(mark) + 1; i < IV_LENGTH; i++ {
-		ret[i] = byte(gc.Rand.Intn(n))
+	mbuf := rkeybuf[1 : len(mark)+1]
+	if string(mbuf) != mark || checksum1b(mbuf) != rkeybuf[0] {
+		return 0
 	}
 
-	return ret
+	sent := int64(binary.BigEndian.Uint32(rkeybuf[12:]))
+	if time.Now().Unix()-sent >= 10 || checksum1b(rkeybuf[12:]) != rkeybuf[11] {
+		// token becomes invalid after 10 seconds
+		return -1
+	}
+
+	return 1
+}
+
+func genTrustedToken(mark string, gc *GCipher) string {
+	_rand := gc.NewRand()
+	pad := _rand.Intn(4)
+	ret := make([]byte, 1+pad+12+4)
+	buf := []byte(mark)
+
+	if len(buf) > 10 {
+		buf = buf[:10]
+	}
+
+	// +----+-------+------------------+----------+----------------+--------------+
+	// | 1b | pad b | mark checksum 1b | mark 10b | ts checksum 1b | timestamp 4b |
+	// +----+-------+------------------+----------+----------------+--------------+
+
+	copy(ret[1+pad+1:], buf)
+	ret[1+pad] = checksum1b(buf)
+	binary.BigEndian.PutUint32(ret[1+pad+12:], uint32(time.Now().Unix()))
+	ret[1+pad+11] = checksum1b(ret[1+pad+12:])
+
+	ss := []byte{byte(_rand.Intn(256)), byte(_rand.Intn(256)), byte(_rand.Intn(256)), byte(_rand.Intn(256))}
+	return base64.StdEncoding.EncodeToString(append(_xor(gc.Block, gc.GenerateIV(ss...), ret), ss...))
 }
 
 func Base32Encode(buf []byte) string {

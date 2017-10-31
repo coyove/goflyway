@@ -171,17 +171,21 @@ AUTH_OK:
 		return
 	}
 
-	if isTrustedToken("unlock", rkeybuf) {
-		if proxy.trustedTokens[rkey] {
+	if options == 0 {
+		r := isTrustedToken("unlock", rkeybuf)
+
+		if r == -1 {
+			logg.W("someone is using an old token: ", addr)
 			proxy.blacklist.Add(addr, nil)
 			replyRandom()
 			return
 		}
 
-		proxy.trustedTokens[rkey] = true
-		proxy.blacklist.Remove(addr)
-		logg.L("unlock request accepted from: ", addr)
-		return
+		if r == 1 {
+			proxy.blacklist.Remove(addr)
+			logg.L("unlock request accepted from: ", addr)
+			return
+		}
 	}
 
 	if h, _ := proxy.blacklist.GetHits(addr); h > _RETRY_OPPORTUNITIES {
