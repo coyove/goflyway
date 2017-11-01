@@ -10,7 +10,7 @@ import (
 
 func gen() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	const table = "abcdefghijklmnopqrstuvwxyz0123456789-."
+	const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=`%\"|<>"
 
 	ln := r.Intn(256)
 	ret := ""
@@ -41,8 +41,11 @@ func TestCompress(t *testing.T) {
 		test(gen())
 	}
 
-	test("abcdefgabcdef") // 13
-	test("abc")           // 3
+	test("abcdefgabcdef")            // 13
+	test("abc")                      // 3
+	test("")                         // 0
+	test("http://www.google.com")    // 0
+	test("https://www.facebook.com") // 0
 
 	t.Log(float64(len1) / float64(len2))
 }
