@@ -71,21 +71,12 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		return nil
 	}
 
-	if _, ok := IsIPv6Address(host); ok {
-		options |= DO_IPV6
-	}
-
 	rkey, rkeybuf := proxy.GCipher.RandomIV(options)
-	host = encryptHost(proxy.GCipher, host, rkeybuf[len(rkeybuf)-2:]...)
-	uri := "/"
-	if u, _ := proxy.dummies.Get(fmt.Sprintf("URI%d", proxy.GCipher.Rand.Intn(4))); u != nil && u.(string) != "" {
-		uri = u.(string)
-	}
-
-	payload := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\n", uri, host)
+	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n",
+		compressAndEncrypt(host, proxy.GCipher, rkeybuf), proxy.genHost())
 
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
-		if v != nil && v.(string) != "" && k.(string)[:3] != "URI" && proxy.GCipher.Rand.Intn(5) > 1 {
+		if v != nil && v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
 			payload += k.(string) + ": " + v.(string) + "\r\n"
 		}
 	})

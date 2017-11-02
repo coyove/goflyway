@@ -165,7 +165,7 @@ AUTH_OK:
 	options, rkeybuf := proxy.GCipher.ReverseIV(rkey)
 
 	if rkeybuf == nil {
-		logg.W("can't find header, check your client's key")
+		logg.W("can't find header, check your client's key, from: ", addr)
 		proxy.blacklist.Add(addr, nil)
 		replyRandom()
 		return
@@ -195,7 +195,7 @@ AUTH_OK:
 	}
 
 	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
-		host := proxy.decryptHost(proxy.GCipher, r.Host, options, rkeybuf[len(rkeybuf)-2:]...)
+		host := decryptURIAndDecompress(r.RequestURI, proxy.GCipher, rkeybuf)
 		if host == "" {
 			replyRandom()
 			return
@@ -228,8 +228,12 @@ AUTH_OK:
 
 		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if (options & DO_FORWARD) > 0 {
-		proxy.decryptRequest(r, options, rkeybuf)
-		logg.D(r.Method, " ", r.Host)
+		if !proxy.decryptRequest(r, options, rkeybuf) {
+			replyRandom()
+			return
+		}
+
+		logg.D(r.Method, " ", r.URL.String())
 
 		r.Header.Del(proxy.rkeyHeader)
 		resp, err := proxy.tp.RoundTrip(r)

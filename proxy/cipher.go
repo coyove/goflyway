@@ -158,6 +158,10 @@ func (gc *GCipher) New() (err error) {
 }
 
 func (gc *GCipher) GenerateIV(ss ...byte) []byte {
+	if len(ss) == IV_LENGTH {
+		return ss
+	}
+
 	ret := make([]byte, IV_LENGTH)
 
 	var mul uint32 = 1
@@ -200,11 +204,11 @@ func (gc *GCipher) Decrypt(buf []byte, ss ...byte) []byte {
 }
 
 func (gc *GCipher) EncryptString(text string) string {
-	return Base32Encode(gc.Encrypt([]byte(text)))
+	return Base32Encode(gc.Encrypt([]byte(text)), true)
 }
 
 func (gc *GCipher) DecryptString(text string) string {
-	buf, err := Base32Decode(text)
+	buf, err := Base32Decode(text, true)
 	if err != nil {
 		return ""
 	}
