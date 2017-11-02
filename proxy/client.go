@@ -75,16 +75,21 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n",
 		compressAndEncrypt(host, proxy.GCipher, rkeybuf), proxy.genHost())
 
+	payloads := make([]string, 0, len(DUMMY_FIELDS))
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
 		if v != nil && v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
-			payload += k.(string) + ": " + v.(string) + "\r\n"
+			payloads = append(payloads, k.(string)+": "+v.(string)+"\r\n")
 		}
 	})
 
-	payload += fmt.Sprintf("%s: %s\r\n", proxy.rkeyHeader, rkey)
+	payloads = append(payloads, fmt.Sprintf("%s: %s\r\n", proxy.rkeyHeader, rkey))
 
 	if auth != "" {
-		payload += fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth))
+		payloads = append(payloads, fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth)))
+	}
+
+	for _, i := range proxy.Rand.Perm(len(payloads)) {
+		payload += payloads[i]
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))

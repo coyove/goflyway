@@ -366,7 +366,7 @@ func genWord(gc *GCipher, random bool) string {
 
 	if random {
 		ret[0] = (vowels + cons)[gc.Rand.Intn(18)]
-		i, ln = 1, gc.Rand.Intn(5)+2
+		i, ln = 1, gc.Rand.Intn(6)+3
 	} else {
 		gc.Block.Encrypt(ret, gc.Key)
 		ret[0] = (vowels + cons)[ret[0]/15]
