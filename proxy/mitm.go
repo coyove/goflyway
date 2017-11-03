@@ -115,7 +115,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			_ = httputil.DumpResponse
 
 			hdr := http.Header{}
-			copyHeaders(hdr, resp.Header, proxy.GCipher, false, rkeybuf)
+			copyHeaders(hdr, resp.Header, proxy.Cipher, false, rkeybuf)
 			if err := hdr.Write(tlsClient); err != nil {
 				logg.W("write header: ", err)
 				break
@@ -125,7 +125,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			iocc := proxy.GCipher.WrapIO(tlsClient, resp.Body, rkeybuf, &IOConfig{Chunked: true})
+			iocc := proxy.Cipher.WrapIO(tlsClient, resp.Body, rkeybuf, &IOConfig{Chunked: true})
 			iocc.Partial = false
 
 			if nr, err := iocc.DoCopy(); err != nil {

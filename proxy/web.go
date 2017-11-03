@@ -155,7 +155,7 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 		}{
 			proxy.GlobalProxy,
 			proxy.ManInTheMiddle,
-			proxy.GCipher.KeyString,
+			proxy.Cipher.KeyString,
 			proxy.UserAuth,
 			nil,
 		}

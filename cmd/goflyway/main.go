@@ -123,7 +123,7 @@ func main() {
 		}
 	}
 
-	cipher := &proxy.GCipher{
+	cipher := &proxy.Cipher{
 		KeyString: *G_Key,
 		Partial:   *G_PartialEncrypt,
 	}
@@ -139,11 +139,11 @@ func main() {
 		Upstream:       *G_Upstream,
 		UDPRelayPort:   int(*G_UdpRelay),
 		UDPRelayCoconn: int(*G_UdpTcp),
-		GCipher:        cipher,
+		Cipher:         cipher,
 	}
 
 	sc := &proxy.ServerConfig{
-		GCipher:        cipher,
+		Cipher:         cipher,
 		UDPRelayListen: int(*G_UdpRelay),
 		Throttling:     *G_Throttling,
 		DummyDomain:    *G_Domain,

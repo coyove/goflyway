@@ -31,7 +31,7 @@ type ClientConfig struct {
 	UDPRelayPort   int
 	UDPRelayCoconn int
 
-	*GCipher
+	*Cipher
 }
 
 type ProxyClient struct {
@@ -71,12 +71,12 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		return nil
 	}
 
-	rkey, rkeybuf := proxy.GCipher.NewIV(options, nil, auth)
-	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n", proxy.GCipher.EncryptCompress(host, rkeybuf...), proxy.genHost())
+	rkey, rkeybuf := proxy.Cipher.NewIV(options, nil, auth)
+	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n", proxy.Cipher.EncryptCompress(host, rkeybuf...), proxy.genHost())
 
 	payloads := make([]string, 0, len(DUMMY_FIELDS))
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
-		if v != nil && v.(string) != "" && proxy.GCipher.Rand.Intn(5) > 1 {
+		if v != nil && v.(string) != "" && proxy.Cipher.Rand.Intn(5) > 1 {
 			payloads = append(payloads, k.(string)+": "+v.(string)+"\r\n")
 		}
 	})
@@ -88,7 +88,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	proxy.GCipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
+	proxy.Cipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
 
 	return upstreamConn
 }
@@ -106,7 +106,7 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
+	proxy.Cipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -188,10 +188,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", rUrl)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.GCipher, false, rkeybuf)
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, nil)
+		iocc := proxy.Cipher.WrapIO(w, resp.Body, rkeybuf, nil)
 		iocc.Partial = false
 
 		nr, err := iocc.DoCopy()
@@ -252,7 +252,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	}
 
 	// only http 1.0 allows request without Host
-	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.GCipher.EncryptString(auth+"|"+host))
+	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.Cipher.EncryptString(auth+"|"+host))
 
 	upstreamConn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 	if _, err = upstreamConn.Write([]byte(payload)); err != nil {
@@ -279,7 +279,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 	return isChineseIP(ip2.String())
 }
 
-func (proxy *ProxyClient) authConnection(conn net.Conn) (string, bool) {
+func (proxy *ProxyClient) authSocks(conn net.Conn) (string, bool) {
 	buf := make([]byte, 1+1+255+1+255)
 	var n int
 	var err error
@@ -343,14 +343,14 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	if proxy.UserAuth != "" {
 		conn.Write([]byte{SOCKS5_VERSION, 0x02}) // username & password auth
 
-		if auth, ok = proxy.authConnection(conn); !ok {
+		if auth, ok = proxy.authSocks(conn); !ok {
 			conn.Write([]byte{0x01, 0x01})
 			conn.Close()
 			return
-		} else {
-			// auth success
-			conn.Write([]byte{0x1, 0})
 		}
+
+		// auth success
+		conn.Write([]byte{0x1, 0})
 	} else {
 		conn.Write([]byte{SOCKS5_VERSION, 0})
 	}
@@ -405,8 +405,8 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 func (proxy *ProxyClient) PleaseUnlockMe() {
 	upConn := proxy.dialUpstream()
 	if upConn != nil {
-		token := genTrustedToken("unlock", proxy.ClientConfig.UserAuth, proxy.GCipher)
-		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", proxy.rkeyHeader, token)
+		token := genTrustedToken("unlock", proxy.ClientConfig.UserAuth, proxy.Cipher)
+		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", proxy.genHost(), proxy.rkeyHeader, token)
 
 		upConn.SetWriteDeadline(time.Now().Add(time.Second))
 		upConn.Write([]byte(payload + "\r\n"))
@@ -415,9 +415,9 @@ func (proxy *ProxyClient) PleaseUnlockMe() {
 }
 
 func (proxy *ProxyClient) UpdateKey(newKey string) {
-	proxy.GCipher.KeyString = newKey
-	proxy.GCipher.New()
-	proxy.Nickname = genWord(proxy.GCipher, false)
+	proxy.Cipher.KeyString = newKey
+	proxy.Cipher.New()
+	proxy.Nickname = genWord(proxy.Cipher, false)
 	proxy.rkeyHeader = "X-" + proxy.Nickname
 }
 
@@ -435,7 +435,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	word := genWord(config.GCipher, false)
+	word := genWord(config.Cipher, false)
 	proxy := &ProxyClient{
 		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,

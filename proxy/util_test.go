@@ -7,7 +7,7 @@ import (
 )
 
 func TestHost(t *testing.T) {
-	// c := &GCipher{KeyString: "12345678"}
+	// c := &Cipher{KeyString: "12345678"}
 	// c.New()
 	// t.Log("Testing host compressing and decompressing")
 
@@ -26,9 +26,9 @@ func TestHost(t *testing.T) {
 }
 
 func TestCipher(t *testing.T) {
-	c := &GCipher{KeyString: "12345678"}
+	c := &Cipher{KeyString: "12345678"}
 	c.New()
-	t.Log("Testing GCipher")
+	t.Log("Testing Cipher")
 
 	test := func(m byte) {
 		s, buf := c.RandomIV(m)
@@ -44,11 +44,11 @@ func TestCipher(t *testing.T) {
 }
 
 func TestGenWord(t *testing.T) {
-	r := &GCipher{KeyString: "12345678"}
+	r := &Cipher{KeyString: "12345678"}
 	r.New()
 
-	gen := func() *GCipher {
-		ret, n := &GCipher{}, r.Rand.Intn(16)+1
+	gen := func() *Cipher {
+		ret, n := &Cipher{}, r.Rand.Intn(16)+1
 		for i := 0; i < n; i++ {
 			ret.KeyString += string(byte(r.Rand.Intn(26)) + 'a')
 		}

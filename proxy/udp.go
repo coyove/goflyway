@@ -169,7 +169,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 				return "", nil
 			}
 
-			if !proxy.auth(string(proxy.GCipher.Decrypt(authdata))) {
+			if !proxy.auth(string(proxy.Cipher.Decrypt(authdata))) {
 				return "", nil
 			}
 		} else if proxy.Users != nil {
@@ -192,7 +192,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			return "", nil
 		}
 
-		host := string(proxy.GCipher.Decrypt(hostbuf[:hostlen-4]))
+		host := string(proxy.Cipher.Decrypt(hostbuf[:hostlen-4]))
 		port := int(binary.BigEndian.Uint16(hostbuf[hostlen-4 : hostlen-2]))
 		host = host + ":" + strconv.Itoa(port)
 
@@ -203,7 +203,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			return "", nil
 		}
 
-		payload = proxy.GCipher.Decrypt(payload)
+		payload = proxy.Cipher.Decrypt(payload)
 		return host, payload
 	}
 
@@ -260,7 +260,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 		// logg.L(n, ad.String(), err)
 
 		if n > 0 {
-			ybuf := proxy.GCipher.Encrypt(buf[:n])
+			ybuf := proxy.Cipher.Encrypt(buf[:n])
 			payload := append([]byte{UOT_HEADER, 0, 0}, ybuf...)
 			binary.BigEndian.PutUint16(payload[1:3], uint16(len(ybuf)))
 
@@ -296,7 +296,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 		proxy.udp.upstream.conns = make(map[string]net.Conn)
 	}
 
-	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.GCipher.Rand.Intn(proxy.UDPRelayCoconn))
+	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.Cipher.Rand.Intn(proxy.UDPRelayCoconn))
 	if conn, ok := proxy.udp.upstream.conns[str]; ok {
 		return conn, str, false
 	}
@@ -324,18 +324,18 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 	}
 
 	// prepare the payload
-	buf := proxy.GCipher.Encrypt(b[dst.size:])
+	buf := proxy.Cipher.Encrypt(b[dst.size:])
 
 	// i know it's better to encrypt ip bytes (4 or 16 + 2 bytes port) rather than
 	// string representation (like "100.200.300.400:56789", that is 21 bytes!)
 	// but this is one time payload, it's fine, easy.
-	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
+	enchost := proxy.Cipher.Encrypt([]byte(dst.HostString()))
 
 	var encauth []byte
 	var authlen = 0
 
 	if auth != "" {
-		encauth = proxy.GCipher.Encrypt([]byte(auth))
+		encauth = proxy.Cipher.Encrypt([]byte(auth))
 		authlen = len(encauth)
 	}
 
@@ -390,7 +390,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 				return nil
 			}
 
-			return proxy.GCipher.Decrypt(payload)
+			return proxy.Cipher.Decrypt(payload)
 		}
 
 		// read from upstream

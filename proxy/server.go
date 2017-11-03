@@ -26,7 +26,7 @@ type ServerConfig struct {
 
 	Users map[string]UserConfig
 
-	*GCipher
+	*Cipher
 }
 
 // for multi-users server, not implemented yet
@@ -65,9 +65,9 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 }
 
 func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	_, key, _ := proxy.GCipher.ReverseIV(r.Header.Get(proxy.rkeyHeader))
+	_, key, _ := proxy.Cipher.ReverseIV(r.Header.Get(proxy.rkeyHeader))
 
-	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
+	if ctr := proxy.Cipher.getCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
 	}
 
@@ -94,7 +94,7 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// remote dns lookup
 	if r.Method == "GET" && r.ProtoMajor == 1 && r.ProtoMinor == 0 && len(r.RequestURI) > 0 {
-		cob := proxy.GCipher.DecryptString(r.RequestURI[1:])
+		cob := proxy.Cipher.DecryptString(r.RequestURI[1:])
 		idx := strings.LastIndex(cob, "|")
 		if idx == -1 {
 			return
@@ -148,7 +148,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rkey := r.Header.Get(proxy.rkeyHeader)
-	options, rkeybuf, authbuf := proxy.GCipher.ReverseIV(rkey)
+	options, rkeybuf, authbuf := proxy.Cipher.ReverseIV(rkey)
 
 	if rkeybuf == nil {
 		logg.W("can't find header, check your client's key, from: ", addr)
@@ -160,6 +160,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var auth string
 	if proxy.Users != nil {
 		if authbuf == nil || string(authbuf) == "" || !proxy.auth(string(authbuf)) {
+			logg.W("user auth failed, from: ", addr)
 			return
 		}
 
@@ -190,7 +191,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
-		host := proxy.GCipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
+		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()
 			return
@@ -221,7 +222,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		proxy.GCipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
+		proxy.Cipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if (options & DO_FORWARD) > 0 {
 		if !proxy.decryptRequest(r, options, rkeybuf) {
 			replyRandom()
@@ -242,10 +243,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", r.URL)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.GCipher, true, rkeybuf)
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))
+		iocc := proxy.Cipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		nr, err := iocc.DoCopy()
@@ -261,7 +262,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func StartServer(addr string, config *ServerConfig) {
-	word := genWord(config.GCipher, false)
+	word := genWord(config.Cipher, false)
 	proxy := &ProxyUpstream{
 		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,
