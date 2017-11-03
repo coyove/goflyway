@@ -144,12 +144,12 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if proxy.canDirectConnect(auth, host) {
-			logg.D("CONNECT · ", r.RequestURI)
+			logg.D("CONNECT ", r.RequestURI)
 			proxy.dialHostAndBridge(proxyClient, host, DO_CONNECT)
 		} else if proxy.ManInTheMiddle {
 			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
-			logg.D("CONNECT * ", r.RequestURI)
+			logg.D("CONNECT^ ", r.RequestURI)
 			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_CONNECT)
 		}
 	} else {
@@ -162,6 +162,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// borrow some headers from real browsings
 		proxy.addToDummies(r)
 
+		r.URL.Host = r.Host
 		rUrl := r.URL.String()
 		r.Header.Del("Proxy-Authorization")
 		r.Header.Del("Proxy-Connection")
@@ -171,10 +172,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var rkeybuf []byte
 
 		if proxy.canDirectConnect(auth, r.Host) {
-			logg.D(r.Method, " · ", rUrl)
+			logg.D(r.Method, " ", rUrl)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			logg.D(r.Method, " * ", rUrl)
+			logg.D(r.Method, "^ ", rUrl)
 			resp, rkeybuf, err = proxy.encryptAndTransport(r, auth)
 		}
 
@@ -366,10 +367,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 	if method == 0x01 {
 		if proxy.canDirectConnect(auth, host) {
-			logg.D("SCOKS * ", host)
+			logg.D("SOCKS ", host)
 			proxy.dialHostAndBridge(conn, host, DO_SOCKS5)
 		} else {
-			logg.D("SCOKS · ", host)
+			logg.D("SOCKS^ ", host)
 			proxy.dialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
 		}
 	} else if method == 0x03 {

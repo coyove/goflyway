@@ -68,14 +68,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			// if req.Header.Get("Upgrade") == "websocket" {
-			// 	reqbuf, _ := httputil.DumpRequest(req, false)
-			// 	up := proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
-			// 	logg.L(up.Write(reqbuf))
-			// 	return
-			// }
-
-			logg.D(req.Method, " * ", req.URL.String())
+			rUrl = req.URL.String()
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -89,6 +82,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				req.URL, err = url.Parse("https://" + h + req.URL.String())
 				rUrl = req.URL.String()
 			}
+
+			logg.D(req.Method, "^ ", rUrl)
 
 			resp, rkeybuf, err := proxy.encryptAndTransport(req, auth)
 			if err != nil {

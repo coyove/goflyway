@@ -111,13 +111,17 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		defer conn.Close()
+
 		ip, err := net.ResolveIPAddr("ip4", host)
 		if err != nil {
+			// we assume the upstream can always query a valid ip, if not
+			// we return 127.0.0.1 so the client will try directly connecting the host
+			conn.Write([]byte{127, 0, 0, 1})
 			return
 		}
 
 		conn.Write(ip.IP)
-		conn.Close()
 		return
 	}
 
