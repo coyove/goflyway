@@ -75,7 +75,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			// 	return
 			// }
 
-			logg.D(req.Method, " * ", req.Host, req.RequestURI)
+			logg.D(req.Method, " * ", req.URL.String())
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 

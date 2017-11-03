@@ -169,7 +169,7 @@ func copyHeaders(dst, src http.Header, gc *GCipher, enc bool) {
 	}
 
 	for k, vs := range src {
-
+	READ:
 		for _, v := range vs {
 			cip := func(ei, di int) {
 				if enc {
@@ -179,7 +179,8 @@ func copyHeaders(dst, src http.Header, gc *GCipher, enc bool) {
 				}
 			}
 
-			if k == "Set-Cookie" {
+			switch strings.ToLower(k) {
+			case "set-cookie":
 				ei, di := strings.Index(v, "="), strings.Index(v, ";")
 
 				if ei > -1 && di > ei {
@@ -195,11 +196,20 @@ func copyHeaders(dst, src http.Header, gc *GCipher, enc bool) {
 						}
 					}
 				}
+			case "content-encoding":
+				if enc {
+					dst.Add("X-Content-Encoding", v)
+					continue READ
+				}
+			case "x-content-encoding":
+				if !enc {
+					dst.Add("Content-Encoding", v)
+					continue READ
+				}
 			}
 
 			dst.Add(k, v)
 		}
-
 	}
 }
 

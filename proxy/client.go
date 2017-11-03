@@ -187,10 +187,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var rkeybuf []byte
 
 		if proxy.canDirectConnect(auth, r.Host) {
-			logg.D(r.Method, " · ", r.Host, r.RequestURI)
+			logg.D(r.Method, " · ", rUrl)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			logg.D(r.Method, " * ", r.Host, r.RequestURI)
+			logg.D(r.Method, " * ", rUrl)
 			resp, rkeybuf, err = proxy.encryptAndTransport(r, auth)
 		}
 
