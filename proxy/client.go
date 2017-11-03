@@ -71,9 +71,8 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 		return nil
 	}
 
-	rkey, rkeybuf := proxy.GCipher.RandomIV(options)
-	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n",
-		compressAndEncrypt(host, proxy.GCipher, rkeybuf), proxy.genHost())
+	rkey, rkeybuf := proxy.GCipher.NewIV(options, nil, auth)
+	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n", proxy.GCipher.EncryptCompress(host, rkeybuf...), proxy.genHost())
 
 	payloads := make([]string, 0, len(DUMMY_FIELDS))
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
@@ -83,10 +82,6 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	})
 
 	payloads = append(payloads, fmt.Sprintf("%s: %s\r\n", proxy.rkeyHeader, rkey))
-
-	if auth != "" {
-		payloads = append(payloads, fmt.Sprintf("%s: %s\r\n", AUTH_HEADER, proxy.GCipher.EncryptString(auth)))
-	}
 
 	for _, i := range proxy.Rand.Perm(len(payloads)) {
 		payload += payloads[i]
@@ -114,17 +109,6 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 	proxy.GCipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
 }
 
-func (proxy *ProxyClient) encryptAndTransport(r *http.Request, auth string) (*http.Response, []byte, error) {
-	rkeybuf := proxy.encryptRequest(r)
-
-	if auth != "" {
-		SafeAddHeader(r, AUTH_HEADER, auth)
-	}
-
-	resp, err := proxy.tp.RoundTrip(r)
-	return resp, rkeybuf, err
-}
-
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.DisableConsole {
 		proxy.handleWebConsole(w, r)
@@ -133,7 +117,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var auth string
 	if proxy.UserAuth != "" {
-		if auth = proxy.basicAuth(getAuth(r)); auth == "" {
+		if auth = proxy.basicAuth(r.Header.Get("Proxy-Authorization")); auth == "" {
 			w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")
 			w.WriteHeader(http.StatusProxyAuthRequired)
 			return
@@ -204,7 +188,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", rUrl)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.GCipher, false)
+		copyHeaders(w.Header(), resp.Header, proxy.GCipher, false, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
 		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, nil)
@@ -421,12 +405,8 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 func (proxy *ProxyClient) PleaseUnlockMe() {
 	upConn := proxy.dialUpstream()
 	if upConn != nil {
-		token := genTrustedToken("unlock", proxy.GCipher)
-
+		token := genTrustedToken("unlock", proxy.ClientConfig.UserAuth, proxy.GCipher)
 		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: www.baidu.com\r\n%s: %s\r\n", proxy.rkeyHeader, token)
-		if proxy.UserAuth != "" {
-			payload += AUTH_HEADER + ": " + proxy.UserAuth + "\r\n"
-		}
 
 		upConn.SetWriteDeadline(time.Now().Add(time.Second))
 		upConn.Write([]byte(payload + "\r\n"))

@@ -65,7 +65,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
 }
 
 func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	_, key := proxy.GCipher.ReverseIV(SafeGetHeader(r, proxy.rkeyHeader))
+	_, key, _ := proxy.GCipher.ReverseIV(r.Header.Get(proxy.rkeyHeader))
 
 	if ctr := proxy.GCipher.GetCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
@@ -140,20 +140,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var auth string
-	if proxy.Users != nil {
-		if auth = SafeGetHeader(r, AUTH_HEADER); auth != "" {
-			auth = proxy.GCipher.DecryptString(auth)
-			if proxy.auth(auth) {
-				goto AUTH_OK
-			}
-		}
-
-		return
-	}
-
-AUTH_OK:
-
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		logg.W("unknown address: ", r.RemoteAddr)
@@ -161,14 +147,23 @@ AUTH_OK:
 		return
 	}
 
-	rkey := SafeGetHeader(r, proxy.rkeyHeader)
-	options, rkeybuf := proxy.GCipher.ReverseIV(rkey)
+	rkey := r.Header.Get(proxy.rkeyHeader)
+	options, rkeybuf, authbuf := proxy.GCipher.ReverseIV(rkey)
 
 	if rkeybuf == nil {
 		logg.W("can't find header, check your client's key, from: ", addr)
 		proxy.blacklist.Add(addr, nil)
 		replyRandom()
 		return
+	}
+
+	var auth string
+	if proxy.Users != nil {
+		if authbuf == nil || string(authbuf) == "" || !proxy.auth(string(authbuf)) {
+			return
+		}
+
+		auth = string(authbuf)
 	}
 
 	if options == 0 {
@@ -195,7 +190,7 @@ AUTH_OK:
 	}
 
 	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
-		host := decryptURIAndDecompress(r.RequestURI, proxy.GCipher, rkeybuf)
+		host := proxy.GCipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()
 			return
@@ -247,7 +242,7 @@ AUTH_OK:
 			logg.D("[", resp.Status, "] - ", r.URL)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.GCipher, true)
+		copyHeaders(w.Header(), resp.Header, proxy.GCipher, true, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
 		iocc := proxy.GCipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))

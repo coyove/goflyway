@@ -115,7 +115,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			_ = httputil.DumpResponse
 
 			hdr := http.Header{}
-			copyHeaders(hdr, resp.Header, proxy.GCipher, false)
+			copyHeaders(hdr, resp.Header, proxy.GCipher, false, rkeybuf)
 			if err := hdr.Write(tlsClient); err != nil {
 				logg.W("write header: ", err)
 				break
