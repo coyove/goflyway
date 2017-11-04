@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lru"
 
@@ -92,39 +93,6 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 }
 
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// remote dns lookup
-	if r.Method == "GET" && r.ProtoMajor == 1 && r.ProtoMinor == 0 && len(r.RequestURI) > 0 {
-		cob := proxy.Cipher.DecryptString(r.RequestURI[1:])
-		idx := strings.LastIndex(cob, "|")
-		if idx == -1 {
-			return
-		}
-
-		auth, host := cob[:idx], cob[idx+1:]
-
-		if proxy.Users != nil && !proxy.auth(auth) {
-			return
-		}
-
-		conn := proxy.hijack(w)
-		if conn == nil {
-			return
-		}
-
-		defer conn.Close()
-
-		ip, err := net.ResolveIPAddr("ip4", host)
-		if err != nil {
-			// we assume the upstream can always query a valid ip, if not
-			// we return 127.0.0.1 so the client will try directly connecting the host
-			conn.Write([]byte{127, 0, 0, 1})
-			return
-		}
-
-		conn.Write(ip.IP)
-		return
-	}
-
 	replyRandom := func() {
 		if proxy.rp == nil {
 			round := proxy.Rand.Intn(32) + 32
@@ -194,7 +162,19 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
+	if (options&DO_DNS) > 0 {
+		host := string(rkeybuf)
+		ip, err:= lookup.LookupIPv4(host)
+		if err != nil {
+			logg.W(err)
+			ip = "127.0.0.1"
+		}
+
+		logg.D("dns: ", host," ", ip)
+		w.Header().Add("ETag", ip)
+		w.WriteHeader(200)
+
+	} else if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
 		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()

@@ -26,7 +26,7 @@ const (
 	DO_FORWARD  = 1 << 1
 	DO_SOCKS5   = 1 << 2
 	DO_OMIT_HDR = 1 << 3
-	DO_RSV1     = 1 << 4
+	DO_DNS      = 1 << 4
 	DO_RSV2     = 1 << 5
 	DO_RSV3     = 1 << 6
 	DO_RSV4     = 1 << 7
@@ -151,6 +151,14 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 		req.Header.Set("Referer", proxy.DecryptString(referer, rkeybuf...))
 	}
 
+	for k, _ := range req.Header {
+		if k[:3] == "Cf-" {
+			// ignore all cloudflare headers
+			// this is needed when you use cf as the frontend: gofw client -> cloudflare -> gofw server -> target host
+			req.Header.Del(k)
+		}
+	}
+
 	req.Body = ioutil.NopCloser((&IOReaderCipher{
 		Src:    req.Body,
 		Key:    rkeybuf,
@@ -169,10 +177,12 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 	READ:
 		for _, v := range vs {
 			cip := func(ei, di int) {
-				if enc {
-					v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di]) + ";" + v[di+1:]
-				} else if rkeybuf != nil {
-					v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di]) + ";" + v[di+1:]
+				if rkeybuf != nil {
+					if enc {
+						v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
+					} else {
+						v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
+					}
 				}
 			}
 
@@ -193,14 +203,19 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 						}
 					}
 				}
-			case "content-encoding":
+			case "content-encoding", "content-type":
 				if enc {
-					dst.Add("X-Content-Encoding", v)
+					dst.Add("X-"+k, v)
+					continue READ
+				} else if rkeybuf != nil {
 					continue READ
 				}
-			case "x-content-encoding":
+
+				// rkeybuf is nil and we are in decrypt mode
+				// aka plain copy mode, so fall to the bottom
+			case "x-content-encoding", "x-content-type":
 				if !enc {
-					dst.Add("Content-Encoding", v)
+					dst.Add(k[2:], v)
 					continue READ
 				}
 			}

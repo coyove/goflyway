@@ -187,11 +187,15 @@ func (gc *Cipher) Encrypt(buf []byte, ss ...byte) []byte {
 }
 
 func (gc *Cipher) Decrypt(buf []byte, ss ...byte) []byte {
-	if buf == nil || len(buf) < 2 {
+	if buf == nil || len(buf) == 0 {
 		return []byte{}
 	}
 
 	if ss == nil || len(ss) < 2 {
+		if len(buf) < 2 {
+			return []byte{}
+		}
+
 		b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
 		return xor(gc.Block, gc.genIV(b, b2), buf[:len(buf)-2])
 	}
@@ -233,32 +237,46 @@ func checksum1b(buf []byte) byte {
 }
 
 func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []byte) {
-	_rand := gc.NewRand()
+	r, ln := gc.NewRand(), IV_LENGTH
 
 	// +------------+-------------+-----------+-- -  -   -
 	// | options 1b | checksum 1b | iv 128bit | auth data ...
 	// +------------+-------------+-----------+-- -  -   -
 
 	var retB, ret []byte
-	retB = make([]byte, 1+1+IV_LENGTH+len(auth))
 
 	if payload == nil {
-		ret = make([]byte, IV_LENGTH)
-		for i := 2; i < IV_LENGTH+2; i++ {
-			retB[i] = byte(_rand.Intn(255) + 1)
+		ret = make([]byte, ln)
+		retB = make([]byte, 1+1+ln+len(auth))
+
+		for i := 2; i < ln+2; i++ {
+			retB[i] = byte(r.Intn(255) + 1)
 			ret[i-2] = retB[i]
 		}
-	} else {
+	} else if (options & DO_DNS) == 0 {
 		ret = payload
+		retB = make([]byte, 1+1+ln+len(auth))
 		copy(retB[2:], payload)
+	} else {
+		// +--------+-------------+------------+------+-- -  -   -
+		// | DO_DNS | checksum 1b | hostlen 1b | host | auth data ...
+		// +--------+-------------+------------+------+-- -  -   -
+		retB = make([]byte, 1+1+1+len(payload)+len(auth))
+		if len(payload) > 255 {
+			logg.W("loss of data: ", string(payload))
+		}
+
+		retB[2] = byte(len(payload))
+		copy(retB[3:], payload)
+		ln = len(payload) + 1
 	}
 
 	if auth != "" {
-		copy(retB[2+IV_LENGTH:], []byte(auth))
+		copy(retB[2+ln:], []byte(auth))
 	}
 
 	retB[0], retB[1] = options, checksum1b(retB[2:])
-	s1, s2, s3, s4 := byte(_rand.Intn(256)), byte(_rand.Intn(256)), byte(_rand.Intn(256)), byte(_rand.Intn(256))
+	s1, s2, s3, s4 := byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256))
 
 	return base64.StdEncoding.EncodeToString(
 		append(
@@ -291,5 +309,14 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 		return
 	}
 
-	return buf[0], buf[2 : 2+IV_LENGTH], buf[2+IV_LENGTH:]
+	if (buf[0] & DO_DNS) == 0 {
+		return buf[0], buf[2 : 2+IV_LENGTH], buf[2+IV_LENGTH:]
+	}
+
+	ln := buf[2]
+	if int(3 + ln) > len(buf) {
+		return
+	}
+
+	return buf[0], buf[3 : 3+ln], buf[3+ln:]
 }

@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -37,8 +36,9 @@ type ClientConfig struct {
 type ProxyClient struct {
 	*ClientConfig
 
-	tp      *http.Transport
-	tpd     *http.Transport
+	tp      *http.Transport // to upstream
+	tpq     *http.Transport // to upstream used for dns query
+	tpd     *http.Transport // to host directly
 	dummies *lru.Cache
 	udp     struct {
 		upstream struct {
@@ -246,32 +246,21 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		return false
 	}
 
-	// lookup at upstream
-	upstreamConn := proxy.dialUpstream()
-	if upstreamConn == nil {
-		return maybeChinese
-	}
-
-	// only http 1.0 allows request without Host
-	payload := fmt.Sprintf("GET /%s HTTP/1.0\r\n\r\n", proxy.Cipher.EncryptString(auth+"|"+host))
-
-	upstreamConn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
-	if _, err = upstreamConn.Write([]byte(payload)); err != nil {
-		if !err.(net.Error).Timeout() {
-			logg.W(err)
-		}
-		return maybeChinese
-	}
-
-	upstreamConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	ipbuf, err := ioutil.ReadAll(upstreamConn)
-	tryClose(upstreamConn)
-
+	req, err := http.NewRequest("GET", "http://"+proxy.genHost(), nil)
 	if err != nil {
+		logg.E(err)
+		return maybeChinese
+	}
+	rkey, _ := proxy.Cipher.NewIV(DO_DNS, []byte(host), auth)
+	req.Header.Add(proxy.rkeyHeader, rkey)
+
+	resp, err := proxy.tpq.RoundTrip(req)
+	if err != nil {
+		logg.E(err)
 		return maybeChinese
 	}
 
-	ip2 := net.IP(ipbuf).To4()
+	ip2 := net.ParseIP(resp.Header.Get("ETag")).To4()
 	if ip2 == nil {
 		return maybeChinese
 	}
@@ -441,6 +430,14 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		tp: &http.Transport{
 			TLSClientConfig: tlsSkip,
 			Proxy:           http.ProxyURL(upstreamUrl),
+		},
+
+		tpq: &http.Transport{
+			TLSClientConfig:       tlsSkip,
+			Proxy:                 http.ProxyURL(upstreamUrl),
+			TLSHandshakeTimeout:   2 * time.Second,
+			ResponseHeaderTimeout: 2 * time.Second,
+			Dial: (&net.Dialer{Timeout: 1 * time.Second}).Dial,
 		},
 
 		tpd: &http.Transport{
