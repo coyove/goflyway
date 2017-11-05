@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"github.com/coyove/goflyway/pkg/bitsop"
+	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/goflyway/pkg/counter"
 	"github.com/coyove/goflyway/pkg/logg"
 
@@ -213,12 +213,12 @@ func (gc *Cipher) DecryptString(text string, rkey ...byte) string {
 }
 
 func (gc *Cipher) EncryptCompress(str string, rkey ...byte) string {
-	return Base32Encode(gc.Encrypt(bitsop.Compress(str), rkey...), false)
+	return Base32Encode(gc.Encrypt(msg64.Compress(str), rkey...), false)
 }
 
 func (gc *Cipher) DecryptDecompress(str string, rkey ...byte) string {
 	buf, _ := Base32Decode(str, false)
-	return bitsop.Decompress(gc.Decrypt(buf, rkey...))
+	return msg64.Decompress(gc.Decrypt(buf, rkey...))
 }
 
 func (gc *Cipher) NewRand() *rand.Rand {

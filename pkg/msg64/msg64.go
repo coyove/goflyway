@@ -1,8 +1,40 @@
-package bitsop
+package msg64
 
 import (
+	"math/rand"
 	"strings"
+	"time"
 )
+
+var crc16Table [256]uint16
+var r *rand.Rand
+
+func init() {
+	for i := 0; i < 256; i++ {
+		crc16Table[i] = uint16(0x1021 * i)
+	}
+
+	r = rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+func crc16(v interface{}) uint16 {
+	crc := uint16(0)
+
+	switch v.(type) {
+	case []byte:
+		buf := v.([]byte)
+		for i := 0; i < len(buf); i++ {
+			crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(buf[i])]
+		}
+	case string:
+		str := v.(string)
+		for i := 0; i < len(str); i++ {
+			crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(str[i])]
+		}
+	}
+
+	return crc
+}
 
 type BitsArray struct {
 	idx      int
@@ -130,12 +162,19 @@ var table = map[byte]byte{
 	/* 111001 */ 57: '(',
 	/* 111010 */ 58: ')',
 	/* 111011 */ 59: 'S',
-	/* 111100 */ 60: 'N',
 
-	// 111101    61: caps
-	// 111110    62: raw
-	// 111111    63: end
+	// control bits
+	// 111100    60: HASH, followed by 15 bits
+	// 111101    61: CAPS, followed by 5 bits
+	// 111110    62: RAW, followed by 8 bits, a raw byte
+	// 111111    63: END, end of the message
 }
+
+const (
+	_HASH = 60
+	_CAPS = 61
+	_RAW  = 62
+)
 
 var itable = map[byte]byte{
 	'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6,
@@ -147,24 +186,30 @@ var itable = map[byte]byte{
 	'A': 36, 'B': 37, 'C': 38, 'D': 39, 'E': 40, 'F': 41,
 	'-': 42, '.': 43, '_': 44, 'H': 45, ':': 46, '/': 47,
 	'?': 48, '#': 49, '+': 50, '%': 51, ',': 52, '!': 53,
-	'=': 54, '&': 55, '*': 56, '(': 57, ')': 58, 'S': 59, 'N': 60,
+	'=': 54, '&': 55, '*': 56, '(': 57, ')': 58, 'S': 59,
 }
 
 func charToIdx(b byte) (byte, byte, int) {
-	if b > 'F' && b <= 'Z' && b != 'S' && b != 'N' && b != 'H' {
-		return 61, itable[b+'a'-'A'], 11
+	if b > 'F' && b <= 'Z' && b != 'S' && b != 'H' {
+		return _CAPS, b - 'A', 11
 	}
 
 	b2, ok := itable[b]
 	if !ok {
-		return 62, b, 14
+		return _RAW, b, 14
 	}
 
 	return b2, 0, 6
 }
 
 func Compress(str string) []byte {
-	b := NewBitsArray(len(str))
+	ln := len(str)
+	if ln == 0 {
+		return []byte{}
+	}
+
+	b := NewBitsArray(ln)
+	crc := crc16(str)
 
 	if strings.HasPrefix(str, "https://") {
 		b.PushByte(3, 2)
@@ -176,7 +221,16 @@ func Compress(str string) []byte {
 		b.PushByte(0, 2)
 	}
 
-	for i := 0; i < len(str); i++ {
+	ln = len(str)
+	inserted := false
+	for i := 0; i < ln; i++ {
+		if !inserted && r.Intn(ln-i) == 0 {
+			b.PushByte(_HASH, 6)
+			b.PushByte(byte(crc>>8), 7)
+			b.PushByte(byte(crc), 8)
+			inserted = true
+		}
+
 		n, n2, w := charToIdx(str[i])
 		switch w {
 		case 6:
@@ -206,7 +260,7 @@ func Decompress(buf []byte) string {
 		}
 
 		curbyte := buf[readidx]
-		j := 1
+		// j := 1
 		n := byte(0)
 
 		if idx+w > 8 {
@@ -219,20 +273,22 @@ func Decompress(buf []byte) string {
 
 			b16 := uint16(curbyte)<<8 + uint16(nextbyte)
 
-			for i := idx; i < idx+w; i++ {
-				n += byte((b16 >> uint16(15-i) & 0x1) << byte(w-j))
-				j++
-			}
+			// for i := idx; i < idx+w; i++ {
+			// 	n += byte((b16 >> uint16(15-i) & 0x1) << byte(w-j))
+			// 	j++
+			// }
+			n = byte((b16 >> uint(16-idx-w)) & (1<<uint(w) - 1))
 
 			idx = idx + w - 8
 			readidx++
 
 			return n, true
 		} else {
-			for i := idx; i < idx+w; i++ {
-				n += (curbyte >> byte(7-i) & 0x1) << byte(w-j)
-				j++
-			}
+			// for i := idx; i < idx+w; i++ {
+			// 	n += (curbyte >> byte(7-i) & 0x1) << byte(w-j)
+			// 	j++
+			// }
+			n = byte((curbyte >> uint(8-idx-w)) & (1<<uint(w) - 1))
 
 			idx += w
 			if idx == 8 {
@@ -256,26 +312,41 @@ func Decompress(buf []byte) string {
 		ret = append(ret, 'h', 't', 't', 'p', ':', '/', '/')
 	}
 
+	var crc uint16
+READ:
 	for b, ok := _read(6); ok; b, ok = _read(6) {
-		if b == 63 {
-			break
-		} else if b == 62 {
+		switch b {
+		case 63:
+			break READ
+		case _RAW:
 			b2, ok2 := _read(8)
 			if !ok2 {
-				break
+				break READ
 			}
 
 			ret = append(ret, b2)
-		} else if b == 61 {
+		case _CAPS:
 			b2, ok2 := _read(5)
 			if !ok2 {
-				break
+				break READ
 			}
-			ret = append(ret, table[b2]-'a'+'A')
-		} else {
+			ret = append(ret, b2+'A')
+		case _HASH:
+			b2, ok2 := _read(7)
+			b3, ok3 := _read(8)
+			if !ok3 || !ok2 {
+				break READ
+			}
+
+			crc = uint16(b2)<<8 + uint16(b3)
+		default:
 			ret = append(ret, table[b])
 		}
 	}
 
-	return string(ret)
+	if (crc16(ret) & 0x7FFF) == crc {
+		return string(ret)
+	}
+
+	return ""
 }

@@ -1,4 +1,4 @@
-package bitsop
+package msg64
 
 import (
 	"math/rand"
@@ -22,9 +22,9 @@ func gen() string {
 }
 
 func TestCompress(t *testing.T) {
-	len1, len2 := 0, 0
+	len1, len2, len3 := 0, 0, 0
 
-	test := func(str string) {
+	test := func(str string, v bool) {
 		buf := Compress(str)
 
 		str2 := Decompress(buf)
@@ -35,19 +35,30 @@ func TestCompress(t *testing.T) {
 		buf2 := shoco.Compress(str)
 		len1 += len(buf)
 		len2 += len(buf2)
+		len3 += len(str)
+
+		if v {
+			t.Log(str, buf)
+		}
 	}
 
 	for i := 0; i < 100000; i++ {
-		test(gen())
+		test(gen(), false)
 	}
 
-	test("abcdefgabcdef")            // 13
-	test("abc")                      // 3
-	test("")                         // 0
-	test("http://www.google.com")    // 0
-	test("https://www.facebook.com") // 0
+	test("abcdefgabcdef", true)            // 13
+	test("abc", true)                      // 3
+	test("", true)                         // 0
+	test("http://www.google.com", true)    // 0
+	test("https://www.facebook.com", true) // 0
 
-	t.Log(float64(len1) / float64(len2))
+	ebuf := []byte{214, 89, 106, 197, 0, 33, 1, 56, 226, 171, 243, 234, 40, 71, 25}
+	t.Log(Decompress(ebuf))
+	ebuf[2] = 105
+	t.Log(Decompress(ebuf))
+	t.Log(Decompress([]byte{0}))
+
+	t.Log(float64(len1)/float64(len2), float64(len1)/float64(len3))
 }
 
 func BenchmarkCompress(b *testing.B) {

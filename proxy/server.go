@@ -157,9 +157,9 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h, _ := proxy.blacklist.GetHits(addr); h > _RETRY_OPPORTUNITIES {
-		logg.W("repeated access using invalid key, from: ", addr)
-		replyRandom()
-		return
+		logg.W("repeated access using invalid key from: ", addr)
+		// replyRandom()
+		// return
 	}
 
 	if (options&DO_DNS) > 0 {
