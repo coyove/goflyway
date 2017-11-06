@@ -128,7 +128,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			}
 		}
 
-		logg.D("close: ", host)
 		tlsClient.Close()
 	}()
 }
