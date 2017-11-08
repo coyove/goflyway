@@ -41,10 +41,8 @@ type ProxyClient struct {
 	tpd     *http.Transport // to host directly
 	dummies *lru.Cache
 	udp     struct {
-		upstream struct {
-			sync.Mutex
-			conns map[string]net.Conn
-		}
+		sync.Mutex
+		conns map[string]*udp_tcp_conn_t
 	}
 
 	rkeyHeader string
@@ -256,7 +254,11 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {
-		logg.E(err)
+		if e, _ := err.(net.Error); e != nil && e.Timeout() {
+			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
+		} else {
+			logg.E(err)
+		}
 		return maybeChinese
 	}
 
@@ -375,7 +377,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			binary.BigEndian.PutUint16(response[8:], uint16(port))
 
 			conn.Write(response)
-			logg.D("udp relay listening port: ", port, ", sync conn: ", conn)
+			logg.D("udp relay listening port: ", port)
 
 			for {
 				buf := make([]byte, 2048)

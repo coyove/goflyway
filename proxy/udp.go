@@ -15,6 +15,12 @@ const (
 	UOT_HEADER = byte(0x07)
 )
 
+type udp_tcp_conn_t struct {
+	conn net.Conn
+	hits int64
+	born int64
+}
+
 type addr_t struct {
 	ip   net.IP
 	host string
@@ -289,16 +295,17 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 }
 
 func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool) {
-	proxy.udp.upstream.Lock()
-	defer proxy.udp.upstream.Unlock()
+	proxy.udp.Lock()
+	defer proxy.udp.Unlock()
 
-	if proxy.udp.upstream.conns == nil {
-		proxy.udp.upstream.conns = make(map[string]net.Conn)
+	if proxy.udp.conns == nil {
+		proxy.udp.conns = make(map[string]*udp_tcp_conn_t)
 	}
 
 	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.Cipher.Rand.Intn(proxy.UDPRelayCoconn))
-	if conn, ok := proxy.udp.upstream.conns[str]; ok {
-		return conn, str, false
+	if conn, ok := proxy.udp.conns[str]; ok {
+		conn.hits++
+		return conn.conn, str, false
 	}
 
 	u, _, _ := net.SplitHostPort(proxy.Upstream)
@@ -308,7 +315,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 		return nil, "", false
 	}
 
-	proxy.udp.upstream.conns[str] = upstreamConn
+	proxy.udp.conns[str] = &udp_tcp_conn_t{upstreamConn, 0, time.Now().UnixNano()}
 	return upstreamConn, str, true
 }
 
@@ -429,12 +436,11 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 		}
 	}
 
-	proxy.udp.upstream.Lock()
-	delete(proxy.udp.upstream.conns, token)
-	proxy.udp.upstream.Unlock()
+	proxy.udp.Lock()
+	delete(proxy.udp.conns, token)
+	proxy.udp.Unlock()
 
 	upstreamConn.Close()
 	client.Close()
 	relay.Close()
-	logg.D("udp close: ", client)
 }
