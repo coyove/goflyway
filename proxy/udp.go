@@ -294,7 +294,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 	rconn.Close()
 }
 
-func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool) {
+func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool, bool) {
 	proxy.udp.Lock()
 	defer proxy.udp.Unlock()
 
@@ -302,31 +302,47 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 		proxy.udp.conns = make(map[string]*udp_tcp_conn_t)
 	}
 
+	if proxy.udp.addrs == nil {
+		proxy.udp.addrs = make(map[net.Addr]bool)
+	}
+
 	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.Cipher.Rand.Intn(proxy.UDPRelayCoconn))
 	if conn, ok := proxy.udp.conns[str]; ok {
 		conn.hits++
-		return conn.conn, str, false
+		return conn.conn, str, false, proxy.udp.addrs[client]
 	}
 
 	u, _, _ := net.SplitHostPort(proxy.Upstream)
-	upstreamConn, err := net.Dial("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	flag := proxy.udp.addrs[client]
+	upstreamConn, err := net.DialTimeout("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort), 2 * time.Second)
 	if err != nil {
 		logg.E(err)
-		return nil, "", false
+		return nil, "", false, flag
 	}
 
+	proxy.udp.addrs[client] = true
 	proxy.udp.conns[str] = &udp_tcp_conn_t{upstreamConn, 0, time.Now().UnixNano()}
-	return upstreamConn, str, true
+	return upstreamConn, str, true, flag
 }
 
 func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, auth string, src net.Addr) {
 	_, dst, ok := parseDstFrom(nil, b, true)
 	if !ok {
+		relay.Close()
+		client.Close()
 		return
 	}
 
-	upstreamConn, token, firstTime := proxy.dialForUDP(src, dst.String())
+	upstreamConn, token, firstTime, srcAddrInUse := proxy.dialForUDP(src, dst.String())
 	if upstreamConn == nil {
+		if !srcAddrInUse {
+			// if it is the first time we were trying to create a upstream conn
+			// and an error occurred, we should close the relay listener
+			// but if it isn't, we cannot close it because another goroutine
+			// may use it, let that goroutine closes it.
+			relay.Close()
+		}
+		client.Close()
 		return
 	}
 
@@ -438,6 +454,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 
 	proxy.udp.Lock()
 	delete(proxy.udp.conns, token)
+	delete(proxy.udp.addrs, src)
 	proxy.udp.Unlock()
 
 	upstreamConn.Close()

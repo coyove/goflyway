@@ -43,6 +43,7 @@ type ProxyClient struct {
 	udp     struct {
 		sync.Mutex
 		conns map[string]*udp_tcp_conn_t
+		addrs map[net.Addr]bool
 	}
 
 	rkeyHeader string
