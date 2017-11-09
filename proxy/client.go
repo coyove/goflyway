@@ -87,7 +87,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	proxy.Cipher.Bridge(downstreamConn, upstreamConn, rkeybuf, nil)
+	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
@@ -105,7 +105,7 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 		downstreamConn.Write(OK_HTTP)
 	}
 
-	proxy.Cipher.Bridge(downstreamConn, targetSiteConn, nil, nil)
+	proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -191,15 +191,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.Cipher.WrapIO(w, resp.Body, rkeybuf, nil)
-		iocc.Partial = false
-
-		nr, err := iocc.DoCopy()
-		tryClose(resp.Body)
-
-		if err != nil {
-			logg.E("io.wrap ", nr, "bytes: ", err)
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, IOConfig{Partial: false}); err != nil {
+			logg.E("copy ", nr, "bytes: ", err)
 		}
+
+		tryClose(resp.Body)
 	}
 }
 
@@ -262,7 +258,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		}
 		return maybeChinese
 	}
-
+	tryClose(resp.Body)
 	ip2 := net.ParseIP(resp.Header.Get("ETag")).To4()
 	if ip2 == nil {
 		return maybeChinese
@@ -473,5 +469,6 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024)}
 	proxy.Localaddr = localaddr
+
 	return proxy
 }

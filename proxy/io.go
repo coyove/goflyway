@@ -5,8 +5,8 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/coyove/goflyway/pkg/logg"
 )
@@ -14,18 +14,19 @@ import (
 type IOConfig struct {
 	Bucket  *TokenBucket
 	Chunked bool
+	Partial bool
 }
 
-func (gc *Cipher) blockedIO(target, source interface{}, key []byte, options *IOConfig) {
-	var wg sync.WaitGroup
+// func (gc *Cipher) blockedIO(target, source interface{}, key []byte, options *IOConfig) {
+// 	var wg sync.WaitGroup
 
-	wg.Add(2)
-	go gc.ioCopyOrWarn(target.(io.Writer), source.(io.Reader), key, options, &wg)
-	go gc.ioCopyOrWarn(source.(io.Writer), target.(io.Reader), key, options, &wg)
-	wg.Wait()
-}
+// 	wg.Add(2)
+// 	go gc.ioCopyOrWarn(target.(io.Writer), source.(io.Reader), key, options, &wg)
+// 	go gc.ioCopyOrWarn(source.(io.Writer), target.(io.Reader), key, options, &wg)
+// 	wg.Wait()
+// }
 
-func (gc *Cipher) Bridge(target, source net.Conn, key []byte, options *IOConfig) {
+func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 
 	var targetTCP *net.TCPConn
 	var targetOK bool
@@ -39,70 +40,72 @@ func (gc *Cipher) Bridge(target, source net.Conn, key []byte, options *IOConfig)
 
 	sourceTCP, sourceOK := source.(*net.TCPConn)
 
-	if targetTCP == nil || sourceTCP == nil {
+	if !targetOK || !sourceOK || sourceTCP == nil || targetTCP == nil {
+		logg.E("cast: ", target, " ", source)
 		return
 	}
 
-	if targetOK && sourceOK {
-		// copy from source, decrypt, to target
-		go gc.ioCopyAndClose(targetTCP, sourceTCP, key, options)
+	// if targetOK && sourceOK {
+	// copy from source, decrypt, to target
+	go iot.copyClose(targetTCP, sourceTCP, key, options)
 
-		// copy from target, encrypt, to source
-		go gc.ioCopyAndClose(sourceTCP, targetTCP, key, options)
-	} else {
-		go func() {
-			gc.blockedIO(target, source, key, options)
-			source.Close()
-			target.Close()
-		}()
-	}
+	// copy from target, encrypt, to source
+	go iot.copyClose(sourceTCP, targetTCP, key, options)
+	// } else {
+	// 	logg.D(target, source)
+	// 	go func() {
+	// 		gc.blockedIO(target, source, key, options)
+	// 		source.Close()
+	// 		target.Close()
+	// 	}()
+	// }
 }
 
-func (gc *Cipher) WrapIO(dst io.Writer, src io.Reader, key []byte, options *IOConfig) *IOCopyCipher {
+// func (gc *Cipher) WrapIO(dst io.Writer, src io.Reader, key []byte, options *IOConfig) *IOCopyCipher {
 
-	return &IOCopyCipher{
-		Dst:     dst,
-		Src:     src,
-		Key:     key,
-		Partial: gc.Partial,
-		Cipher:  gc,
-		Config:  options,
-	}
-}
+// 	return &IOCopyCipher{
+// 		Dst:     dst,
+// 		Src:     src,
+// 		Key:     key,
+// 		Partial: gc.Partial,
+// 		Cipher:  gc,
+// 		Config:  options,
+// 	}
+// }
 
-func (gc *Cipher) ioCopyAndClose(dst, src *net.TCPConn, key []byte, options *IOConfig) {
+func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
 	ts := time.Now()
 
-	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("tcp.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+	if _, err := iot.Copy(dst, src, key, config); err != nil {
+		logg.E("io copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 	}
 
 	dst.CloseWrite()
 	src.CloseRead()
 }
 
-func (gc *Cipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, options *IOConfig, wg *sync.WaitGroup) {
-	ts := time.Now()
+// func (gc *Cipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, options *IOConfig, wg *sync.WaitGroup) {
+// 	ts := time.Now()
 
-	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-		logg.E("io.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
-	}
+// 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
+// 		logg.E("io.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+// 	}
 
-	wg.Done()
-}
+// 	wg.Done()
+// }
 
-type IOCopyCipher struct {
-	Dst    io.Writer
-	Src    io.Reader
-	Key    []byte
-	Cipher *Cipher
-	Config *IOConfig
+// type IOCopyCipher struct {
+// 	Dst    io.Writer
+// 	Src    io.Reader
+// 	Key    []byte
+// 	Cipher *Cipher
+// 	Config *IOConfig
 
-	// can be altered outside
-	Partial bool
-}
+// 	// can be altered outside
+// 	Partial bool
+// }
 
-func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
+func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig) (written int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			logg.E("wtf, ", r)
@@ -110,21 +113,18 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 	}()
 
 	buf := make([]byte, 32*1024)
-	ctr := cc.Cipher.getCipherStream(cc.Key)
+	ctr := (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key)
 	encrypted := 0
-	chunked := cc.Config != nil && cc.Config.Chunked
 
 	for {
-		nr, er := cc.Src.Read(buf)
+		nr, er := src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
 			xs := 0
 
-			if cc.Partial && encrypted == SSL_RECORD_MAX {
-				goto direct_transmission
-			}
-
-			if ctr != nil {
+			if config.Partial && encrypted == SSL_RECORD_MAX {
+				// goto direct_transmission
+			} else if ctr != nil {
 				if written == 0 {
 					// ignore the header
 					if bytes.HasPrefix(xbuf, OK_HTTP) {
@@ -134,7 +134,7 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 					}
 				}
 
-				if encrypted+nr > SSL_RECORD_MAX && cc.Partial {
+				if encrypted+nr > SSL_RECORD_MAX && config.Partial {
 					ctr.XorBuffer(xbuf[:SSL_RECORD_MAX-encrypted])
 					encrypted = SSL_RECORD_MAX
 					// we are done, the traffic coming later will be transfered as is
@@ -145,23 +145,22 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 
 			}
 
-		direct_transmission:
-			if cc.Config != nil && cc.Config.Bucket != nil {
-				cc.Config.Bucket.Consume(int64(len(xbuf)))
+			if config.Bucket != nil {
+				config.Bucket.Consume(int64(len(xbuf)))
 			}
 
 			var nw int
 			var ew error
-			if chunked {
+			if config.Chunked {
 				hlen := strconv.FormatInt(int64(nr), 16)
-				if _, ew = cc.Dst.Write([]byte(hlen + "\r\n")); ew == nil {
-					if nw, ew = cc.Dst.Write(xbuf); ew == nil {
-						_, ew = cc.Dst.Write([]byte("\r\n"))
+				if _, ew = dst.Write([]byte(hlen + "\r\n")); ew == nil {
+					if nw, ew = dst.Write(xbuf); ew == nil {
+						_, ew = dst.Write([]byte("\r\n"))
 					}
 				}
 
 			} else {
-				nw, ew = cc.Dst.Write(xbuf)
+				nw, ew = dst.Write(xbuf)
 			}
 
 			if nw > 0 {
@@ -187,30 +186,36 @@ func (cc *IOCopyCipher) DoCopy() (written int64, err error) {
 		}
 	}
 
-	if chunked {
-		cc.Dst.Write([]byte("0\r\n\r\n"))
+	if config.Chunked {
+		dst.Write([]byte("0\r\n\r\n"))
 	}
 
 	return written, err
 }
 
-type IOReaderCipher struct {
-	Src    io.Reader
-	Key    []byte
-	Cipher *Cipher
-	ctr    *inplace_ctr_t
+func (iot *io_t) NewReadCloser(src io.ReadCloser, key []byte) *IOReadCloserCipher {
+	return &IOReadCloserCipher{
+		src: src,
+		key: key,
+		ctr: (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key),
+	}
 }
 
-func (rc *IOReaderCipher) Init() *IOReaderCipher {
-	rc.ctr = rc.Cipher.getCipherStream(rc.Key)
-	return rc
+type IOReadCloserCipher struct {
+	src io.ReadCloser
+	key []byte
+	ctr *inplace_ctr_t
 }
 
-func (rc *IOReaderCipher) Read(p []byte) (n int, err error) {
-	n, err = rc.Src.Read(p)
+func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
+	n, err = rc.src.Read(p)
 	if n > 0 && rc.ctr != nil {
 		rc.ctr.XorBuffer(p[:n])
 	}
 
 	return
+}
+
+func (rc *IOReadCloserCipher) Close() error {
+	return rc.src.Close()
 }

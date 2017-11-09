@@ -1,9 +1,9 @@
 package proxy
 
 import (
-	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/goflyway/pkg/counter"
 	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/msg64"
 
 	"crypto/aes"
 	"crypto/cipher"
@@ -38,12 +38,16 @@ var primes = []int16{
 }
 
 type Cipher struct {
+	IO io_t
+
 	Key       []byte
 	KeyString string
 	Block     cipher.Block
 	Partial   bool
 	Rand      *rand.Rand
 }
+
+type io_t byte
 
 type inplace_ctr_t struct {
 	b       cipher.Block
@@ -314,7 +318,7 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 	}
 
 	ln := buf[2]
-	if int(3 + ln) > len(buf) {
+	if int(3+ln) > len(buf) {
 		return
 	}
 

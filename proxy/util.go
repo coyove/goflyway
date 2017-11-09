@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -97,12 +96,7 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*
 		req.Header.Set("Referer", proxy.EncryptString(referer, rkeybuf...))
 	}
 
-	req.Body = ioutil.NopCloser((&IOReaderCipher{
-		Src:    req.Body,
-		Key:    rkeybuf,
-		Cipher: proxy.Cipher,
-	}).Init())
-
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, rkeybuf)
 	resp, err := proxy.tp.RoundTrip(req)
 	return resp, rkeybuf, err
 }
@@ -151,7 +145,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 		req.Header.Set("Referer", proxy.DecryptString(referer, rkeybuf...))
 	}
 
-	for k, _ := range req.Header {
+	for k := range req.Header {
 		if k[:3] == "Cf-" {
 			// ignore all cloudflare headers
 			// this is needed when you use cf as the frontend: gofw client -> cloudflare -> gofw server -> target host
@@ -159,12 +153,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 		}
 	}
 
-	req.Body = ioutil.NopCloser((&IOReaderCipher{
-		Src:    req.Body,
-		Key:    rkeybuf,
-		Cipher: proxy.Cipher,
-	}).Init())
-
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, rkeybuf)
 	return true
 }
 

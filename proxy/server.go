@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
 	"net"
@@ -56,12 +56,11 @@ func (proxy *ProxyUpstream) auth(auth string) bool {
 	return false
 }
 
-func (proxy *ProxyUpstream) getIOConfig(auth string) *IOConfig {
-	var ioc *IOConfig
+func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
+	var ioc IOConfig
 	if proxy.Throttling > 0 {
-		ioc = &IOConfig{Bucket: NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)}
+		ioc.Bucket = NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)
 	}
-
 	return ioc
 }
 
@@ -162,15 +161,15 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// return
 	}
 
-	if (options&DO_DNS) > 0 {
+	if (options & DO_DNS) > 0 {
 		host := string(rkeybuf)
-		ip, err:= lookup.LookupIPv4(host)
+		ip, err := lookup.LookupIPv4(host)
 		if err != nil {
 			logg.W(err)
 			ip = "127.0.0.1"
 		}
 
-		logg.D("dns: ", host," ", ip)
+		logg.D("dns: ", host, " ", ip)
 		w.Header().Add("ETag", ip)
 		w.WriteHeader(200)
 
@@ -206,7 +205,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		proxy.Cipher.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
+		proxy.Cipher.IO.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
 	} else if (options & DO_FORWARD) > 0 {
 		if !proxy.decryptRequest(r, options, rkeybuf) {
 			replyRandom()
@@ -230,15 +229,14 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.Cipher.WrapIO(w, resp.Body, rkeybuf, proxy.getIOConfig(auth))
+		iocc := proxy.getIOConfig(auth)
 		iocc.Partial = false // HTTP must be fully encrypted
 
-		nr, err := iocc.DoCopy()
-		tryClose(resp.Body)
-
-		if err != nil {
-			logg.E("io.wrap ", nr, "bytes: ", err)
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, iocc); err != nil {
+			logg.E("copy ", nr, "bytes: ", err)
 		}
+
+		tryClose(resp.Body)
 	} else {
 		proxy.blacklist.Add(addr, nil)
 		replyRandom()

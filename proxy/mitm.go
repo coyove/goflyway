@@ -120,12 +120,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			iocc := proxy.Cipher.WrapIO(tlsClient, resp.Body, rkeybuf, &IOConfig{Chunked: true})
-			iocc.Partial = false
-
-			if nr, err := iocc.DoCopy(); err != nil {
-				logg.E("io.wrap ", nr, "bytes: ", err)
+			nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{Partial: false, Chunked: true})
+			if err != nil {
+				logg.E("copy ", nr, "bytes: ", err)
 			}
+			tryClose(resp.Body)
 		}
 
 		tlsClient.Close()
