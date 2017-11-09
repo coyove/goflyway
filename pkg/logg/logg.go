@@ -52,11 +52,7 @@ func timestamp() string {
 	mil := t.UnixNano() % 1e9
 	mil /= 1e6
 
-	return fmt.Sprintf("%02d%02d %02d:%02d:%02d.%03d", t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), mil)
-}
-
-func lead(l string) string {
-	return ("[" + timestamp() + " " + l + "] ")
+	return fmt.Sprintf("%02d%02d/%02d%02d%02d.%03d", t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), mil)
 }
 
 func trunc(fn string) string {
@@ -64,13 +60,7 @@ func trunc(fn string) string {
 	if idx == -1 {
 		idx = strings.LastIndex(fn, "\\")
 	}
-
-	fn = fn[idx+1:]
-	if strings.HasSuffix(fn, ".go") {
-		fn = fn[:len(fn)-3]
-	}
-
-	return fn
+	return fn[idx+1:]
 }
 
 // Widnows WSA error messages are way too long to print
@@ -105,11 +95,11 @@ type msg_t struct {
 	message string
 }
 
-var msgQueue = make(chan msg_t)
+var msgQueue = make(chan *msg_t)
 
 func print(l string, params ...interface{}) {
 	_, fn, line, _ := runtime.Caller(2)
-	m := msg_t{lead: lead(fmt.Sprintf("%s:%03d%s", trunc(fn), line, strings.ToLower(l))), ts: time.Now().UnixNano()}
+	m := msg_t{lead: fmt.Sprintf("[%s%s:%s(%d)] ", l, timestamp(), trunc(fn), line), ts: time.Now().UnixNano()}
 
 	for _, p := range params {
 		switch p.(type) {
@@ -141,7 +131,7 @@ func print(l string, params ...interface{}) {
 		}
 	}
 
-	msgQueue <- m
+	msgQueue <- &m
 }
 
 func Start() {
@@ -151,56 +141,70 @@ func Start() {
 
 	started = true
 	go func() {
-		var count int
+		var count, nop int
 		var lastMsg *msg_t
-		var lastTime time.Time = time.Now()
+		var lastTime = time.Now()
+
+		print := func(m *msg_t) {
+			pp := func(ts int64, str string) {
+				if logCallback != nil {
+					logCallback(ts, str)
+				} else {
+					fmt.Println(str)
+				}
+			}
+
+			if lastMsg != nil && m != nil {
+				// this message is similar to the last one
+				if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
+					if time.Now().Sub(lastTime).Seconds() < 5.0 {
+						count++
+						return
+					}
+
+					// though similar, 5s timeframe is over, we should print this message anyway
+				}
+			}
+
+			if count > 0 {
+				pp(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count))
+			}
+
+			if lastMsg == nil && m == nil {
+				return
+			}
+
+			if m != nil {
+				pp(m.ts, m.lead+m.message)
+				lastMsg = m
+			}
+
+			lastTime, count, nop = time.Now(), 0, 0
+		}
 
 		for {
 		L:
 			for {
 				select {
 				case m := <-msgQueue:
-					if lastMsg != nil {
-						if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
-							if time.Now().Sub(lastTime).Seconds() < 5.0 {
-								count++
-
-								if count < 100 {
-									continue L
-								}
-							}
-						}
-
-						if count > 0 {
-							str := fmt.Sprintf(strings.Repeat(" ", len(m.lead))+"... %d similar message(s)", count)
-							if logCallback != nil {
-								logCallback(m.ts, str)
-							} else {
-								fmt.Println(str)
-							}
-						}
-					}
-
-					if logCallback != nil {
-						logCallback(m.ts, m.lead+m.message)
-					} else {
-						fmt.Println(m.lead + m.message)
-					}
-					lastMsg, lastTime, count = &m, time.Now(), 0
+					print(m)
 				default:
+					if nop++; nop > 10 {
+						print(nil)
+					}
 					// nothing in queue to print, quit loop
 					break L
 				}
 			}
 
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 }
 
 func D(params ...interface{}) {
 	if logLevel <= -1 {
-		print("D", params...)
+		print("_", params...)
 	}
 }
 
