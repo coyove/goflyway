@@ -30,6 +30,7 @@ type ClientConfig struct {
 	Connect2Auth   string
 	UserAuth       string
 	DummyDomain    string
+	DummyDomain2   string
 	DNSCacheSize   int
 
 	UDPRelayPort   int
@@ -60,13 +61,13 @@ type ProxyClient struct {
 }
 
 var HTTP200 = []byte(" 200 ") // HTTP/x.x 200 xxxxxxxx
-var DIAL_TIMEOUT = 5
+var SOCKS5_HANDSHAKE = []byte{SOCKS5_VERSION, 1, 0} // we currently support "no auth" only
+var DIAL_TIMEOUT = time.Duration(5) * time.Second
+var CONNECT_OP_TIMEOUT = time.Duration(20) * time.Second
 
 func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
-	o := time.Duration(DIAL_TIMEOUT) * time.Second
-
 	if proxy.Connect2 == "" {
-		upstreamConn, err := net.DialTimeout("tcp", proxy.Upstream, o)
+		upstreamConn, err := net.DialTimeout("tcp", proxy.Upstream, DIAL_TIMEOUT)
 		if err != nil {
 			return nil, err
 		}
@@ -74,21 +75,92 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return upstreamConn, nil
 	}
 
-	connectConn, err := net.DialTimeout("tcp", proxy.Connect2, o)
+	connectConn, err := net.DialTimeout("tcp", proxy.Connect2, DIAL_TIMEOUT)
 	if err != nil {
 		return nil, err
 	}
 
 	up, auth := proxy.Upstream, ""
 	if proxy.Connect2Auth != "" {
+		// if proxy.Connect2Auth == "socks5" {
+		// 	connectConn.SetWriteDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
+		// 	if _, err = connectConn.Write(SOCKS5_HANDSHAKE); err != nil {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	buf := make([]byte, 263)
+		// 	connectConn.SetReadDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
+		// 	if _, err = connectConn.Read(buf); err != nil {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	if buf[0] != SOCKS5_VERSION || buf[1] != 0 {
+		// 		connectConn.Close()
+		// 		return nil, errors.New("unsupported SOCKS5 authentication: " + strconv.Itoa(int(buf[1])))
+		// 	}
+
+		// 	host, _port, err := net.SplitHostPort(proxy.Upstream)
+		// 	port, _ := strconv.Atoi(_port)
+		// 	if err != nil {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	payload := []byte{SOCKS5_VERSION, 1, 0, SOCKS_TYPE_Dm, byte(len(host))}
+		// 	payload = append(payload, []byte(host)...)
+		// 	payload = append(payload, 0, 0)
+		// 	binary.BigEndian.PutUint16(payload[len(payload)-2:], uint16(port))
+
+		// 	connectConn.SetWriteDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
+		// 	if _, err = connectConn.Write(payload); err != nil {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	connectConn.SetReadDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
+		// 	if n, err := io.ReadAtLeast(connectConn, buf, 5); err != nil || n < 5 {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	if buf[1] != 0 {
+		// 		connectConn.Close()
+		// 		return nil, errors.New("SOCKS5 returned error: " + strconv.Itoa(int(buf[1])))
+		// 	}
+
+		// 	ln := 0
+		// 	switch buf[3] {
+		// 	case SOCKS_TYPE_IPv4:
+		// 		ln = net.IPv4len - 1 + 2
+		// 	case SOCKS_TYPE_IPv6:
+		// 		ln = net.IPv6len - 1 + 2
+		// 	case SOCKS_TYPE_Dm:
+		// 		ln = int(buf[4]) + 2
+		// 	default:
+		// 		connectConn.Close()
+		// 		return nil, errors.New("unexpected address type: " + strconv.Itoa(int(buf[3])))
+		// 	}
+
+		// 	connectConn.SetReadDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
+		// 	if n, err := io.ReadAtLeast(connectConn, buf, ln); err != nil || n < ln {
+		// 		connectConn.Close()
+		// 		return nil, err
+		// 	}
+
+		// 	return connectConn, nil
+		// }
+
 		x := base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
 		auth = fmt.Sprintf("Proxy-Authorization: Basic %s\r\nAuthorization: Basic %s\r\n", x, x)
 	}
 
 	connect := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n", up, up, auth)
-	connectConn.SetWriteDeadline(time.Now().Add(o))
+	connectConn.SetWriteDeadline(time.Now().Add(CONNECT_OP_TIMEOUT))
 	_, err = connectConn.Write([]byte(connect))
 	if err != nil {
+		connectConn.Close()
 		return nil, err
 	}
 
@@ -115,6 +187,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 	}
 
 	if !found {
+		connectConn.Close()
 		return nil, errors.New("connect2: malformed repsonse")
 	}
 
@@ -124,7 +197,8 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 			x = x[:3]
 		}
 		
-		return nil, errors.New("connect2: cannot connect to the https proxy (" + x + ")")
+		connectConn.Close()
+		return nil, errors.New("connect2: cannot connect to the HTTPS proxy (" + x + ")")
 	}
 
 	return connectConn, nil

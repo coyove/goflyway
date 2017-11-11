@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
@@ -18,22 +19,20 @@ var (
 
 	G_Key         = flag.String("k", "0123456789abcdef", "key, important")
 	G_Auth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	G_Domain      = flag.String("d", "", "dummy domain")
+	G_Domain      = flag.String("d", "", "dummy domain, form: domain1[@domain2]")
 	G_Upstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
 	G_Local       = flag.String("l", ":8100", "local listening port (remember the colon)")
 	G_Local2      = flag.String("p", "", "local listening port, alias of -l")
-	G_UdpRelay    = flag.Int64("udp", 0, "UDP relay listening port, 0 to disable, not working yet")
+	G_UdpRelay    = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
 	G_UdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
 	G_LogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 	G_GlobalProxy = flag.Bool("g", false, "global proxy")
 	G_MITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
-
-	G_Connect2     = flag.String("connect2", "", "forward CONNECT in CONNECT")
-	G_Connect2Auth = flag.String("connect2-auth", "", "forward CONNECT in CONNECT authentication")
+	G_Connect2    = flag.String("connect2", "", "use an HTTPS proxy to connect, form: [username:password@]ip:port")
 
 	G_Debug            = flag.Bool("debug", false, "debug mode")
-	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, http only")
-	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
+	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
+	G_DisableConsole   = flag.Bool("disable-console", false, "disable the access to web console")
 	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
 
@@ -89,7 +88,6 @@ func LoadConfig() {
 		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
 		*G_MITM = cf.GetBool("default", "mitm", *G_MITM)
 		*G_Connect2 = cf.GetString("default", "connect2", *G_Connect2)
-		*G_Connect2Auth = cf.GetString("default", "connect2auth", *G_Connect2Auth)
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
 		*G_ProxyPassAddr = cf.GetString("misc", "proxypass", *G_ProxyPassAddr)
 
@@ -134,15 +132,32 @@ func main() {
 	}
 	cipher.New()
 
+	c2, c2a := *G_Connect2, ""
+	if c2 != "" {
+		if idx := strings.Index(c2, "@"); idx > 0 {
+			c2a = c2[:idx]
+			c2 = c2[idx+1:]
+		}
+
+		logg.L("using HTTPS proxy as the frontend: ", *G_Connect2)
+	}
+
+	domain, domain2 := *G_Domain, ""
+	if idx := strings.Index(domain, "@"); idx > 0 {
+		domain2 = domain[idx+1:]
+		domain = domain[:idx]
+	}
+
 	cc := &proxy.ClientConfig{
 		DNSCacheSize:   *G_DNSCacheEntries,
 		GlobalProxy:    *G_GlobalProxy,
 		DisableConsole: *G_DisableConsole,
 		ManInTheMiddle: *G_MITM,
-		Connect2:       *G_Connect2,
-		Connect2Auth:   *G_Connect2Auth,
+		Connect2:       c2,
+		Connect2Auth:   c2a,
 		UserAuth:       *G_Auth,
-		DummyDomain:    *G_Domain,
+		DummyDomain:    domain,
+		DummyDomain2:   domain2,
 		Upstream:       *G_Upstream,
 		UDPRelayPort:   int(*G_UdpRelay),
 		UDPRelayCoconn: int(*G_UdpTcp),

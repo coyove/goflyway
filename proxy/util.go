@@ -78,8 +78,15 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*
 	req.Header.Add(proxy.rkeyHeader, rkey)
 
 	proxy.addToDummies(req)
-	req.Host = proxy.genHost()
-	req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+
+	if proxy.DummyDomain2 != "" {
+		req.Header.Add("X-Forwarded-Url", "http://" + proxy.genHost() + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+		req.Host = proxy.DummyDomain2
+		req.URL, _ = url.Parse("http://" + proxy.DummyDomain2)
+	} else {
+		req.Host = proxy.genHost()
+		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+	}
 
 	cookies := []string{}
 	for _, c := range req.Cookies() {
@@ -97,6 +104,7 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*
 	}
 
 	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, rkeybuf)
+	// logg.D(req.Header)
 	resp, err := proxy.tp.RoundTrip(req)
 	return resp, rkeybuf, err
 }
@@ -146,9 +154,13 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 	}
 
 	for k := range req.Header {
-		if k[:3] == "Cf-" {
+		if k[:3] == "Cf-" || (len(k) > 12 && strings.ToLower(k[:12]) == "x-forwarded-") {
 			// ignore all cloudflare headers
-			// this is needed when you use cf as the frontend: gofw client -> cloudflare -> gofw server -> target host
+			// this is needed when you use cf as the frontend: 
+			// gofw client -> cloudflare -> gofw server -> target host using cloudflare
+
+			// delete all x-forwarded-... headers
+			// some websites won't allow them
 			req.Header.Del(k)
 		}
 	}
