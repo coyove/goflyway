@@ -28,6 +28,9 @@ var (
 	G_GlobalProxy = flag.Bool("g", false, "global proxy")
 	G_MITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
 
+	G_Connect2     = flag.String("connect2", "", "forward CONNECT in CONNECT")
+	G_Connect2Auth = flag.String("connect2-auth", "", "forward CONNECT in CONNECT authentication")
+
 	G_Debug            = flag.Bool("debug", false, "debug mode")
 	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, http only")
 	G_DisableConsole   = flag.Bool("disable-console", false, "disable the console access")
@@ -85,6 +88,8 @@ func LoadConfig() {
 		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
 		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
 		*G_MITM = cf.GetBool("default", "mitm", *G_MITM)
+		*G_Connect2 = cf.GetString("default", "connect2", *G_Connect2)
+		*G_Connect2Auth = cf.GetString("default", "connect2auth", *G_Connect2Auth)
 		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
 		*G_ProxyPassAddr = cf.GetString("misc", "proxypass", *G_ProxyPassAddr)
 
@@ -134,6 +139,8 @@ func main() {
 		GlobalProxy:    *G_GlobalProxy,
 		DisableConsole: *G_DisableConsole,
 		ManInTheMiddle: *G_MITM,
+		Connect2:       *G_Connect2,
+		Connect2Auth:   *G_Connect2Auth,
 		UserAuth:       *G_Auth,
 		DummyDomain:    *G_Domain,
 		Upstream:       *G_Upstream,

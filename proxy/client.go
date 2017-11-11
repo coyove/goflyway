@@ -6,6 +6,9 @@ import (
 	"github.com/coyove/goflyway/pkg/lru"
 
 	"encoding/binary"
+	"encoding/base64"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +26,8 @@ type ClientConfig struct {
 	NoProxy        bool
 	DisableConsole bool
 	ManInTheMiddle bool
+	Connect2       string
+	Connect2Auth   string
 	UserAuth       string
 	DummyDomain    string
 	DNSCacheSize   int
@@ -54,19 +59,81 @@ type ProxyClient struct {
 	Listener  *listenerWrapper
 }
 
-func (proxy *ProxyClient) dialUpstream() net.Conn {
-	upstreamConn, err := net.Dial("tcp", proxy.Upstream)
-	if err != nil {
-		logg.E(err)
-		return nil
+var HTTP200 = []byte(" 200 ") // HTTP/x.x 200 xxxxxxxx
+var DIAL_TIMEOUT = 5
+
+func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
+	o := time.Duration(DIAL_TIMEOUT) * time.Second
+
+	if proxy.Connect2 == "" {
+		upstreamConn, err := net.DialTimeout("tcp", proxy.Upstream, o)
+		if err != nil {
+			return nil, err
+		}
+
+		return upstreamConn, nil
 	}
 
-	return upstreamConn
+	connectConn, err := net.DialTimeout("tcp", proxy.Connect2, o)
+	if err != nil {
+		return nil, err
+	}
+
+	up, auth := proxy.Upstream, ""
+	if proxy.Connect2Auth != "" {
+		x := base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
+		auth = fmt.Sprintf("Proxy-Authorization: Basic %s\r\nAuthorization: Basic %s\r\n", x, x)
+	}
+
+	connect := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n", up, up, auth)
+	connectConn.SetWriteDeadline(time.Now().Add(o))
+	_, err = connectConn.Write([]byte(connect))
+	if err != nil {
+		return nil, err
+	}
+
+	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
+	eoh, eidx, found := "\r\n\r\n", 0, false
+
+	for {
+		n, err := connectConn.Read(buf)
+		if n == 1 {
+			respbuf.WriteByte(buf[0])
+		}
+
+		if buf[0] == eoh[eidx] {
+			if eidx++; eidx == 4 {
+				// we are meeting \r\n\r\n, the end
+				found = true
+				break
+			}
+		}
+
+		if err != nil {
+			break
+		}
+	}
+
+	if !found {
+		return nil, errors.New("connect2: malformed repsonse")
+	}
+
+	if !bytes.Contains(respbuf.Bytes(), HTTP200) {
+		x := respbuf.String()
+		if x = x[strings.Index(x, " ")+1:]; len(x) > 3 {
+			x = x[:3]
+		}
+		
+		return nil, errors.New("connect2: cannot connect to the https proxy (" + x + ")")
+	}
+
+	return connectConn, nil
 }
 
 func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options byte) net.Conn {
-	upstreamConn := proxy.dialUpstream()
-	if upstreamConn == nil {
+	upstreamConn, err := proxy.dialUpstream()
+	if err != nil {
+		logg.E(err)
 		return nil
 	}
 
@@ -391,18 +458,6 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	}
 }
 
-func (proxy *ProxyClient) PleaseUnlockMe() {
-	upConn := proxy.dialUpstream()
-	if upConn != nil {
-		token := genTrustedToken("unlock", proxy.ClientConfig.UserAuth, proxy.Cipher)
-		payload := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\n%s: %s\r\n", proxy.genHost(), proxy.rkeyHeader, token)
-
-		upConn.SetWriteDeadline(time.Now().Add(time.Second))
-		upConn.Write([]byte(payload + "\r\n"))
-		upConn.Close()
-	}
-}
-
 func (proxy *ProxyClient) UpdateKey(newKey string) {
 	proxy.Cipher.KeyString = newKey
 	proxy.Cipher.New()
@@ -436,7 +491,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 			Proxy:                 http.ProxyURL(upstreamUrl),
 			TLSHandshakeTimeout:   2 * time.Second,
 			ResponseHeaderTimeout: 2 * time.Second,
-			Dial: (&net.Dialer{Timeout: 1 * time.Second}).Dial,
+			Dial: (&net.Dialer{Timeout: time.Duration(DIAL_TIMEOUT) * time.Second}).Dial,
 		},
 
 		tpd: &http.Transport{
@@ -449,6 +504,14 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		Nickname:   word,
 
 		ClientConfig: config,
+	}
+
+	if proxy.Connect2 != "" {
+		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) {
+			return proxy.dialUpstream()
+		}
+		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
 	if proxy.UDPRelayCoconn <= 0 {

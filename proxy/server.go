@@ -61,6 +61,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 	if proxy.Throttling > 0 {
 		ioc.Bucket = NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)
 	}
+	ioc.Partial = proxy.Cipher.Partial
 	return ioc
 }
 
@@ -197,12 +198,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if (options & DO_OMIT_HDR) == 0 {
-			if (options & DO_CONNECT) > 0 {
-				downstreamConn.Write(OK_HTTP)
-			} else {
-				downstreamConn.Write(OK_SOCKS)
-			}
+		if (options & DO_CONNECT) > 0 {
+			downstreamConn.Write(OK_HTTP)
+		} else {
+			downstreamConn.Write(OK_SOCKS)
 		}
 
 		proxy.Cipher.IO.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
@@ -261,6 +260,7 @@ func StartServer(addr string, config *ServerConfig) {
 			u, err := url.Parse(config.ProxyPassAddr)
 			if err != nil {
 				logg.F(err)
+				return
 			}
 
 			logg.L("alternatively act as reverse proxy: ", config.ProxyPassAddr)
@@ -279,11 +279,17 @@ func StartServer(addr string, config *ServerConfig) {
 
 		if err != nil {
 			logg.F(err)
+			return
 		}
 
 		go func() {
 			for {
-				c, _ := l.Accept()
+				c, err := l.Accept()
+				if err != nil {
+					logg.E(err)
+					break
+				}
+
 				go proxy.handleTCPtoUDP(c)
 			}
 		}()

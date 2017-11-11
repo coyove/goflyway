@@ -280,10 +280,6 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 			proxy.UpdateKey(r.FormValue("key"))
 		}
 
-		if r.FormValue("unlock") != "" {
-			proxy.PleaseUnlockMe()
-		}
-
 		if s := r.FormValue("switch"); s != "" {
 			switch s {
 			case "none":

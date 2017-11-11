@@ -92,8 +92,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			defer tryClose(resp.Body)
-
 			resp.Header.Del("Content-Length")
 			resp.Header.Set("Transfer-Encoding", "chunked")
 
@@ -101,7 +99,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				resp.Header.Set("Connection", "close")
 				tlsClient.Write([]byte("HTTP/1.1 " + resp.Status + "\r\n"))
 			} else {
-				// we don't support websocket
+				// we don't support upgrade in mitm
 				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 				break
 			}
