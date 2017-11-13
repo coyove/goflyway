@@ -30,7 +30,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 		return
 	}
 
-	client.Write(OK_HTTP)
+	client.Write(okHTTP)
 
 	go func() {
 
@@ -58,7 +58,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			// case "GET", "POS", "HEA", "PUT", "OPT", "DEL", "PAT", "TRA":
 			// 	// good
 			// default:
-			// 	proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, DO_CONNECT|DO_OMIT_HDR)
+			// 	proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, []byte{})
 			// 	return
 			// }
 
@@ -72,7 +72,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
-			if !isHttpsSchema.MatchString(req.URL.String()) {
+			if !isHTTPSSchema.MatchString(req.URL.String()) {
 				// we can ignore 443 since it's by default
 				h := req.Host
 				if strings.HasSuffix(h, ":443") {

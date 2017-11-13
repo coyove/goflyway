@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
@@ -14,57 +15,37 @@ import (
 )
 
 var (
-	G_Config = flag.String("c", "", "config file path")
-	G_GenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
+	cmdConfig = flag.String("c", "", "config file path")
+	cmdGenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
 
-	G_Key         = flag.String("k", "0123456789abcdef", "key, important")
-	G_Auth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	G_Domain      = flag.String("d", "", "dummy domain, form: domain1[@domain2]")
-	G_Upstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	G_Local       = flag.String("l", ":8100", "local listening port (remember the colon)")
-	G_Local2      = flag.String("p", "", "local listening port, alias of -l")
-	G_UdpRelay    = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
-	G_UdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
-	G_LogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
-	G_GlobalProxy = flag.Bool("g", false, "global proxy")
-	G_MITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
-	G_Connect2    = flag.String("connect2", "", "use an HTTPS proxy to connect, form: [username:password@]ip:port")
+	cmdKey         = flag.String("k", "0123456789abcdef", "key, important")
+	cmdAuth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	cmdDomain      = flag.String("d", "", "dummy domain, form: domain1[@domain2]")
+	cmdUpstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
+	cmdLocal       = flag.String("l", ":8100", "local listening port (remember the colon)")
+	cmdLocal2      = flag.String("p", "", "local listening port, alias of -l")
+	cmdUdpRelay    = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
+	cmdUdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
+	cmdLogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
+	cmdGlobalProxy = flag.Bool("g", false, "global proxy")
+	cmdMITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
+	cmdConnect2    = flag.String("connect2", "", "use an HTTPS proxy to connect, form: [username:password@]ip:port")
 
-	G_Debug            = flag.Bool("debug", false, "debug mode")
-	G_ProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
-	G_DisableConsole   = flag.Bool("disable-console", false, "disable the access to web console")
-	G_RecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
-	G_PartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
+	cmdDebug            = flag.Bool("debug", false, "debug mode")
+	cmdProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
+	cmdDisableConsole   = flag.Bool("disable-console", false, "disable the access to web console")
+	cmdRecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
+	cmdPartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
 
-	G_DNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
-	G_Throttling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
-	G_ThrottlingMax   = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
+	cmdDNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
+	cmdThrottling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
+	cmdThrottlingMax   = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
 func LoadConfig() {
 	flag.Parse()
 
-	path := *G_Config
-
-	if *G_GenCA {
-		fmt.Println("generating CA...")
-
-		cert, key, err := proxy.GenCA("goflyway")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		err1, err2 := ioutil.WriteFile("ca.pem", cert, 0755), ioutil.WriteFile("key.pem", key, 0755)
-		if err1 != nil || err2 != nil {
-			fmt.Println("ca.pem:", err1)
-			fmt.Println("key.pem:", err2)
-			return
-		}
-
-		fmt.Println("done")
-		return
-	}
+	path := *cmdConfig
 
 	if path != "" {
 		buf, err := ioutil.ReadFile(path)
@@ -77,26 +58,26 @@ func LoadConfig() {
 			logg.F(err)
 		}
 
-		*G_Key = cf.GetString("default", "key", *G_Key)
-		*G_Auth = cf.GetString("default", "auth", *G_Auth)
-		*G_Local = cf.GetString("default", "listen", *G_Local)
-		*G_Domain = cf.GetString("default", "domain", *G_Domain)
-		*G_Upstream = cf.GetString("default", "upstream", *G_Upstream)
-		*G_UdpRelay = cf.GetInt("default", "udp", *G_UdpRelay)
-		*G_UdpTcp = cf.GetInt("default", "udptcp", *G_UdpTcp)
-		*G_LogLevel = cf.GetString("default", "loglevel", *G_LogLevel)
-		*G_GlobalProxy = cf.GetBool("default", "global", *G_GlobalProxy)
-		*G_MITM = cf.GetBool("default", "mitm", *G_MITM)
-		*G_Connect2 = cf.GetString("default", "connect2", *G_Connect2)
-		*G_RecordLocalError = cf.GetBool("misc", "localerror", *G_RecordLocalError)
-		*G_ProxyPassAddr = cf.GetString("misc", "proxypass", *G_ProxyPassAddr)
+		*cmdKey = cf.GetString("default", "key", *cmdKey)
+		*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
+		*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
+		*cmdDomain = cf.GetString("default", "domain", *cmdDomain)
+		*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
+		*cmdUdpRelay = cf.GetInt("default", "udp", *cmdUdpRelay)
+		*cmdUdpTcp = cf.GetInt("default", "udptcp", *cmdUdpTcp)
+		*cmdLogLevel = cf.GetString("default", "loglevel", *cmdLogLevel)
+		*cmdGlobalProxy = cf.GetBool("default", "global", *cmdGlobalProxy)
+		*cmdMITM = cf.GetBool("default", "mitm", *cmdMITM)
+		*cmdConnect2 = cf.GetString("default", "connect2", *cmdConnect2)
+		*cmdRecordLocalError = cf.GetBool("misc", "localerror", *cmdRecordLocalError)
+		*cmdProxyPassAddr = cf.GetString("misc", "proxypass", *cmdProxyPassAddr)
 
-		*G_DisableConsole = cf.GetBool("misc", "disableconsole", *G_DisableConsole)
-		*G_DNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*G_DNSCacheEntries)))
-		*G_PartialEncrypt = cf.GetBool("misc", "partial", *G_PartialEncrypt)
+		*cmdDisableConsole = cf.GetBool("misc", "disableconsole", *cmdDisableConsole)
+		*cmdDNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCacheEntries)))
+		*cmdPartialEncrypt = cf.GetBool("misc", "partial", *cmdPartialEncrypt)
 
-		*G_Throttling = cf.GetInt("experimental", "throttling", *G_Throttling)
-		*G_ThrottlingMax = cf.GetInt("experimental", "throttlingmax", *G_ThrottlingMax)
+		*cmdThrottling = cf.GetInt("experimental", "throttling", *cmdThrottling)
+		*cmdThrottlingMax = cf.GetInt("experimental", "throttlingmax", *cmdThrottlingMax)
 	}
 }
 
@@ -113,74 +94,96 @@ func main() {
  `)
 
 	LoadConfig()
-	logg.SetLevel(*G_LogLevel)
-	logg.RecordLocalhostError(*G_RecordLocalError)
 
-	if *G_Key == "0123456789abcdef" {
+	if *cmdGenCA {
+		fmt.Println("generating CA...")
+
+		cert, key, err := proxy.GenCA("goflyway")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		err1, err2 := ioutil.WriteFile("ca.pem", cert, 0755), ioutil.WriteFile("key.pem", key, 0755)
+		if err1 != nil || err2 != nil {
+			fmt.Println("ca.pem:", err1)
+			fmt.Println("key.pem:", err2)
+			return
+		}
+
+		fmt.Println("done")
+		fmt.Println("goflyway has generated ca.pem and key.pem, please leave them in the same directory with goflyway")
+		return
+	}
+
+	logg.SetLevel(*cmdLogLevel)
+	logg.RecordLocalhostError(*cmdRecordLocalError)
+
+	if *cmdKey == "0123456789abcdef" {
 		logg.W("you are using the default key, please change it by setting -k=KEY")
 	}
 
-	if *G_Upstream != "" {
+	if *cmdUpstream != "" {
 		if !lookup.LoadOrCreateChinaList("") {
 			logg.W("cannot read chinalist.txt (but it's fine, you can ignore this msg)")
 		}
 	}
 
 	cipher := &proxy.Cipher{
-		KeyString: *G_Key,
-		Partial:   *G_PartialEncrypt,
+		KeyString: *cmdKey,
+		Partial:   *cmdPartialEncrypt,
 	}
 	cipher.New()
 
-	c2, c2a := *G_Connect2, ""
+	c2, c2a := *cmdConnect2, ""
 	if c2 != "" {
 		if idx := strings.Index(c2, "@"); idx > 0 {
 			c2a = c2[:idx]
 			c2 = c2[idx+1:]
 		}
 
-		logg.L("using HTTPS proxy as the frontend: ", *G_Connect2)
+		logg.L("using HTTPS proxy as the frontend: ", *cmdConnect2)
 	}
 
-	domain, domain2 := *G_Domain, ""
+	domain, domain2 := *cmdDomain, ""
 	if idx := strings.Index(domain, "@"); idx > 0 {
 		domain2 = domain[idx+1:]
 		domain = domain[:idx]
 	}
 
 	cc := &proxy.ClientConfig{
-		DNSCacheSize:   *G_DNSCacheEntries,
-		GlobalProxy:    *G_GlobalProxy,
-		DisableConsole: *G_DisableConsole,
-		ManInTheMiddle: *G_MITM,
+		DNSCacheSize:   *cmdDNSCacheEntries,
+		GlobalProxy:    *cmdGlobalProxy,
+		DisableConsole: *cmdDisableConsole,
+		ManInTheMiddle: *cmdMITM,
 		Connect2:       c2,
 		Connect2Auth:   c2a,
-		UserAuth:       *G_Auth,
+		UserAuth:       *cmdAuth,
 		DummyDomain:    domain,
 		DummyDomain2:   domain2,
-		Upstream:       *G_Upstream,
-		UDPRelayPort:   int(*G_UdpRelay),
-		UDPRelayCoconn: int(*G_UdpTcp),
+		Upstream:       *cmdUpstream,
+		UDPRelayPort:   int(*cmdUdpRelay),
+		UDPRelayCoconn: int(*cmdUdpTcp),
 		Cipher:         cipher,
 	}
 
 	sc := &proxy.ServerConfig{
 		Cipher:         cipher,
-		UDPRelayListen: int(*G_UdpRelay),
-		Throttling:     *G_Throttling,
-		DummyDomain:    *G_Domain,
-		ThrottlingMax:  *G_ThrottlingMax,
-		ProxyPassAddr:  *G_ProxyPassAddr,
+		UDPRelayListen: int(*cmdUdpRelay),
+		Throttling:     *cmdThrottling,
+		DummyDomain:    *cmdDomain,
+		ThrottlingMax:  *cmdThrottlingMax,
+		ProxyPassAddr:  *cmdProxyPassAddr,
 	}
 
-	if *G_Auth != "" {
+	if *cmdAuth != "" {
 		sc.Users = map[string]proxy.UserConfig{
-			*G_Auth: {},
+			*cmdAuth: {},
 		}
 	}
 
 	var client *proxy.ProxyClient
-	if *G_Debug {
+	if *cmdDebug {
 		logg.L("debug mode on, proxy listening port 8100")
 
 		cc.Upstream = "127.0.0.1:8101"
@@ -193,12 +196,12 @@ func main() {
 		return
 	}
 
-	if *G_Upstream != "" {
-		if *G_Local2 != "" {
+	if *cmdUpstream != "" {
+		if *cmdLocal2 != "" {
 			// -p has higher priority than -l, for the sack of SS users
-			client = proxy.NewClient(*G_Local2, cc)
+			client = proxy.NewClient(*cmdLocal2, cc)
 		} else {
-			client = proxy.NewClient(*G_Local, cc)
+			client = proxy.NewClient(*cmdLocal, cc)
 		}
 
 		logg.L("Hi! ", client.Nickname, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
@@ -213,11 +216,11 @@ func main() {
 		// global variables are pain in the ass
 		runtime.GC()
 
-		if *G_Local2 != "" {
+		if *cmdLocal2 != "" {
 			// -p has higher priority than -l, for the sack of SS users
-			proxy.StartServer(*G_Local2, sc)
+			proxy.StartServer(*cmdLocal2, sc)
 		} else {
-			proxy.StartServer(*G_Local, sc)
+			proxy.StartServer(*cmdLocal, sc)
 		}
 	}
 }

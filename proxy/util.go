@@ -16,49 +16,46 @@ import (
 )
 
 const (
-	SOCKS5_VERSION  = byte(0x05)
-	SOCKS_TYPE_IPv4 = 1
-	SOCKS_TYPE_Dm   = 3
-	SOCKS_TYPE_IPv6 = 4
+	socksVersion5   = byte(0x05)
+	socksAddrIPv4   = 1
+	socksAddrDomain = 3
+	socksAddrIPv6   = 4
+	socksReadErr    = "cannot read buffer: "
+	socksVersionErr = "invalid socks version (SOCKS5 only)"
+)
 
-	DO_CONNECT  = 1
-	DO_FORWARD  = 1 << 1
-	DO_SOCKS5   = 1 << 2
-	DO_OMIT_HDR = 1 << 3
-	DO_DNS      = 1 << 4
-	DO_RSV2     = 1 << 5
-	DO_RSV3     = 1 << 6
-	DO_RSV4     = 1 << 7
+const (
+	doConnect = 1
+	doForward = 1 << 1
+	doRSV5    = 1 << 2
+	doRSV1    = 1 << 3
+	doDNS     = 1 << 4
+	doRSV2    = 1 << 5
+	doRSV3    = 1 << 6
+	doRSV4    = 1 << 7
+)
 
-	CANNOT_READ_BUF = "socks server: cannot read buffer: "
-	NOT_SOCKS5      = "invalid socks version (socks5 only)"
-
-	UDP_TIMEOUT = 30
-	TCP_TIMEOUT = 60
+const (
+	timeoutUDP          = 30
+	timeoutTCP          = 60
+	invalidRequestRetry = 2
 )
 
 var (
-	OK_HTTP = []byte("HTTP/1.0 200 OK\r\n\r\n")
-	//                       version, granted = 0, 0, ipv4, 0, 0, 0, 0, (port) 0, 0
-	OK_SOCKS = []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01}
-	//                                 RSV | FRAG | ATYP |       DST.ADDR      | DST.PORT |
-	UDP_REQUEST_HEADER  = []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	UDP_REQUEST_HEADER6 = []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-
-	DUMMY_FIELDS = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
-	DUMMY_TLDS   = []string{".com", ".net", ".org"}
-
-	tlsSkip = &tls.Config{InsecureSkipVerify: true}
-
-	hasPort       = regexp.MustCompile(`:\d+$`)
-	isHttpsSchema = regexp.MustCompile(`^https:\/\/`)
-
+	okHTTP          = []byte{'H', 'T', 'T', 'P', '/', '1', '.', '1', ' ', '2', '0', '0', ' ', 'O', 'K', '\r', '\n', '\r', '\n'}
+	okSOCKS         = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	dummyHeaders    = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
+	tlsSkip         = &tls.Config{InsecureSkipVerify: true}
+	hasPort         = regexp.MustCompile(`:\d+$`)
+	isHTTPSSchema   = regexp.MustCompile(`^https:\/\/`)
 	base32Encoding  = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
 	base32Encoding2 = base32.NewEncoding("abcd&fghijklmnopqrstuvwxyz+-_./e")
 )
 
 func (proxy *ProxyClient) addToDummies(req *http.Request) {
-	for _, field := range DUMMY_FIELDS {
+	for _, field := range dummyHeaders {
 		if x := req.Header.Get(field); x != "" {
 			proxy.dummies.Add(field, x)
 		}
@@ -66,21 +63,23 @@ func (proxy *ProxyClient) addToDummies(req *http.Request) {
 }
 
 func (proxy *ProxyClient) genHost() string {
+	const tlds = ".com.net.org"
 	if proxy.DummyDomain == "" {
-		return genWord(proxy.Cipher, true) + DUMMY_TLDS[proxy.Rand.Intn(len(DUMMY_TLDS))]
+		i := proxy.Rand.Intn(3) * 4
+		return genWord(proxy.Cipher, true) + tlds[i:i+4]
 	}
 
 	return proxy.DummyDomain
 }
 
 func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*http.Response, []byte, error) {
-	rkey, rkeybuf := proxy.Cipher.NewIV(DO_FORWARD, nil, auth)
+	rkey, rkeybuf := proxy.Cipher.NewIV(doForward, nil, auth)
 	req.Header.Add(proxy.rkeyHeader, rkey)
 
 	proxy.addToDummies(req)
 
 	if proxy.DummyDomain2 != "" {
-		req.Header.Add("X-Forwarded-Url", "http://" + proxy.genHost() + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+		req.Header.Add("X-Forwarded-Url", "http://"+proxy.genHost()+"/"+proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
 		req.Host = proxy.DummyDomain2
 		req.URL, _ = url.Parse("http://" + proxy.DummyDomain2)
 	} else {
@@ -156,7 +155,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 	for k := range req.Header {
 		if k[:3] == "Cf-" || (len(k) > 12 && strings.ToLower(k[:12]) == "x-forwarded-") {
 			// ignore all cloudflare headers
-			// this is needed when you use cf as the frontend: 
+			// this is needed when you use cf as the frontend:
 			// gofw client -> cloudflare -> gofw server -> target host using cloudflare
 
 			// delete all x-forwarded-... headers
@@ -185,6 +184,8 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 						v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
 					}
 				}
+
+				// rkeybuf is nil, so do nothing
 			}
 
 			switch strings.ToLower(k) {
@@ -280,16 +281,16 @@ func isTrustedToken(mark string, rkeybuf []byte) int {
 }
 
 func genTrustedToken(mark, auth string, gc *Cipher) string {
-	buf := make([]byte, IV_LENGTH)
+	buf := make([]byte, ivLen)
 
 	copy(buf, []byte(mark))
-	binary.BigEndian.PutUint32(buf[IV_LENGTH-4:], uint32(time.Now().Unix()))
+	binary.BigEndian.PutUint32(buf[ivLen-4:], uint32(time.Now().Unix()))
 
 	k, _ := gc.NewIV(0, buf, auth)
 	return k
 }
 
-func Base32Encode(buf []byte, alpha bool) string {
+func base32Encode(buf []byte, alpha bool) string {
 	var str string
 	if alpha {
 		str = base32Encoding.EncodeToString(buf)
@@ -305,7 +306,7 @@ func Base32Encode(buf []byte, alpha bool) string {
 	return str[:idx]
 }
 
-func Base32Decode(text string, alpha bool) ([]byte, error) {
+func base32Decode(text string, alpha bool) ([]byte, error) {
 	const paddings = "======"
 
 	if m := len(text) % 8; m > 1 {

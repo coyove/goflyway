@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"io"
 	"net"
 	"strconv"
@@ -41,7 +40,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 	sourceTCP, sourceOK := source.(*net.TCPConn)
 
 	if !targetOK || !sourceOK || sourceTCP == nil || targetTCP == nil {
-		logg.E("cast: ", target, " ", source)
+		logg.E("casting failed: ", target, " ", source)
 		return
 	}
 
@@ -120,27 +119,18 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		nr, er := src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
-			xs := 0
 
-			if config.Partial && encrypted == SSL_RECORD_MAX {
+			if config.Partial && encrypted == sslRecordLen {
 				// goto direct_transmission
 			} else if ctr != nil {
-				if written == 0 {
-					// ignore the header
-					if bytes.HasPrefix(xbuf, OK_HTTP) {
-						xs = len(OK_HTTP)
-					} else if bytes.HasPrefix(xbuf, OK_SOCKS) {
-						xs = len(OK_SOCKS)
-					}
-				}
 
-				if encrypted+nr > SSL_RECORD_MAX && config.Partial {
-					ctr.XorBuffer(xbuf[:SSL_RECORD_MAX-encrypted])
-					encrypted = SSL_RECORD_MAX
+				if encrypted+nr > sslRecordLen && config.Partial {
+					ctr.XorBuffer(xbuf[:sslRecordLen-encrypted])
+					encrypted = sslRecordLen
 					// we are done, the traffic coming later will be transfered as is
 				} else {
-					ctr.XorBuffer(xbuf[xs:])
-					encrypted += (nr - xs)
+					ctr.XorBuffer(xbuf)
+					encrypted += nr
 				}
 
 			}

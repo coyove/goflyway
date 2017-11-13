@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"fmt"
+
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
@@ -12,10 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
-
-const (
-	_RETRY_OPPORTUNITIES = 2
 )
 
 type ServerConfig struct {
@@ -156,13 +154,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if h, _ := proxy.blacklist.GetHits(addr); h > _RETRY_OPPORTUNITIES {
+	if h, _ := proxy.blacklist.GetHits(addr); h > invalidRequestRetry {
 		logg.W("repeated access using invalid key from: ", addr)
 		// replyRandom()
 		// return
 	}
 
-	if (options & DO_DNS) > 0 {
+	if (options & doDNS) > 0 {
 		host := string(rkeybuf)
 		ip, err := lookup.LookupIPv4(host)
 		if err != nil {
@@ -174,14 +172,14 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("ETag", ip)
 		w.WriteHeader(200)
 
-	} else if (options&DO_CONNECT) > 0 || (options&DO_SOCKS5) > 0 {
+	} else if (options & doConnect) > 0 {
 		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()
 			return
 		}
 
-		logg.D("CONNECT ", options, " ", host)
+		logg.D("CONNECT ", host)
 
 		// dig tunnel
 		downstreamConn := proxy.hijack(w)
@@ -198,14 +196,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if (options & DO_CONNECT) > 0 {
-			downstreamConn.Write(OK_HTTP)
-		} else {
-			downstreamConn.Write(OK_SOCKS)
-		}
-
-		proxy.Cipher.IO.Bridge(targetSiteConn, downstreamConn, rkeybuf, ioc)
-	} else if (options & DO_FORWARD) > 0 {
+		p := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
+		downstreamConn.Write([]byte(p))
+		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
+	} else if (options & doForward) > 0 {
 		if !proxy.decryptRequest(r, options, rkeybuf) {
 			replyRandom()
 			return

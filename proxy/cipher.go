@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	IV_LENGTH          = 16
-	SSL_RECORD_MAX     = 18 * 1024 // 18kb
-	STREAM_BUFFER_SIZE = 512
+	ivLen            = 16
+	sslRecordLen     = 18 * 1024 // 18kb
+	streamBufferSize = 512
 )
 
 var primes = []int16{
@@ -130,7 +130,7 @@ func (gc *Cipher) getCipherStream(key []byte) *inplace_ctr_t {
 		return nil
 	}
 
-	if len(key) != IV_LENGTH {
+	if len(key) != ivLen {
 		logg.E("iv is not 128bit long: ", key)
 		return nil
 	}
@@ -139,7 +139,7 @@ func (gc *Cipher) getCipherStream(key []byte) *inplace_ctr_t {
 		b: gc.Block,
 		// key must be duplicated because it gets modified during XorBuffer
 		ctr:     dup(key),
-		out:     make([]byte, 0, STREAM_BUFFER_SIZE),
+		out:     make([]byte, 0, streamBufferSize),
 		outUsed: 0,
 	}
 }
@@ -158,11 +158,11 @@ func (gc *Cipher) New() (err error) {
 }
 
 func (gc *Cipher) genIV(ss ...byte) []byte {
-	if len(ss) == IV_LENGTH {
+	if len(ss) == ivLen {
 		return ss
 	}
 
-	ret := make([]byte, IV_LENGTH)
+	ret := make([]byte, ivLen)
 
 	var mul uint32 = 1
 	for _, s := range ss {
@@ -171,7 +171,7 @@ func (gc *Cipher) genIV(ss ...byte) []byte {
 
 	var seed uint32 = binary.LittleEndian.Uint32(gc.Key[:4])
 
-	for i := 0; i < IV_LENGTH/4; i++ {
+	for i := 0; i < ivLen/4; i++ {
 		seed = (mul * seed) % 0x7fffffff
 		binary.LittleEndian.PutUint32(ret[i*4:], seed)
 	}
@@ -208,20 +208,20 @@ func (gc *Cipher) Decrypt(buf []byte, ss ...byte) []byte {
 }
 
 func (gc *Cipher) EncryptString(text string, rkey ...byte) string {
-	return Base32Encode(gc.Encrypt([]byte(text), rkey...), true)
+	return base32Encode(gc.Encrypt([]byte(text), rkey...), true)
 }
 
 func (gc *Cipher) DecryptString(text string, rkey ...byte) string {
-	buf, _ := Base32Decode(text, true)
+	buf, _ := base32Decode(text, true)
 	return string(gc.Decrypt(buf, rkey...))
 }
 
 func (gc *Cipher) EncryptCompress(str string, rkey ...byte) string {
-	return Base32Encode(gc.Encrypt(msg64.Compress(str), rkey...), false)
+	return base32Encode(gc.Encrypt(msg64.Compress(str), rkey...), false)
 }
 
 func (gc *Cipher) DecryptDecompress(str string, rkey ...byte) string {
-	buf, _ := Base32Decode(str, false)
+	buf, _ := base32Decode(str, false)
 	return msg64.Decompress(gc.Decrypt(buf, rkey...))
 }
 
@@ -241,7 +241,7 @@ func checksum1b(buf []byte) byte {
 }
 
 func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []byte) {
-	r, ln := gc.NewRand(), IV_LENGTH
+	r, ln := gc.NewRand(), ivLen
 
 	// +------------+-------------+-----------+-- -  -   -
 	// | options 1b | checksum 1b | iv 128bit | auth data ...
@@ -257,13 +257,13 @@ func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []by
 			retB[i] = byte(r.Intn(255) + 1)
 			ret[i-2] = retB[i]
 		}
-	} else if (options & DO_DNS) == 0 {
+	} else if (options & doDNS) == 0 {
 		ret = payload
 		retB = make([]byte, 1+1+ln+len(auth))
 		copy(retB[2:], payload)
 	} else {
 		// +--------+-------------+------------+------+-- -  -   -
-		// | DO_DNS | checksum 1b | hostlen 1b | host | auth data ...
+		// | doDNS | checksum 1b | hostlen 1b | host | auth data ...
 		// +--------+-------------+------------+------+-- -  -   -
 		retB = make([]byte, 1+1+1+len(payload)+len(auth))
 		if len(payload) > 255 {
@@ -305,7 +305,7 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 	b, b2, b3, b4 := buf[len(buf)-4], buf[len(buf)-3], buf[len(buf)-2], buf[len(buf)-1]
 	buf = xor(gc.Block, gc.genIV(b, b2, b3, b4), buf[:len(buf)-4])
 
-	if len(buf) < IV_LENGTH+2 {
+	if len(buf) < ivLen+2 {
 		return
 	}
 
@@ -313,8 +313,8 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 		return
 	}
 
-	if (buf[0] & DO_DNS) == 0 {
-		return buf[0], buf[2 : 2+IV_LENGTH], buf[2+IV_LENGTH:]
+	if (buf[0] & doDNS) == 0 {
+		return buf[0], buf[2 : 2+ivLen], buf[2+ivLen:]
 	}
 
 	ln := buf[2]

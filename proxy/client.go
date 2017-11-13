@@ -5,9 +5,9 @@ import (
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 
-	"encoding/binary"
-	"encoding/base64"
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -60,8 +60,8 @@ type ProxyClient struct {
 	Listener  *listenerWrapper
 }
 
-var HTTP200 = []byte(" 200 ") // HTTP/x.x 200 xxxxxxxx
-var SOCKS5_HANDSHAKE = []byte{SOCKS5_VERSION, 1, 0} // we currently support "no auth" only
+var HTTP200 = []byte(" 200 ")                      // HTTP/x.x 200 xxxxxxxx
+var SOCKS5_HANDSHAKE = []byte{socksVersion5, 1, 0} // we currently support "no auth" only
 var DIAL_TIMEOUT = time.Duration(5) * time.Second
 var CONNECT_OP_TIMEOUT = time.Duration(20) * time.Second
 
@@ -96,7 +96,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		// 		return nil, err
 		// 	}
 
-		// 	if buf[0] != SOCKS5_VERSION || buf[1] != 0 {
+		// 	if buf[0] != socksVersion5 || buf[1] != 0 {
 		// 		connectConn.Close()
 		// 		return nil, errors.New("unsupported SOCKS5 authentication: " + strconv.Itoa(int(buf[1])))
 		// 	}
@@ -108,7 +108,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		// 		return nil, err
 		// 	}
 
-		// 	payload := []byte{SOCKS5_VERSION, 1, 0, SOCKS_TYPE_Dm, byte(len(host))}
+		// 	payload := []byte{socksVersion5, 1, 0, socksAddrDomain, byte(len(host))}
 		// 	payload = append(payload, []byte(host)...)
 		// 	payload = append(payload, 0, 0)
 		// 	binary.BigEndian.PutUint16(payload[len(payload)-2:], uint16(port))
@@ -132,11 +132,11 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 
 		// 	ln := 0
 		// 	switch buf[3] {
-		// 	case SOCKS_TYPE_IPv4:
+		// 	case socksAddrIPv4:
 		// 		ln = net.IPv4len - 1 + 2
-		// 	case SOCKS_TYPE_IPv6:
+		// 	case socksAddrIPv6:
 		// 		ln = net.IPv6len - 1 + 2
-		// 	case SOCKS_TYPE_Dm:
+		// 	case socksAddrDomain:
 		// 		ln = int(buf[4]) + 2
 		// 	default:
 		// 		connectConn.Close()
@@ -196,7 +196,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		if x = x[strings.Index(x, " ")+1:]; len(x) > 3 {
 			x = x[:3]
 		}
-		
+
 		connectConn.Close()
 		return nil, errors.New("connect2: cannot connect to the HTTPS proxy (" + x + ")")
 	}
@@ -204,17 +204,17 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 	return connectConn, nil
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, options byte) net.Conn {
+func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, auth string, resp []byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
 		return nil
 	}
 
-	rkey, rkeybuf := proxy.Cipher.NewIV(options, nil, auth)
+	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect, nil, auth)
 	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n", proxy.Cipher.EncryptCompress(host, rkeybuf...), proxy.genHost())
 
-	payloads := make([]string, 0, len(DUMMY_FIELDS))
+	payloads := make([]string, 0, len(dummyHeaders))
 	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
 		if v != nil && v.(string) != "" && proxy.Cipher.Rand.Intn(5) > 1 {
 			payloads = append(payloads, k.(string)+": "+v.(string)+"\r\n")
@@ -228,24 +228,28 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
+	buf := make([]byte, 96)
+	if nr, er := io.ReadAtLeast(upstreamConn, buf, len(buf)); er != nil || nr != len(buf) || !bytes.Equal(buf[:15], okHTTP[:15]) {
+		logg.E("failed to read response: ", err, " ", nr, " bytes: ", buf)
+		upstreamConn.Close()
+		downstreamConn.Close()
+		return nil
+	}
+
+	downstreamConn.Write(resp)
 	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
 
-func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, options int) {
+func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, resp []byte) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
 		logg.E(err)
 		return
 	}
 
-	if (options & DO_SOCKS5) != 0 {
-		downstreamConn.Write(OK_SOCKS)
-	} else {
-		downstreamConn.Write(OK_HTTP)
-	}
-
+	downstreamConn.Write(resp)
 	proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
 }
 
@@ -285,12 +289,12 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if proxy.canDirectConnect(auth, host) {
 			logg.D("CONNECT ", r.RequestURI)
-			proxy.dialHostAndBridge(proxyClient, host, DO_CONNECT)
+			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
 		} else if proxy.ManInTheMiddle {
 			proxy.manInTheMiddle(proxyClient, host, auth)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI)
-			proxy.dialUpstreamAndBridge(proxyClient, host, auth, DO_CONNECT)
+			proxy.dialUpstreamAndBridge(proxyClient, host, auth, okHTTP)
 		}
 	} else {
 		// normal http requests
@@ -333,7 +337,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(resp.StatusCode)
 
 		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, IOConfig{Partial: false}); err != nil {
-			logg.E("copy ", nr, "bytes: ", err)
+			logg.E("copy ", nr, " bytes: ", err)
 		}
 
 		tryClose(resp.Body)
@@ -387,7 +391,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		logg.E(err)
 		return maybeChinese
 	}
-	rkey, _ := proxy.Cipher.NewIV(DO_DNS, []byte(host), auth)
+	rkey, _ := proxy.Cipher.NewIV(doDNS, []byte(host), auth)
 	req.Header.Add(proxy.rkeyHeader, rkey)
 
 	resp, err := proxy.tpq.RoundTrip(req)
@@ -415,7 +419,7 @@ func (proxy *ProxyClient) authSocks(conn net.Conn) (string, bool) {
 	var err error
 
 	if n, err = io.ReadAtLeast(conn, buf, 2); err != nil {
-		logg.E(CANNOT_READ_BUF, err)
+		logg.E(socksReadErr, err)
 		return "", false
 	}
 
@@ -449,19 +453,19 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 	buf := make([]byte, 2)
 	if _, err = io.ReadAtLeast(conn, buf, 2); err != nil {
-		log_close(CANNOT_READ_BUF, err)
+		log_close(socksReadErr, err)
 		return
 	}
 
-	if buf[0] != SOCKS5_VERSION {
-		log_close(NOT_SOCKS5)
+	if buf[0] != socksVersion5 {
+		log_close(socksVersionErr)
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err = io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		log_close(CANNOT_READ_BUF, err)
+		log_close(socksReadErr, err)
 		return
 	}
 
@@ -471,7 +475,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	)
 
 	if proxy.UserAuth != "" {
-		conn.Write([]byte{SOCKS5_VERSION, 0x02}) // username & password auth
+		conn.Write([]byte{socksVersion5, 0x02}) // username & password auth
 
 		if auth, ok = proxy.authSocks(conn); !ok {
 			conn.Write([]byte{0x01, 0x01})
@@ -482,7 +486,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 		// auth success
 		conn.Write([]byte{0x1, 0})
 	} else {
-		conn.Write([]byte{SOCKS5_VERSION, 0})
+		conn.Write([]byte{socksVersion5, 0})
 	}
 	// handshake over
 	// tunneling start
@@ -497,10 +501,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	if method == 0x01 {
 		if proxy.canDirectConnect(auth, host) {
 			logg.D("SOCKS ", host)
-			proxy.dialHostAndBridge(conn, host, DO_SOCKS5)
+			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else {
 			logg.D("SOCKS^ ", host)
-			proxy.dialUpstreamAndBridge(conn, host, auth, DO_SOCKS5)
+			proxy.dialUpstreamAndBridge(conn, host, auth, okSOCKS)
 		}
 	} else if method == 0x03 {
 		if proxy.UDPRelayPort != 0 {
@@ -510,8 +514,8 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 				return
 			}
 
-			response := []byte{SOCKS5_VERSION, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-			port := relay.LocalAddr().(*net.UDPAddr).Port
+			response, port := make([]byte, len(okSOCKS)), relay.LocalAddr().(*net.UDPAddr).Port
+			copy(response, okSOCKS)
 			binary.BigEndian.PutUint16(response[8:], uint16(port))
 
 			conn.Write(response)
@@ -572,7 +576,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 			TLSClientConfig: tlsSkip,
 		},
 
-		dummies:    lru.NewCache(len(DUMMY_FIELDS)),
+		dummies:    lru.NewCache(len(dummyHeaders)),
 		DNSCache:   lru.NewCache(config.DNSCacheSize),
 		rkeyHeader: "X-" + word,
 		Nickname:   word,
