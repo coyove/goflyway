@@ -39,6 +39,7 @@ const (
 	timeoutUDP          = 30
 	timeoutTCP          = 60
 	invalidRequestRetry = 2
+	dnsRespHeader       = "ETag"
 )
 
 var (
@@ -78,16 +79,22 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*
 
 	proxy.addToDummies(req)
 
-	if proxy.DummyDomain2 != "" {
-		req.Header.Add("X-Forwarded-Url", "http://"+proxy.genHost()+"/"+proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
-		req.Host = proxy.DummyDomain2
-		req.URL, _ = url.Parse("http://" + proxy.DummyDomain2)
+	if proxy.URLHeader != "" {
+		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost()+"/"+proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+		req.Host = proxy.Upstream
+		req.URL, _ = url.Parse("http://" + proxy.Upstream)
 	} else {
 		req.Host = proxy.genHost()
 		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
 	}
 
-	cookies := []string{}
+	if proxy.ManInTheMiddle && proxy.Connect2Auth != "" {
+		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
+		req.Header.Add("Proxy-Authorization", x)
+		req.Header.Add("Authorization", x)
+	}
+
+	cookies := make([]string, 0, len(req.Cookies()))
 	for _, c := range req.Cookies() {
 		c.Value = proxy.Cipher.EncryptString(c.Value, rkeybuf...)
 		cookies = append(cookies, c.String())
@@ -137,7 +144,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkey
 
 	req.Host = req.URL.Host
 
-	cookies := []string{}
+	cookies := make([]string, 0, len(req.Cookies()))
 	for _, c := range req.Cookies() {
 		c.Value = proxy.Cipher.DecryptString(c.Value, rkeybuf...)
 		cookies = append(cookies, c.String())

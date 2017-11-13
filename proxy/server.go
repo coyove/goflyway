@@ -21,7 +21,6 @@ type ServerConfig struct {
 	ThrottlingMax  int64
 	UDPRelayListen int
 	ProxyPassAddr  string
-	DummyDomain    string
 
 	Users map[string]UserConfig
 
@@ -169,7 +168,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logg.D("dns: ", host, " ", ip)
-		w.Header().Add("ETag", ip)
+		w.Header().Add(dnsRespHeader, ip)
 		w.WriteHeader(200)
 
 	} else if (options & doConnect) > 0 {

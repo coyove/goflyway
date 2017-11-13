@@ -30,8 +30,9 @@ type ClientConfig struct {
 	Connect2Auth   string
 	UserAuth       string
 	DummyDomain    string
-	DummyDomain2   string
+	URLHeader      string
 	DNSCacheSize   int
+	TrustLocalDNS  bool
 
 	UDPRelayPort   int
 	UDPRelayCoconn int
@@ -378,12 +379,12 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		return true
 	}
 
-	// if it is a foreign ip, just return false
+	// if it is a foreign ip or we trust local dns repsonse, just return the answer
 	// but if it is a chinese ip, we withhold and query the upstream to double check
 	maybeChinese := isChineseIP(ip)
-	if !maybeChinese {
+	if !maybeChinese || proxy.TrustLocalDNS {
 		proxy.DNSCache.Add(host, ip)
-		return false
+		return maybeChinese
 	}
 
 	req, err := http.NewRequest("GET", "http://"+proxy.genHost(), nil)
@@ -404,7 +405,7 @@ func (proxy *ProxyClient) canDirectConnect(auth, host string) bool {
 		return maybeChinese
 	}
 	tryClose(resp.Body)
-	ip2 := net.ParseIP(resp.Header.Get("ETag")).To4()
+	ip2 := net.ParseIP(resp.Header.Get(dnsRespHeader)).To4()
 	if ip2 == nil {
 		return maybeChinese
 	}

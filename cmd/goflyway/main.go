@@ -18,31 +18,26 @@ var (
 	cmdConfig = flag.String("c", "", "config file path")
 	cmdGenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
 
-	cmdKey         = flag.String("k", "0123456789abcdef", "key, important")
-	cmdAuth        = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	cmdDomain      = flag.String("d", "", "dummy domain, form: domain1[@domain2]")
-	cmdUpstream    = flag.String("up", "", "upstream server address (e.g. 127.0.0.1:8100)")
-	cmdLocal       = flag.String("l", ":8100", "local listening port (remember the colon)")
-	cmdLocal2      = flag.String("p", "", "local listening port, alias of -l")
-	cmdUdpRelay    = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
-	cmdUdpTcp      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
-	cmdLogLevel    = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
-	cmdGlobalProxy = flag.Bool("g", false, "global proxy")
-	cmdMITM        = flag.Bool("mitm", false, "man-in-the-middle proxy")
-	cmdConnect2    = flag.String("connect2", "", "use an HTTPS proxy to connect, form: [username:password@]ip:port")
-
+	cmdKey              = flag.String("k", "0123456789abcdef", "key, important")
+	cmdAuth             = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	cmdBasic            = flag.String("b", "iplist", "proxy type, whose value can be: none, iplist, iplist_l, global, global_l")
+	cmdUpstream         = flag.String("up", "", "upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
+	cmdLocal            = flag.String("l", ":8100", "local listening port (remember the colon)")
+	cmdLocal2           = flag.String("p", "", "local listening port, alias of -l")
+	cmdUDPPort          = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
+	cmdUDPonTCP         = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
+	cmdLogLevel         = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
 	cmdDebug            = flag.Bool("debug", false, "debug mode")
 	cmdProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
 	cmdDisableConsole   = flag.Bool("disable-console", false, "disable the access to web console")
 	cmdRecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
 	cmdPartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
-
-	cmdDNSCacheEntries = flag.Int("dns-cache", 1024, "DNS cache size")
-	cmdThrottling      = flag.Int64("throttling", 0, "traffic throttling, experimental")
-	cmdThrottlingMax   = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
+	cmdDNSCacheEntries  = flag.Int("dns-cache", 1024, "DNS cache size")
+	cmdThrottling       = flag.Int64("throttling", 0, "traffic throttling, experimental")
+	cmdThrottlingMax    = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
-func LoadConfig() {
+func loadConfig() {
 	flag.Parse()
 
 	path := *cmdConfig
@@ -61,14 +56,11 @@ func LoadConfig() {
 		*cmdKey = cf.GetString("default", "key", *cmdKey)
 		*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
 		*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
-		*cmdDomain = cf.GetString("default", "domain", *cmdDomain)
 		*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
-		*cmdUdpRelay = cf.GetInt("default", "udp", *cmdUdpRelay)
-		*cmdUdpTcp = cf.GetInt("default", "udptcp", *cmdUdpTcp)
+		*cmdUDPPort = cf.GetInt("default", "udp", *cmdUDPPort)
+		*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
 		*cmdLogLevel = cf.GetString("default", "loglevel", *cmdLogLevel)
-		*cmdGlobalProxy = cf.GetBool("default", "global", *cmdGlobalProxy)
-		*cmdMITM = cf.GetBool("default", "mitm", *cmdMITM)
-		*cmdConnect2 = cf.GetString("default", "connect2", *cmdConnect2)
+		*cmdBasic = cf.GetString("default", "type", *cmdBasic)
 		*cmdRecordLocalError = cf.GetBool("misc", "localerror", *cmdRecordLocalError)
 		*cmdProxyPassAddr = cf.GetString("misc", "proxypass", *cmdProxyPassAddr)
 
@@ -93,7 +85,7 @@ func main() {
      " "  cf   |___/             |___/               |___/
  `)
 
-	LoadConfig()
+	loadConfig()
 
 	if *cmdGenCA {
 		fmt.Println("generating CA...")
@@ -135,43 +127,77 @@ func main() {
 	}
 	cipher.New()
 
-	c2, c2a := *cmdConnect2, ""
-	if c2 != "" {
-		if idx := strings.Index(c2, "@"); idx > 0 {
-			c2a = c2[:idx]
-			c2 = c2[idx+1:]
-		}
-
-		logg.L("using HTTPS proxy as the frontend: ", *cmdConnect2)
-	}
-
-	domain, domain2 := *cmdDomain, ""
-	if idx := strings.Index(domain, "@"); idx > 0 {
-		domain2 = domain[idx+1:]
-		domain = domain[:idx]
-	}
-
 	cc := &proxy.ClientConfig{
 		DNSCacheSize:   *cmdDNSCacheEntries,
-		GlobalProxy:    *cmdGlobalProxy,
 		DisableConsole: *cmdDisableConsole,
-		ManInTheMiddle: *cmdMITM,
-		Connect2:       c2,
-		Connect2Auth:   c2a,
 		UserAuth:       *cmdAuth,
-		DummyDomain:    domain,
-		DummyDomain2:   domain2,
 		Upstream:       *cmdUpstream,
-		UDPRelayPort:   int(*cmdUdpRelay),
-		UDPRelayCoconn: int(*cmdUdpTcp),
+		UDPRelayPort:   int(*cmdUDPPort),
+		UDPRelayCoconn: int(*cmdUDPonTCP),
 		Cipher:         cipher,
+	}
+
+	if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
+		c2, c2a := (*cmdUpstream)[:idx2], ""
+		if idx1 != idx2 {
+			c2a = c2[:idx1]
+			c2 = c2[idx1+1:]
+		}
+
+		if c2 == "mitm" {
+			logg.L("man-in-the-middle to intercept HTTPS")
+			cc.ManInTheMiddle = true
+		} else {
+			logg.L("using HTTPS proxy as the frontend: ", c2)
+			cc.Connect2 = c2
+			cc.Connect2Auth = c2a
+		}
+
+		if c2a != "" {
+			logg.L("... proxy auth: ", c2a)
+		}
+
+		up := (*cmdUpstream)[idx2+1:]
+		if idx1 = strings.Index(up, ";"); idx1 > -1 {
+			cc.DummyDomain = up[idx1+1:]
+			up = up[:idx1]
+
+			if idx1 = strings.Index(cc.DummyDomain, "?"); idx1 > -1 {
+				cc.URLHeader = cc.DummyDomain[idx1+1:]
+				cc.DummyDomain = cc.DummyDomain[:idx1]
+				logg.L("the true URL will be stored in: ", cc.URLHeader)
+			}
+
+			logg.L("dummy domain is: ", cc.DummyDomain, ", every HTTP reqeust sent out will have it as the host name")
+		}
+		cc.Upstream = up
+	}
+
+	switch *cmdBasic {
+	case "none":
+		cc.NoProxy = true
+
+	case "global_l":
+		cc.TrustLocalDNS = true
+		fallthrough
+	case "global":
+		cc.NoProxy = false
+		cc.GlobalProxy = true
+
+	case "iplist_l":
+		cc.TrustLocalDNS = true
+		fallthrough
+	case "iplist":
+		cc.NoProxy = false
+		cc.GlobalProxy = false
+	default:
+		logg.W("invalid proxy type: ", *cmdBasic)
 	}
 
 	sc := &proxy.ServerConfig{
 		Cipher:         cipher,
-		UDPRelayListen: int(*cmdUdpRelay),
+		UDPRelayListen: int(*cmdUDPPort),
 		Throttling:     *cmdThrottling,
-		DummyDomain:    *cmdDomain,
 		ThrottlingMax:  *cmdThrottlingMax,
 		ProxyPassAddr:  *cmdProxyPassAddr,
 	}

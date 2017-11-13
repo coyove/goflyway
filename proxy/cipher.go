@@ -262,9 +262,9 @@ func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []by
 		retB = make([]byte, 1+1+ln+len(auth))
 		copy(retB[2:], payload)
 	} else {
-		// +--------+-------------+------------+------+-- -  -   -
+		// +-------+-------------+------------+------+-- -  -   -
 		// | doDNS | checksum 1b | hostlen 1b | host | auth data ...
-		// +--------+-------------+------------+------+-- -  -   -
+		// +-------+-------------+------------+------+-- -  -   -
 		retB = make([]byte, 1+1+1+len(payload)+len(auth))
 		if len(payload) > 255 {
 			logg.W("loss of data: ", string(payload))
