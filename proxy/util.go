@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bytes"
+
 	"github.com/coyove/goflyway/pkg/logg"
 
 	"crypto/tls"
@@ -369,4 +371,34 @@ func genWord(gc *Cipher, random bool) string {
 	}
 
 	return string(ret[:ln])
+}
+
+func readUntil(r io.Reader, eoh string) ([]byte, bool) {
+	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
+	eidx, found := 0, false
+
+	for {
+		n, err := r.Read(buf)
+		if n == 1 {
+			respbuf.WriteByte(buf[0])
+		}
+
+		if buf[0] == eoh[eidx] {
+			if eidx++; eidx == len(eoh) {
+				found = true
+				break
+			}
+		} else {
+			eidx = 0
+		}
+
+		if err != nil {
+			if err != io.EOF {
+				logg.E("readUntil: ", err)
+			}
+			break
+		}
+	}
+
+	return respbuf.Bytes(), found
 }

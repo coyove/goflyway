@@ -165,35 +165,14 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return nil, err
 	}
 
-	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
-	eoh, eidx, found := "\r\n\r\n", 0, false
-
-	for {
-		n, err := connectConn.Read(buf)
-		if n == 1 {
-			respbuf.WriteByte(buf[0])
-		}
-
-		if buf[0] == eoh[eidx] {
-			if eidx++; eidx == 4 {
-				// we are meeting \r\n\r\n, the end
-				found = true
-				break
-			}
-		}
-
-		if err != nil {
-			break
-		}
-	}
-
+	respbuf, found := readUntil(connectConn, "\r\n\r\n")
 	if !found {
 		connectConn.Close()
 		return nil, errors.New("connect2: malformed repsonse")
 	}
 
-	if !bytes.Contains(respbuf.Bytes(), HTTP200) {
-		x := respbuf.String()
+	if !bytes.Contains(respbuf, HTTP200) {
+		x := string(respbuf)
 		if x = x[strings.Index(x, " ")+1:]; len(x) > 3 {
 			x = x[:3]
 		}
@@ -229,9 +208,10 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host, a
 	}
 
 	upstreamConn.Write([]byte(payload + "\r\n"))
-	buf := make([]byte, 96)
-	if nr, er := io.ReadAtLeast(upstreamConn, buf, len(buf)); er != nil || nr != len(buf) || !bytes.Equal(buf[:15], okHTTP[:15]) {
-		logg.E("failed to read response: ", err, " ", nr, " bytes: ", buf)
+
+	buf, found := readUntil(upstreamConn, "\r\n\r\n")
+	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
+	if !found || len(buf) < 15 || !bytes.Equal(buf[:15], okHTTP[:15]) {
 		upstreamConn.Close()
 		downstreamConn.Close()
 		return nil
