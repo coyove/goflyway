@@ -255,8 +255,8 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 		proxy.udp.Unlock()
 		payload.UDP = buf.String()
 
-		payload.ProxyAll = proxy.GlobalProxy
-		payload.MITM = proxy.ManInTheMiddle
+		payload.ProxyAll = proxy.Policy.isset(PolicyGlobal)
+		payload.MITM = proxy.Policy.isset(PolicyManInTheMiddle)
 		payload.Key = proxy.Cipher.KeyString
 		payload.Auth = proxy.UserAuth
 
@@ -274,29 +274,20 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 		}
 
 		if r.FormValue("update") != "" {
-			proxy.GlobalProxy = r.FormValue("gproxy") == "on"
-			proxy.ManInTheMiddle = r.FormValue("mitm") == "on"
-			proxy.UserAuth = r.FormValue("auth")
-			proxy.UpdateKey(r.FormValue("key"))
-		}
-
-		if s := r.FormValue("switch"); s != "" {
-			switch s {
-			case "none":
-				proxy.NoProxy = true
-			case "global":
-				proxy.NoProxy = false
-				proxy.GlobalProxy = true
-			case "iplist":
-				proxy.NoProxy = false
-				proxy.GlobalProxy = false
-			default:
-				w.WriteHeader(400)
-				return
+			if r.FormValue("gproxy") == "on" {
+				proxy.Policy.set(PolicyGlobal)
+			} else {
+				proxy.Policy.unset(PolicyGlobal)
 			}
 
-			w.WriteHeader(200)
-			return
+			if r.FormValue("mitm") == "on" {
+				proxy.Policy.set(PolicyManInTheMiddle)
+			} else {
+				proxy.Policy.unset(PolicyManInTheMiddle)
+			}
+
+			proxy.UserAuth = r.FormValue("auth")
+			proxy.UpdateKey(r.FormValue("key"))
 		}
 
 		if r.FormValue("ping") != "" {

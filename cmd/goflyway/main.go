@@ -137,6 +137,7 @@ func main() {
 		Cipher:         cipher,
 	}
 
+	var policy byte
 	if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
 		c2, c2a := (*cmdUpstream)[:idx2], ""
 		if idx1 != idx2 {
@@ -146,7 +147,7 @@ func main() {
 
 		if c2 == "mitm" {
 			logg.L("man-in-the-middle to intercept HTTPS")
-			cc.ManInTheMiddle = true
+			policy |= proxy.PolicyManInTheMiddle
 		} else {
 			logg.L("using HTTPS proxy as the frontend: ", c2)
 			cc.Connect2 = c2
@@ -175,24 +176,24 @@ func main() {
 
 	switch *cmdBasic {
 	case "none":
-		cc.NoProxy = true
+		policy |= proxy.PolicyDisabled
 
 	case "global_l":
-		cc.TrustLocalDNS = true
+		policy |= proxy.PolicyTrustClientDNS
 		fallthrough
 	case "global":
-		cc.NoProxy = false
-		cc.GlobalProxy = true
+		policy |= proxy.PolicyGlobal
 
 	case "iplist_l":
-		cc.TrustLocalDNS = true
+		policy |= proxy.PolicyTrustClientDNS
 		fallthrough
 	case "iplist":
-		cc.NoProxy = false
-		cc.GlobalProxy = false
+		// do nothing, default policy
 	default:
 		logg.W("invalid proxy type: ", *cmdBasic)
 	}
+
+	cc.Policy = proxy.Options(policy)
 
 	sc := &proxy.ServerConfig{
 		Cipher:         cipher,

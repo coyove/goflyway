@@ -23,7 +23,7 @@ const (
 	socksAddrDomain = 3
 	socksAddrIPv6   = 4
 	socksReadErr    = "cannot read buffer: "
-	socksVersionErr = "invalid socks version (SOCKS5 only)"
+	socksVersionErr = "invalid SOCKS version (SOCKS5 only)"
 )
 
 const (
@@ -38,8 +38,17 @@ const (
 )
 
 const (
+	PolicyDisabled       = 1
+	PolicyManInTheMiddle = 1 << 1
+	PolicyGlobal         = 1 << 2
+	PolicyTrustClientDNS = 1 << 3
+)
+
+const (
 	timeoutUDP          = 30
 	timeoutTCP          = 60
+	timeoutDial         = time.Duration(5) * time.Second
+	timeoutOp           = time.Duration(20) * time.Second
 	invalidRequestRetry = 2
 	dnsRespHeader       = "ETag"
 )
@@ -49,6 +58,7 @@ var (
 	okSOCKS         = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	socksHandshake  = []byte{socksVersion5, 1, 0}
 	dummyHeaders    = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
 	tlsSkip         = &tls.Config{InsecureSkipVerify: true}
 	hasPort         = regexp.MustCompile(`:\d+$`)
@@ -56,6 +66,16 @@ var (
 	base32Encoding  = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
 	base32Encoding2 = base32.NewEncoding("abcd&fghijklmnopqrstuvwxyz+-_./e")
 )
+
+type Options byte
+
+func (o *Options) isset(option byte) bool { return (byte(*o) & option) != 0 }
+
+func (o *Options) set(option byte) { *o = Options(byte(*o) | option) }
+
+func (o *Options) unset(option byte) { *o = Options((byte(*o) | option) - option) }
+
+func (o *Options) val() byte { return byte(*o) }
 
 func (proxy *ProxyClient) addToDummies(req *http.Request) {
 	for _, field := range dummyHeaders {
@@ -75,8 +95,8 @@ func (proxy *ProxyClient) genHost() string {
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*http.Response, []byte, error) {
-	rkey, rkeybuf := proxy.Cipher.NewIV(doForward, nil, auth)
+func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response, []byte, error) {
+	rkey, rkeybuf := proxy.Cipher.NewIV(doForward, nil, proxy.UserAuth)
 	req.Header.Add(proxy.rkeyHeader, rkey)
 
 	proxy.addToDummies(req)
@@ -90,7 +110,7 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, auth string) (*
 		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
 	}
 
-	if proxy.ManInTheMiddle && proxy.Connect2Auth != "" {
+	if proxy.Policy.isset(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
 		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
 		req.Header.Add("Proxy-Authorization", x)
 		req.Header.Add("Authorization", x)
@@ -136,7 +156,7 @@ func stripURI(uri string) string {
 	return uri
 }
 
-func (proxy *ProxyUpstream) decryptRequest(req *http.Request, options byte, rkeybuf []byte) bool {
+func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) bool {
 	var err error
 	req.URL, err = url.Parse(proxy.Cipher.DecryptDecompress(stripURI(req.RequestURI), rkeybuf...))
 	if err != nil {

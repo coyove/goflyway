@@ -240,11 +240,11 @@ func checksum1b(buf []byte) byte {
 	return byte(s>>12) + byte(s&0x00f0)
 }
 
-func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []byte) {
+func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte) {
 	r, ln := gc.NewRand(), ivLen
 
 	// +------------+-------------+-----------+-- -  -   -
-	// | options 1b | checksum 1b | iv 128bit | auth data ...
+	// | Options 1b | checksum 1b | iv 128bit | auth data ...
 	// +------------+-------------+-----------+-- -  -   -
 
 	var retB, ret []byte
@@ -257,7 +257,7 @@ func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []by
 			retB[i] = byte(r.Intn(255) + 1)
 			ret[i-2] = retB[i]
 		}
-	} else if (options & doDNS) == 0 {
+	} else if !o.isset(doDNS) {
 		ret = payload
 		retB = make([]byte, 1+1+ln+len(auth))
 		copy(retB[2:], payload)
@@ -279,7 +279,7 @@ func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []by
 		copy(retB[2+ln:], []byte(auth))
 	}
 
-	retB[0], retB[1] = options, checksum1b(retB[2:])
+	retB[0], retB[1] = o.val(), checksum1b(retB[2:])
 	s1, s2, s3, s4 := byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256))
 
 	return base64.StdEncoding.EncodeToString(
@@ -291,8 +291,8 @@ func (gc *Cipher) NewIV(options byte, payload []byte, auth string) (string, []by
 	), ret
 }
 
-func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
-	options = 0xff
+func (gc *Cipher) ReverseIV(key string) (o Options, iv []byte, auth []byte) {
+	o = Options(0xff)
 	if key == "" {
 		return
 	}
@@ -314,7 +314,7 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 	}
 
 	if (buf[0] & doDNS) == 0 {
-		return buf[0], buf[2 : 2+ivLen], buf[2+ivLen:]
+		return Options(buf[0]), buf[2 : 2+ivLen], buf[2+ivLen:]
 	}
 
 	ln := buf[2]
@@ -322,5 +322,5 @@ func (gc *Cipher) ReverseIV(key string) (options byte, iv []byte, auth []byte) {
 		return
 	}
 
-	return buf[0], buf[3 : 3+ln], buf[3+ln:]
+	return Options(buf[0]), buf[3 : 3+ln], buf[3+ln:]
 }

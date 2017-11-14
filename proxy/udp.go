@@ -36,16 +36,14 @@ func (a *addr_t) HostString() string {
 	if a.ip != nil {
 		if len(a.ip) == net.IPv4len {
 			return a.ip.String()
-		} else {
-			return "[" + a.ip.String() + "]"
 		}
-	} else {
-		if strings.Contains(a.host, ":") && a.host[0] != '[' {
-			return "[" + a.host + "]"
-		} else {
-			return a.host
-		}
+		return "[" + a.ip.String() + "]"
 	}
+
+	if strings.Contains(a.host, ":") && a.host[0] != '[' {
+		return "[" + a.host + "]"
+	}
+	return a.host
 }
 
 func (a *addr_t) IP() net.IP {
@@ -325,7 +323,7 @@ func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, str
 	return upstreamConn, str, true, flag
 }
 
-func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, auth string, src net.Addr) {
+func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, src net.Addr) {
 	_, dst, ok := parseDstFrom(nil, b, true)
 	if !ok {
 		relay.Close()
@@ -357,8 +355,8 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 	var encauth []byte
 	var authlen = 0
 
-	if auth != "" {
-		encauth = proxy.Cipher.Encrypt([]byte(auth))
+	if proxy.UserAuth != "" {
+		encauth = proxy.Cipher.Encrypt([]byte(proxy.UserAuth))
 		authlen = len(encauth)
 	}
 

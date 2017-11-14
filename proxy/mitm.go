@@ -22,7 +22,7 @@ func (c *bufioConn) Read(buf []byte) (int, error) {
 	return c.m.Read(buf)
 }
 
-func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
+func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 	_host, _ := splitHostPort(host)
 	// try self signing a cert of this host
 	cert := sign(_host)
@@ -48,7 +48,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 
 		for {
 			var err error
-			var rUrl string
+			var rURL string
 			var buf []byte
 			if buf, err = bufTLSClient.Peek(3); err == io.EOF || len(buf) != 3 {
 				break
@@ -68,7 +68,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				break
 			}
 
-			rUrl = req.URL.String()
+			rURL = req.URL.String()
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -80,14 +80,14 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host, auth string) {
 				}
 
 				req.URL, err = url.Parse("https://" + h + req.URL.String())
-				rUrl = req.URL.String()
+				rURL = req.URL.String()
 			}
 
-			logg.D(req.Method, "^ ", rUrl)
+			logg.D(req.Method, "^ ", rURL)
 
-			resp, rkeybuf, err := proxy.encryptAndTransport(req, auth)
+			resp, rkeybuf, err := proxy.encryptAndTransport(req)
 			if err != nil {
-				logg.E("proxy pass: ", rUrl, ", ", err)
+				logg.E("proxy pass: ", rURL, ", ", err)
 				tlsClient.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n" + err.Error()))
 				break
 			}

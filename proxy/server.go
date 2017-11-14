@@ -171,7 +171,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add(dnsRespHeader, ip)
 		w.WriteHeader(200)
 
-	} else if (options & doConnect) > 0 {
+	} else if options.isset(doConnect) {
 		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()
@@ -179,27 +179,24 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logg.D("CONNECT ", host)
-
-		// dig tunnel
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
 			return
 		}
 
 		ioc := proxy.getIOConfig(auth)
-
-		// we are outside GFW and should pass data to the real target
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
 			logg.E(err)
+			downstreamConn.Close()
 			return
 		}
 
 		p := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
 		downstreamConn.Write([]byte(p))
 		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
-	} else if (options & doForward) > 0 {
-		if !proxy.decryptRequest(r, options, rkeybuf) {
+	} else if options.isset(doForward) {
+		if !proxy.decryptRequest(r, rkeybuf) {
 			replyRandom()
 			return
 		}
