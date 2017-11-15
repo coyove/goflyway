@@ -1,8 +1,9 @@
 package main
 
 import (
-	"strings"
+	"net/http"
 
+	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
@@ -13,82 +14,73 @@ import (
 	"fmt"
 	"io/ioutil"
 	"runtime"
+	"strings"
 )
 
 var (
-	cmdConfig = flag.String("c", "", "config file path")
-	cmdGenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
-
-	cmdKey           = flag.String("k", "0123456789abcdef", "key, use your own other than default")
-	cmdAuth          = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	cmdBasic         = flag.String("b", "iplist", "proxy type, whose value can be: none, iplist, iplist_l, global, global_l")
-	cmdUpstream      = flag.String("up", "", "upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
-	cmdLocal         = flag.String("l", ":8100", "local listening port (remember the colon)")
-	cmdLocal2        = flag.String("p", "", "local listening port, alias of -l")
-	cmdUDPPort       = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
-	cmdUDPonTCP      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
-	cmdLogLevel      = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
-	cmdDebug         = flag.Bool("debug", false, "debug mode")
-	cmdProxyPass     = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
-	cmdNoWebConsole  = flag.Bool("no-web", false, "disable the access to web console")
-	cmdPartial       = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
-	cmdDNSCache      = flag.Int("dns-cache", 1024, "DNS cache size")
-	cmdThrottling    = flag.Int64("throt", 0, "traffic throttling, experimental")
-	cmdThrottlingMax = flag.Int64("throt-max", 1024*1024, "traffic throttling token bucket max capacity")
+	cmdConfig     = flag.String("c", "", "[SC] config file path")
+	cmdGenCA      = flag.Bool("gen-ca", false, "[C] generate certificate (ca.pem) and private key (key.pem)")
+	cmdKey        = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
+	cmdAuth       = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
+	cmdBasic      = flag.String("b", "iplist", "[C] proxy type: {none, iplist, iplist_l, global, global_l}")
+	cmdUpstream   = flag.String("up", "", "[C] upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
+	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
+	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
+	cmdUDPPort    = flag.Int64("udp", 0, "[SC] server UDP relay listening port, 0 to disable")
+	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
+	cmdLogLevel   = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
+	cmdDebug      = flag.Bool("debug", false, "[C] turn on debug mode")
+	cmdProxyPass  = flag.String("proxy-pass", "", "[C] use goflyway as a reverse HTTP proxy")
+	cmdWebConPort = flag.Int("web-port", 8101, "[C] web console listening port, 0 to disable")
+	cmdPartial    = flag.Bool("partial", false, "[SC] partially encrypt the tunnel traffic")
+	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
+	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
+	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
 )
 
 func loadConfig() {
 	flag.Parse()
 
 	path := *cmdConfig
-
-	if path != "" {
-		buf, err := ioutil.ReadFile(path)
-		if err != nil {
-			logg.F(err)
-		}
-
-		cf, err := config.ParseConf(string(buf))
-		if err != nil {
-			logg.F(err)
-		}
-
-		*cmdKey = cf.GetString("default", "key", *cmdKey)
-		*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
-		*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
-		*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
-		*cmdUDPPort = cf.GetInt("default", "udp", *cmdUDPPort)
-		*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
-		*cmdLogLevel = cf.GetString("default", "loglevel", *cmdLogLevel)
-		*cmdBasic = cf.GetString("default", "type", *cmdBasic)
-
-		*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
-		*cmdNoWebConsole = cf.GetBool("misc", "noweb", *cmdNoWebConsole)
-		*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
-		*cmdPartial = cf.GetBool("misc", "partial", *cmdPartial)
-		*cmdThrottling = cf.GetInt("misc", "throt", *cmdThrottling)
-		*cmdThrottlingMax = cf.GetInt("misc", "throtmax", *cmdThrottlingMax)
+	if path == "" {
+		return
 	}
+
+	buf, err := ioutil.ReadFile(path)
+	if err != nil {
+		logg.F(err)
+	}
+
+	cf, err := config.ParseConf(string(buf))
+	if err != nil {
+		logg.F(err)
+	}
+
+	*cmdKey = cf.GetString("default", "password", *cmdKey)
+	*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
+	*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
+	*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
+	*cmdUDPPort = cf.GetInt("default", "udp", *cmdUDPPort)
+	*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
+	*cmdBasic = cf.GetString("default", "type", *cmdBasic)
+	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
+
+	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
+	*cmdWebConPort = int(cf.GetInt("misc", "webconport", int64(*cmdWebConPort)))
+	*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
+	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
+	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
+	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
 }
 
 func main() {
 	logg.Start()
-	fmt.Println(`     __//                   __ _
-    /.__.\                 / _| |
-    \ \/ /      __ _  ___ | |_| |_   ___      ____ _ _   _
- '__/    \     / _' |/ _ \|  _| | | | \ \ /\ / / _' | | | |
-  \-      )   | (_| | (_) | | | | |_| |\ V  V / (_| | |_| |
-   \_____/     \__, |\___/|_| |_|\__, | \_/\_/ \__,_|\__, |
- ____|_|____    __/ |             __/ |               __/ |
-     " "  cf   |___/             |___/               |___/
- `)
-
 	loadConfig()
 
 	if *cmdGenCA {
-		fmt.Println("generating CA...")
+		fmt.Println("* generating CA...")
 
-		cert, key, err := proxy.GenCA("goflyway")
+		cert, key, err := lib.GenCA("goflyway")
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -101,22 +93,25 @@ func main() {
 			return
 		}
 
-		fmt.Println("done")
-		fmt.Println("goflyway has generated ca.pem and key.pem, please leave them in the same directory with goflyway")
+		fmt.Println("* goflyway has generated ca.pem and key.pem, please leave them in the same directory with goflyway")
+		fmt.Println("* next time it will automatically read them when launched")
 		return
 	}
 
 	logg.SetLevel(*cmdLogLevel)
-	//logg.RecordLocalhostError(*cmdRecordLocalError)
-
-	if *cmdKey == "0123456789abcdef" {
-		logg.W("you are using the default key, please change it by setting -k=KEY")
-	}
 
 	if *cmdUpstream != "" {
-		if !lookup.LoadOrCreateChinaList("") {
-			logg.W("cannot read chinalist.txt (but it's fine, you can ignore this msg)")
-		}
+		fmt.Println("* goflyway client launched")
+	} else {
+		fmt.Println("* goflyway server launched")
+	}
+
+	if *cmdKey == "0123456789abcdef" {
+		fmt.Println("* you are using the default password, it is recommended to change it: -k=<NEW PASSWORD>")
+	}
+
+	if *cmdUpstream != "" && !lookup.LoadOrCreateChinaList("") {
+		fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
 	}
 
 	cipher := &proxy.Cipher{Partial: *cmdPartial}
@@ -129,11 +124,8 @@ func main() {
 		UDPRelayCoconn: int(*cmdUDPonTCP),
 		Cipher:         cipher,
 		DNSCache:       lru.NewCache(*cmdDNSCache),
-	}
-
-	var policy proxy.Options
-	if *cmdNoWebConsole {
-		policy.Set(proxy.PolicyNoWebConsole)
+		CACache:        lru.NewCache(256),
+		CA:             lib.TryLoadCert(),
 	}
 
 	if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
@@ -144,16 +136,16 @@ func main() {
 		}
 
 		if c2 == "mitm" {
-			logg.L("man-in-the-middle to intercept HTTPS")
-			policy.Set(proxy.PolicyManInTheMiddle)
+			fmt.Println("* man-in-the-middle to intercept HTTPS")
+			cc.Policy.Set(proxy.PolicyManInTheMiddle)
 		} else {
-			logg.L("using HTTPS proxy as the frontend: ", c2)
+			fmt.Println("* using HTTPS proxy as the frontend:", c2)
 			cc.Connect2 = c2
 			cc.Connect2Auth = c2a
 		}
 
 		if c2a != "" {
-			logg.L("... proxy auth: ", c2a)
+			fmt.Println("* ... and using proxy auth:", c2a)
 		}
 
 		up := (*cmdUpstream)[idx2+1:]
@@ -164,40 +156,38 @@ func main() {
 			if idx1 = strings.Index(cc.DummyDomain, "?"); idx1 > -1 {
 				cc.URLHeader = cc.DummyDomain[idx1+1:]
 				cc.DummyDomain = cc.DummyDomain[:idx1]
-				logg.L("the true URL will be stored in: ", cc.URLHeader)
+				fmt.Println("* the true URL will be stored in:", cc.URLHeader)
 			}
 
-			logg.L("dummy domain is: ", cc.DummyDomain, ", every HTTP reqeust sent out will have it as the host name")
+			fmt.Println("* all reqeusts sent out will have", cc.DummyDomain, "as the host name")
 		}
 		cc.Upstream = up
 	}
 
 	switch *cmdBasic {
 	case "none":
-		policy.Set(proxy.PolicyDisabled)
+		cc.Policy.Set(proxy.PolicyDisabled)
 
 	case "global_l":
-		policy.Set(proxy.PolicyTrustClientDNS)
+		cc.Policy.Set(proxy.PolicyTrustClientDNS)
 		fallthrough
 	case "global":
-		policy.Set(proxy.PolicyGlobal)
+		cc.Policy.Set(proxy.PolicyGlobal)
 
 	case "iplist_l":
-		policy.Set(proxy.PolicyTrustClientDNS)
+		cc.Policy.Set(proxy.PolicyTrustClientDNS)
 		fallthrough
 	case "iplist":
 		// do nothing, default policy
 	default:
-		logg.W("invalid proxy type: ", *cmdBasic)
+		fmt.Println("* invalid proxy type:", *cmdBasic)
 	}
-
-	cc.Policy = policy
 
 	sc := &proxy.ServerConfig{
 		Cipher:         cipher,
 		UDPRelayListen: int(*cmdUDPPort),
-		Throttling:     *cmdThrottling,
-		ThrottlingMax:  *cmdThrottlingMax,
+		Throttling:     *cmdThrot,
+		ThrottlingMax:  *cmdThrotMax,
 		ProxyPassAddr:  *cmdProxyPass,
 	}
 
@@ -207,29 +197,41 @@ func main() {
 		}
 	}
 
-	var client *proxy.ProxyClient
 	if *cmdDebug {
-		logg.L("debug mode on, proxy listening port 8100")
+		fmt.Println("* debug mode on")
 
 		cc.Upstream = "127.0.0.1:8101"
-		client = proxy.NewClient(":8100", cc)
+		client := proxy.NewClient(":8100", cc)
 		go func() {
 			logg.F(client.Start())
 		}()
 
-		proxy.StartServer(":8101", sc)
+		server := proxy.NewServer(":8101", sc)
+		logg.F(server.Start())
 		return
 	}
 
+	var localaddr string
+	if *cmdLocal2 != "" {
+		// -p has higher priority than -l, for the sack of SS users
+		localaddr = *cmdLocal2
+	} else {
+		localaddr = *cmdLocal
+	}
+
 	if *cmdUpstream != "" {
-		if *cmdLocal2 != "" {
-			// -p has higher priority than -l, for the sack of SS users
-			client = proxy.NewClient(*cmdLocal2, cc)
-		} else {
-			client = proxy.NewClient(*cmdLocal, cc)
+		client := proxy.NewClient(localaddr, cc)
+
+		if *cmdWebConPort != 0 {
+			go func() {
+				addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
+				http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
+				fmt.Println("* access client web console at [", addr, "]")
+				logg.F(http.ListenAndServe(addr, nil))
+			}()
 		}
 
-		logg.L("Hi! ", client.Cipher.Alias, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
+		fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream [", client.Upstream, "]")
 		logg.F(client.Start())
 	} else {
 		// save some space because server doesn't need lookup
@@ -240,12 +242,8 @@ func main() {
 
 		// global variables are pain in the ass
 		runtime.GC()
-
-		if *cmdLocal2 != "" {
-			// -p has higher priority than -l, for the sack of SS users
-			proxy.StartServer(*cmdLocal2, sc)
-		} else {
-			proxy.StartServer(*cmdLocal, sc)
-		}
+		server := proxy.NewServer(localaddr, sc)
+		fmt.Println("* proxy", server.Cipher.Alias, "started at [", server.Localaddr, "]")
+		logg.F(server.Start())
 	}
 }

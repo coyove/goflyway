@@ -1,7 +1,8 @@
-package proxy
+package lib
 
 import (
 	"github.com/coyove/goflyway/pkg/lru"
+	pp "github.com/coyove/goflyway/proxy"
 
 	"bytes"
 	"fmt"
@@ -206,96 +207,98 @@ var _i18n = map[string]map[string]string{
 	},
 }
 
-func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		payload := struct {
-			ProxyAll bool
-			MITM     bool
-			Key      string
-			Auth     string
-			DNS      string
-			UDP      string
-			Cert     string
-			I18N     map[string]string
-		}{}
-		flag := false
-		buf := &bytes.Buffer{}
+func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			payload := struct {
+				ProxyAll bool
+				MITM     bool
+				Key      string
+				Auth     string
+				DNS      string
+				UDP      string
+				Cert     string
+				I18N     map[string]string
+			}{}
+			flag := false
+			buf := &bytes.Buffer{}
 
-		proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
-			flag = true
-			buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h))
-		})
-		if !flag {
-			buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
-		}
-		payload.DNS = buf.String()
-
-		flag = false
-		buf.Reset()
-		caCache.Info(func(k lru.Key, v interface{}, h int64) {
-			flag = true
-			buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td align=right>%d</td></tr>", k, h))
-		})
-		if !flag {
-			buf.WriteString("<tr><td>n/a</td><td align=right>n/a</td></tr>")
-		}
-		payload.Cert = buf.String()
-
-		buf.Reset()
-		proxy.udp.Lock()
-		if len(proxy.udp.conns) == 0 {
-			buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
-		} else {
-			now := time.Now().UnixNano()
-			for tok, t := range proxy.udp.conns {
-				buf.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%d ms</td><td align=right>%d</td></tr>",
-					tok, (now-t.born)/1e6, t.hits))
+			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
+				flag = true
+				buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h))
+			})
+			if !flag {
+				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
 			}
-		}
-		proxy.udp.Unlock()
-		payload.UDP = buf.String()
+			payload.DNS = buf.String()
 
-		payload.ProxyAll = proxy.Policy.IsSet(PolicyGlobal)
-		payload.MITM = proxy.Policy.IsSet(PolicyManInTheMiddle)
-		payload.Key = proxy.Cipher.KeyString
-		payload.Auth = proxy.UserAuth
+			flag = false
+			buf.Reset()
+			proxy.CACache.Info(func(k lru.Key, v interface{}, h int64) {
+				flag = true
+				buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td align=right>%d</td></tr>", k, h))
+			})
+			if !flag {
+				buf.WriteString("<tr><td>n/a</td><td align=right>n/a</td></tr>")
+			}
+			payload.Cert = buf.String()
 
-		// use lang=en to force english display
-		if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
-			payload.I18N = _i18n["zh"]
-		} else {
-			payload.I18N = _i18n["en"]
-		}
-
-		webConsoleHTML.Execute(w, payload)
-	} else if r.Method == "POST" {
-		if r.FormValue("cleardns") != "" {
-			proxy.DNSCache.Clear()
-		}
-
-		if r.FormValue("update") != "" {
-			if r.FormValue("gproxy") == "on" {
-				proxy.Policy.Set(PolicyGlobal)
+			buf.Reset()
+			proxy.UDP.Lock()
+			if len(proxy.UDP.Conns) == 0 {
+				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
 			} else {
-				proxy.Policy.UnSet(PolicyGlobal)
+				now := time.Now().UnixNano()
+				for tok, t := range proxy.UDP.Conns {
+					buf.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%d ms</td><td align=right>%d</td></tr>",
+						tok, (now-t.Born)/1e6, t.Hits))
+				}
 			}
+			proxy.UDP.Unlock()
+			payload.UDP = buf.String()
 
-			if r.FormValue("mitm") == "on" {
-				proxy.Policy.Set(PolicyManInTheMiddle)
+			payload.ProxyAll = proxy.Policy.IsSet(pp.PolicyGlobal)
+			payload.MITM = proxy.Policy.IsSet(pp.PolicyManInTheMiddle)
+			payload.Key = proxy.Cipher.KeyString
+			payload.Auth = proxy.UserAuth
+
+			// use lang=en to force english display
+			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
+				payload.I18N = _i18n["zh"]
 			} else {
-				proxy.Policy.UnSet(PolicyManInTheMiddle)
+				payload.I18N = _i18n["en"]
 			}
 
-			proxy.UserAuth = r.FormValue("auth")
-			proxy.UpdateKey(r.FormValue("key"))
-		}
+			webConsoleHTML.Execute(w, payload)
+		} else if r.Method == "POST" {
+			if r.FormValue("cleardns") != "" {
+				proxy.DNSCache.Clear()
+			}
 
-		if r.FormValue("ping") != "" {
-			w.WriteHeader(200)
-			w.Write([]byte("pong"))
-			return
-		}
+			if r.FormValue("update") != "" {
+				if r.FormValue("gproxy") == "on" {
+					proxy.Policy.Set(pp.PolicyGlobal)
+				} else {
+					proxy.Policy.UnSet(pp.PolicyGlobal)
+				}
 
-		http.Redirect(w, r, "/?goflyway-console", 301)
+				if r.FormValue("mitm") == "on" {
+					proxy.Policy.Set(pp.PolicyManInTheMiddle)
+				} else {
+					proxy.Policy.UnSet(pp.PolicyManInTheMiddle)
+				}
+
+				proxy.UserAuth = r.FormValue("auth")
+				proxy.UpdateKey(r.FormValue("key"))
+			}
+
+			if r.FormValue("ping") != "" {
+				w.WriteHeader(200)
+				w.Write([]byte("pong"))
+				return
+			}
+
+			http.Redirect(w, r, "/", 301)
+		}
 	}
 }

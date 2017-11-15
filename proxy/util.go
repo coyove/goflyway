@@ -42,12 +42,11 @@ const (
 	PolicyManInTheMiddle = 1 << 1
 	PolicyGlobal         = 1 << 2
 	PolicyTrustClientDNS = 1 << 3
-	PolicyNoWebConsole   = 1 << 4
 )
 
 const (
-	timeoutUDP          = 30
-	timeoutTCP          = 60
+	timeoutUDP          = time.Duration(30) * time.Second
+	timeoutTCP          = time.Duration(60) * time.Second
 	timeoutDial         = time.Duration(5) * time.Second
 	timeoutOp           = time.Duration(20) * time.Second
 	invalidRequestRetry = 2
@@ -209,15 +208,16 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 	READ:
 		for _, v := range vs {
 			cip := func(ei, di int) {
-				if rkeybuf != nil {
-					if enc {
-						v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
-					} else {
-						v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
-					}
+				if rkeybuf == nil {
+					// rkeybuf is nil, so do nothing
+					return
 				}
 
-				// rkeybuf is nil, so do nothing
+				if enc {
+					v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
+				} else {
+					v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
+				}
 			}
 
 			switch strings.ToLower(k) {

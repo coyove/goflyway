@@ -41,6 +41,8 @@ type ProxyUpstream struct {
 	trustedTokens map[string]bool
 	rkeyHeader    string
 
+	Localaddr string
+
 	*ServerConfig
 }
 
@@ -58,6 +60,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 	if proxy.Throttling > 0 {
 		ioc.Bucket = NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)
 	}
+
 	ioc.Partial = proxy.Cipher.Partial
 	return ioc
 }
@@ -232,32 +235,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func StartServer(addr string, config *ServerConfig) {
-	proxy := &ProxyUpstream{
-		tp: &http.Transport{ TLSClientConfig: tlsSkip },
-
-		ServerConfig:  config,
-		blacklist:     lru.NewCache(128),
-		trustedTokens: make(map[string]bool),
-		rkeyHeader:    "X-" + config.Cipher.Alias,
-	}
-
-	if config.ProxyPassAddr != "" {
-		if strings.HasPrefix(config.ProxyPassAddr, "http") {
-			u, err := url.Parse(config.ProxyPassAddr)
-			if err != nil {
-				logg.F(err)
-				return
-			}
-
-			logg.L("alternatively act as reverse proxy: ", config.ProxyPassAddr)
-			proxy.rp = httputil.NewSingleHostReverseProxy(u)
-		} else {
-			logg.L("alternatively act as file server: ", config.ProxyPassAddr)
-			proxy.rp = http.FileServer(http.Dir(config.ProxyPassAddr))
-		}
-	}
-
+func (proxy *ProxyUpstream) Start() error {
 	if proxy.UDPRelayListen != 0 {
 		l, err := net.ListenTCP("tcp", &net.TCPAddr{
 			IP:   net.IPv6zero,
@@ -265,8 +243,7 @@ func StartServer(addr string, config *ServerConfig) {
 		})
 
 		if err != nil {
-			logg.F(err)
-			return
+			return err
 		}
 
 		go func() {
@@ -282,10 +259,39 @@ func StartServer(addr string, config *ServerConfig) {
 		}()
 	}
 
+	return http.ListenAndServe(proxy.Localaddr, proxy)
+}
+
+func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
+	proxy := &ProxyUpstream{
+		tp: &http.Transport{TLSClientConfig: tlsSkip},
+
+		ServerConfig:  config,
+		blacklist:     lru.NewCache(128),
+		trustedTokens: make(map[string]bool),
+		rkeyHeader:    "X-" + config.Cipher.Alias,
+	}
+
+	if config.ProxyPassAddr != "" {
+		if strings.HasPrefix(config.ProxyPassAddr, "http") {
+			u, err := url.Parse(config.ProxyPassAddr)
+			if err != nil {
+				logg.F(err)
+				return nil
+			}
+
+			logg.L("alternatively act as reverse proxy: ", config.ProxyPassAddr)
+			proxy.rp = httputil.NewSingleHostReverseProxy(u)
+		} else {
+			logg.L("alternatively act as file server: ", config.ProxyPassAddr)
+			proxy.rp = http.FileServer(http.Dir(config.ProxyPassAddr))
+		}
+	}
+
 	if port, lerr := strconv.Atoi(addr); lerr == nil {
 		addr = (&net.TCPAddr{IP: net.IPv4zero, Port: port}).String()
 	}
 
-	logg.L("Hi! ", proxy.Cipher.Alias, ", server is listening at ", addr)
-	logg.F(http.ListenAndServe(addr, proxy))
+	proxy.Localaddr = addr
+	return proxy
 }

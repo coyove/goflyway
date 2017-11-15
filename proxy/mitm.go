@@ -4,13 +4,20 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type bufioConn struct {
@@ -22,10 +29,69 @@ func (c *bufioConn) Read(buf []byte) (int, error) {
 	return c.m.Read(buf)
 }
 
+func publicKey(priv interface{}) interface{} {
+	switch k := priv.(type) {
+	case *rsa.PrivateKey:
+		return &k.PublicKey
+	case *ecdsa.PrivateKey:
+		return &k.PublicKey
+	default:
+		return nil
+	}
+}
+
+func (proxy *ProxyClient) sign(host string) *tls.Certificate {
+	if cert, ok := proxy.CACache.Get(host); ok {
+		return cert.(*tls.Certificate)
+	}
+
+	logg.D("self signing: ", host)
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		logg.E(err)
+		return nil
+	}
+
+	x509ca, err := x509.ParseCertificate(proxy.CA.Certificate[0])
+	if err != nil {
+		return nil
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Issuer:       x509ca.Subject,
+		Subject:      pkix.Name{Organization: []string{"goflyway"}},
+		NotBefore:    time.Now().AddDate(0, 0, -1),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{host},
+	}
+
+	pubKey := publicKey(proxy.CA.PrivateKey)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, x509ca, pubKey, proxy.CA.PrivateKey)
+	if err != nil {
+		logg.E("create certificate: ", err)
+		return nil
+	}
+
+	cert := &tls.Certificate{
+		Certificate: [][]byte{derBytes, proxy.CA.Certificate[0]},
+		PrivateKey:  proxy.CA.PrivateKey,
+	}
+
+	proxy.CACache.Add(host, cert)
+	return cert
+}
+
 func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 	_host, _ := splitHostPort(host)
 	// try self signing a cert of this host
-	cert := sign(_host)
+	cert := proxy.sign(_host)
 	if cert == nil {
 		return
 	}

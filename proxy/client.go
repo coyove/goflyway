@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"crypto/tls"
+
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
@@ -34,6 +36,8 @@ type ClientConfig struct {
 	UDPRelayCoconn int
 
 	DNSCache *lru.Cache
+	CA       tls.Certificate
+	CACache  *lru.Cache
 
 	*Cipher
 }
@@ -47,10 +51,10 @@ type ProxyClient struct {
 	tpd        *http.Transport // to host directly
 	dummies    *lru.Cache
 
-	udp struct {
+	UDP struct {
 		sync.Mutex
-		conns map[string]*udp_tcp_conn_t
-		addrs map[net.Addr]bool
+		Conns map[string]*udp_tcp_conn_t
+		Addrs map[net.Addr]bool
 	}
 
 	Localaddr string
@@ -225,11 +229,6 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.Policy.IsSet(PolicyNoWebConsole) {
-		proxy.handleWebConsole(w, r)
-		return
-	}
-
 	if proxy.UserAuth != "" {
 		if proxy.basicAuth(r.Header.Get("Proxy-Authorization")) == "" {
 			w.Header().Set("Proxy-Authenticate", "Basic realm=goflyway")

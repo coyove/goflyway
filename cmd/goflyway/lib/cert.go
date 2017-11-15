@@ -1,22 +1,21 @@
-package proxy
+package lib
 
 import (
-	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lru"
-
-	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"time"
+
+	"github.com/coyove/goflyway/pkg/logg"
 )
 
-var CA_CERT = []byte(`-----BEGIN CERTIFICATE-----
+var caCert = []byte(`-----BEGIN CERTIFICATE-----
 MIICxzCCAa+gAwIBAgIBATANBgkqhkiG9w0BAQsFADATMREwDwYDVQQDEwhnb2Zs
 eXdheTAeFw0xNzEwMTMwMjMzMTZaFw0xODEwMTQwMjMzMTZaMBMxETAPBgNVBAMT
 CGdvZmx5d2F5MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm+bfpxzm
@@ -34,7 +33,7 @@ jytkfsQ4mchR69JsVgpnQP0bRXEUzUP7onbtiGaXlEb0fw3UgpnVasSlBTzn7OLG
 pGsF209+iqSNF7QIGButylIN+0T8Va5iM8tLq4loNtwzrVG8E8IPzVs88Q==
 -----END CERTIFICATE-----`)
 
-var CA_KEY = []byte(`-----BEGIN RSA PRIVATE KEY-----
+var caKey = []byte(`-----BEGIN RSA PRIVATE KEY-----
 MIIEoQIBAAKCAQEAm+bfpxzmt8yGXeSnCvq0M1yTIN0P8BqUdZ3g4eu3jVGq8A9X
 JMxnmnzLXe1O1kGZbx13AB4mZPGYd+BGByErayZ2E6xqJO5lUOtSrWFAf/ujuyOn
 gcn5pO5xABAoCHXIWRvmz9dCkVirDJ8V/3Ai1mopuNz8975g0mKrJIFqqCErId0v
@@ -62,34 +61,28 @@ PhnS0Vmp6MHpXXDE3jbBprBvSZblhPODgq42OZWA1wfHag1WBvvPrGhhDNVhJcdT
 b8QbrT0oXmfbvU4hlFemLVNAmQcfKTZj4ECvEgEcx9h1KydouA==
 -----END RSA PRIVATE KEY-----`)
 
-var (
-	CA      tls.Certificate
-	caCache *lru.Cache
-)
-
-func init() {
-	caCache = lru.NewCache(256)
+func TryLoadCert() tls.Certificate {
 
 	if cert, err := ioutil.ReadFile("ca.pem"); err == nil {
-		CA_CERT = cert
+		caCert = cert
+		fmt.Println("* ca.pem loaded, read", len(cert), "bytes")
+	} else {
+		fmt.Println("* ca.pem not found, using the default one")
 	}
 
 	if key, err := ioutil.ReadFile("key.pem"); err == nil {
-		CA_KEY = key
+		caKey = key
+		fmt.Println("* key.pem loaded, read", len(key), "bytes")
+	} else {
+		fmt.Println("* key.pem not found, using the default one")
 	}
 
-	CA, _ = tls.X509KeyPair(CA_CERT, CA_KEY)
-}
-
-func publicKey(priv interface{}) interface{} {
-	switch k := priv.(type) {
-	case *rsa.PrivateKey:
-		return &k.PublicKey
-	case *ecdsa.PrivateKey:
-		return &k.PublicKey
-	default:
-		return nil
+	ca, err := tls.X509KeyPair(caCert, caKey)
+	if err != nil {
+		logg.F(err)
 	}
+
+	return ca
 }
 
 func GenCA(name string) (certPEM, keyPEM []byte, err error) {
@@ -134,52 +127,4 @@ func GenCA(name string) (certPEM, keyPEM []byte, err error) {
 	})
 
 	return
-}
-
-func sign(host string) *tls.Certificate {
-	if cert, ok := caCache.Get(host); ok {
-		return cert.(*tls.Certificate)
-	}
-
-	logg.D("self signing: ", host)
-
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		logg.E("gen serial number: ", err)
-		return nil
-	}
-
-	x509ca, err := x509.ParseCertificate(CA.Certificate[0])
-	if err != nil {
-		return nil
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Issuer:       x509ca.Subject,
-		Subject:      pkix.Name{Organization: []string{"goflyway"}},
-		NotBefore:    time.Now().AddDate(0, 0, -1),
-		NotAfter:     time.Now().AddDate(1, 0, 0),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		DNSNames:              []string{host},
-	}
-
-	pubKey := publicKey(CA.PrivateKey)
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, x509ca, pubKey, CA.PrivateKey)
-	if err != nil {
-		logg.E("create certificate: ", err)
-		return nil
-	}
-
-	cert := &tls.Certificate{
-		Certificate: [][]byte{derBytes, CA.Certificate[0]},
-		PrivateKey:  CA.PrivateKey,
-	}
-
-	caCache.Add(host, cert)
-	return cert
 }

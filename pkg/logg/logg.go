@@ -10,15 +10,10 @@ import (
 	"time"
 )
 
-var ignoreLocalhost = true
 var fatalAsError = false
 var logLevel = 0
 var started = false
 var logCallback func(ts int64, msg string)
-
-func RecordLocalhostError(r bool) {
-	ignoreLocalhost = !r
-}
 
 func SetLevel(lv string) {
 	switch lv {
@@ -105,11 +100,11 @@ func print(l string, params ...interface{}) {
 		switch p.(type) {
 		case *net.OpError:
 			op := p.(*net.OpError)
-			if ignoreLocalhost && op.Source != nil && op.Addr != nil {
-				if strings.Split(op.Source.String(), ":")[0] == strings.Split(op.Addr.String(), ":")[0] {
-					return
-				}
-			}
+			// if op.Source != nil && op.Addr != nil {
+			// 	if strings.Split(op.Source.String(), ":")[0] == strings.Split(op.Addr.String(), ":")[0] {
+			// 		return
+			// 	}
+			// }
 
 			if op.Source == nil && op.Addr == nil {
 				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
