@@ -19,6 +19,8 @@ import (
 
 var (
 	cmdConfig     = flag.String("c", "", "[SC] config file path")
+	cmdLogLevel   = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
+	cmdLogFile    = flag.String("lf", "", "[SC] log to file")
 	cmdGenCA      = flag.Bool("gen-ca", false, "[C] generate certificate (ca.pem) and private key (key.pem)")
 	cmdKey        = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
 	cmdAuth       = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
@@ -28,7 +30,6 @@ var (
 	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
 	cmdUDPPort    = flag.Int64("udp", 0, "[SC] server UDP relay listening port, 0 to disable")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
-	cmdLogLevel   = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
 	cmdDebug      = flag.Bool("debug", false, "[C] turn on debug mode")
 	cmdProxyPass  = flag.String("proxy-pass", "", "[C] use goflyway as a reverse HTTP proxy")
 	cmdWebConPort = flag.Int("web-port", 8101, "[C] web console listening port, 0 to disable")
@@ -48,12 +49,14 @@ func loadConfig() {
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		logg.F(err)
+		fmt.Println("* cannot load config file:", err)
+		return
 	}
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		logg.F(err)
+		fmt.Println("* cannot parse config file:", err)
+		return
 	}
 
 	*cmdKey = cf.GetString("default", "password", *cmdKey)
@@ -69,12 +72,12 @@ func loadConfig() {
 	*cmdWebConPort = int(cf.GetInt("misc", "webconport", int64(*cmdWebConPort)))
 	*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
 	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
+	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
 	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
 }
 
 func main() {
-	logg.Start()
 	loadConfig()
 
 	if *cmdGenCA {
@@ -88,114 +91,125 @@ func main() {
 
 		err1, err2 := ioutil.WriteFile("ca.pem", cert, 0755), ioutil.WriteFile("key.pem", key, 0755)
 		if err1 != nil || err2 != nil {
-			fmt.Println("ca.pem:", err1)
-			fmt.Println("key.pem:", err2)
+			fmt.Println("* error ca.pem:", err1)
+			fmt.Println("* error key.pem:", err2)
 			return
 		}
 
-		fmt.Println("* goflyway has generated ca.pem and key.pem, please leave them in the same directory with goflyway")
-		fmt.Println("* next time it will automatically read them when launched")
+		fmt.Println("* successfully generated ca.pem/key.pem, please leave them in the same directory with goflyway")
+		fmt.Println("* goflyway will automatically read them when launched")
 		return
 	}
-
-	logg.SetLevel(*cmdLogLevel)
 
 	if *cmdUpstream != "" {
 		fmt.Println("* goflyway client launched")
 	} else {
-		fmt.Println("* goflyway server launched")
+		fmt.Println("* goflyway server (upstream) launched")
 	}
 
 	if *cmdKey == "0123456789abcdef" {
 		fmt.Println("* you are using the default password, it is recommended to change it: -k=<NEW PASSWORD>")
 	}
 
-	if *cmdUpstream != "" && !lookup.LoadOrCreateChinaList("") {
-		fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
-	}
-
 	cipher := &proxy.Cipher{Partial: *cmdPartial}
 	cipher.Init(*cmdKey)
 
-	cc := &proxy.ClientConfig{
-		UserAuth:       *cmdAuth,
-		Upstream:       *cmdUpstream,
-		UDPRelayPort:   int(*cmdUDPPort),
-		UDPRelayCoconn: int(*cmdUDPonTCP),
-		Cipher:         cipher,
-		DNSCache:       lru.NewCache(*cmdDNSCache),
-		CACache:        lru.NewCache(256),
-		CA:             lib.TryLoadCert(),
-	}
+	var cc *proxy.ClientConfig
+	var sc *proxy.ServerConfig
 
-	if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
-		c2, c2a := (*cmdUpstream)[:idx2], ""
-		if idx1 != idx2 {
-			c2a = c2[:idx1]
-			c2 = c2[idx1+1:]
+	if *cmdUpstream != "" || *cmdDebug {
+		if !lookup.LoadOrCreateChinaList("") {
+			fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
 		}
 
-		if c2 == "mitm" {
-			fmt.Println("* man-in-the-middle to intercept HTTPS")
-			cc.Policy.Set(proxy.PolicyManInTheMiddle)
-		} else {
-			fmt.Println("* using HTTPS proxy as the frontend:", c2)
-			cc.Connect2 = c2
-			cc.Connect2Auth = c2a
-		}
+		cc = &proxy.ClientConfig{}
+		cc.UserAuth = *cmdAuth
+		cc.Upstream = *cmdUpstream
+		cc.UDPRelayPort = int(*cmdUDPPort)
+		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
+		cc.Cipher = cipher
+		cc.DNSCache = lru.NewCache(*cmdDNSCache)
+		cc.CACache = lru.NewCache(256)
+		cc.CA = lib.TryLoadCert()
 
-		if c2a != "" {
-			fmt.Println("* ... and using proxy auth:", c2a)
-		}
-
-		up := (*cmdUpstream)[idx2+1:]
-		if idx1 = strings.Index(up, ";"); idx1 > -1 {
-			cc.DummyDomain = up[idx1+1:]
-			up = up[:idx1]
-
-			if idx1 = strings.Index(cc.DummyDomain, "?"); idx1 > -1 {
-				cc.URLHeader = cc.DummyDomain[idx1+1:]
-				cc.DummyDomain = cc.DummyDomain[:idx1]
-				fmt.Println("* the true URL will be stored in:", cc.URLHeader)
+		if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
+			c2, c2a := (*cmdUpstream)[:idx2], ""
+			if idx1 != idx2 {
+				c2a = c2[:idx1]
+				c2 = c2[idx1+1:]
 			}
 
-			fmt.Println("* all reqeusts sent out will have", cc.DummyDomain, "as the host name")
+			if c2 == "mitm" {
+				fmt.Println("* man-in-the-middle to intercept HTTPS")
+				cc.Policy.Set(proxy.PolicyManInTheMiddle)
+			} else {
+				fmt.Println("* using HTTPS proxy as the frontend:", c2)
+				cc.Connect2 = c2
+				cc.Connect2Auth = c2a
+			}
+
+			if c2a != "" {
+				fmt.Println("* ... and using proxy auth:", c2a)
+			}
+
+			up := (*cmdUpstream)[idx2+1:]
+			if idx1 = strings.Index(up, ";"); idx1 > -1 {
+				cc.DummyDomain = up[idx1+1:]
+				up = up[:idx1]
+
+				if idx1 = strings.Index(cc.DummyDomain, "?"); idx1 > -1 {
+					cc.URLHeader = cc.DummyDomain[idx1+1:]
+					cc.DummyDomain = cc.DummyDomain[:idx1]
+					fmt.Println("* the true URL will be stored in:", cc.URLHeader)
+				}
+
+				fmt.Println("* all reqeusts sent out will have", cc.DummyDomain, "as the host name")
+			}
+			cc.Upstream = up
 		}
-		cc.Upstream = up
-	}
 
-	switch *cmdBasic {
-	case "none":
-		cc.Policy.Set(proxy.PolicyDisabled)
+		switch *cmdBasic {
+		case "none":
+			cc.Policy.Set(proxy.PolicyDisabled)
 
-	case "global_l":
-		cc.Policy.Set(proxy.PolicyTrustClientDNS)
-		fallthrough
-	case "global":
-		cc.Policy.Set(proxy.PolicyGlobal)
+		case "global_l":
+			cc.Policy.Set(proxy.PolicyTrustClientDNS)
+			fallthrough
+		case "global":
+			cc.Policy.Set(proxy.PolicyGlobal)
 
-	case "iplist_l":
-		cc.Policy.Set(proxy.PolicyTrustClientDNS)
-		fallthrough
-	case "iplist":
-		// do nothing, default policy
-	default:
-		fmt.Println("* invalid proxy type:", *cmdBasic)
-	}
-
-	sc := &proxy.ServerConfig{
-		Cipher:         cipher,
-		UDPRelayListen: int(*cmdUDPPort),
-		Throttling:     *cmdThrot,
-		ThrottlingMax:  *cmdThrotMax,
-		ProxyPassAddr:  *cmdProxyPass,
-	}
-
-	if *cmdAuth != "" {
-		sc.Users = map[string]proxy.UserConfig{
-			*cmdAuth: {},
+		case "iplist_l":
+			cc.Policy.Set(proxy.PolicyTrustClientDNS)
+			fallthrough
+		case "iplist":
+			// do nothing, default policy
+		default:
+			fmt.Println("* invalid proxy type:", *cmdBasic)
 		}
 	}
+
+	if *cmdUpstream == "" || *cmdDebug {
+		sc = &proxy.ServerConfig{}
+		sc.Cipher = cipher
+		sc.UDPRelayListen = int(*cmdUDPPort)
+		sc.Throttling = *cmdThrot
+		sc.ThrottlingMax = *cmdThrotMax
+		sc.ProxyPassAddr = *cmdProxyPass
+
+		if *cmdAuth != "" {
+			sc.Users = map[string]proxy.UserConfig{
+				*cmdAuth: {},
+			}
+		}
+	}
+
+	if *cmdLogFile != "" {
+		logg.Redirect(*cmdLogFile)
+		fmt.Println("* redirect log to", *cmdLogFile)
+	}
+
+	logg.SetLevel(*cmdLogLevel)
+	logg.Start()
 
 	if *cmdDebug {
 		fmt.Println("* debug mode on")
@@ -243,7 +257,7 @@ func main() {
 		// global variables are pain in the ass
 		runtime.GC()
 		server := proxy.NewServer(localaddr, sc)
-		fmt.Println("* proxy", server.Cipher.Alias, "started at [", server.Localaddr, "]")
+		fmt.Println("* upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
 		logg.F(server.Start())
 	}
 }

@@ -1,6 +1,7 @@
 package logg
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -10,10 +11,14 @@ import (
 	"time"
 )
 
-var fatalAsError = false
-var logLevel = 0
-var started = false
-var logCallback func(ts int64, msg string)
+var (
+	logLevel     = 0
+	fatalAsError = false
+	started      = false
+	logFileOnly  = false
+	logFile      *os.File
+	logCallback  func(ts int64, msg string)
+)
 
 func SetLevel(lv string) {
 	switch lv {
@@ -34,8 +39,21 @@ func SetLevel(lv string) {
 	}
 }
 
-func SetCallback(f func(ts int64, msg string)) {
-	logCallback = f
+func Redirect(dst interface{}) {
+	switch dst.(type) {
+	case func(int64, string):
+		logCallback = dst.(func(int64, string))
+	case string:
+		fn := dst.(string)
+		if fn[0] == '~' {
+			fn = fn[1:]
+			logFileOnly = false
+		} else {
+			logFileOnly = true
+		}
+
+		logFile, _ = os.Create(fn)
+	}
 }
 
 func TreatFatalAsError(flag bool) {
@@ -129,72 +147,85 @@ func print(l string, params ...interface{}) {
 	msgQueue <- &m
 }
 
+func loopPrint() {
+	var count, nop int
+	var lastMsg *msg_t
+	var lastTime = time.Now()
+	logBuffer := &bytes.Buffer{}
+
+	print := func(m *msg_t) {
+		pp := func(ts int64, str string) {
+			if logFile != nil {
+				logBuffer.WriteString(str)
+				logBuffer.WriteString("\n")
+
+				if logBuffer.Len() > 16*1024 {
+					logFile.Write(logBuffer.Bytes())
+					logBuffer.Reset()
+				}
+			}
+
+			if logCallback != nil {
+				logCallback(ts, str)
+			} else if !logFileOnly {
+				fmt.Println(str)
+			}
+		}
+
+		if lastMsg != nil && m != nil {
+			// this message is similar to the last one
+			if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
+				if time.Now().Sub(lastTime).Seconds() < 5.0 {
+					count++
+					return
+				}
+
+				// though similar, 5s timeframe is over, we should print this message anyway
+			}
+		}
+
+		if count > 0 {
+			pp(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count))
+		}
+
+		if lastMsg == nil && m == nil {
+			return
+		}
+
+		if m != nil {
+			pp(m.ts, m.lead+m.message)
+			lastMsg = m
+		}
+
+		lastTime, count, nop = time.Now(), 0, 0
+	}
+
+	for {
+	L:
+		for {
+			select {
+			case m := <-msgQueue:
+				print(m)
+			default:
+				if nop++; nop > 10 {
+					print(nil)
+				}
+				// nothing in queue to print, quit loop
+				break L
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func Start() {
 	if started {
 		return
 	}
 
 	started = true
-	go func() {
-		var count, nop int
-		var lastMsg *msg_t
-		var lastTime = time.Now()
-
-		print := func(m *msg_t) {
-			pp := func(ts int64, str string) {
-				if logCallback != nil {
-					logCallback(ts, str)
-				} else {
-					fmt.Println(str)
-				}
-			}
-
-			if lastMsg != nil && m != nil {
-				// this message is similar to the last one
-				if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
-					if time.Now().Sub(lastTime).Seconds() < 5.0 {
-						count++
-						return
-					}
-
-					// though similar, 5s timeframe is over, we should print this message anyway
-				}
-			}
-
-			if count > 0 {
-				pp(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count))
-			}
-
-			if lastMsg == nil && m == nil {
-				return
-			}
-
-			if m != nil {
-				pp(m.ts, m.lead+m.message)
-				lastMsg = m
-			}
-
-			lastTime, count, nop = time.Now(), 0, 0
-		}
-
-		for {
-		L:
-			for {
-				select {
-				case m := <-msgQueue:
-					print(m)
-				default:
-					if nop++; nop > 10 {
-						print(nil)
-					}
-					// nothing in queue to print, quit loop
-					break L
-				}
-			}
-
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
+	go loopPrint()
 }
 
 func D(params ...interface{}) {

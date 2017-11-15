@@ -33,7 +33,7 @@ func (ur *prefetchReader) readTimeout(buf []byte) (n int, err error) {
 	select {
 	case <-finish:
 	case <-time.After(time.Duration(ur.timeout) * time.Millisecond):
-		err = errors.New("io read timeout")
+		err = errors.New("i/o read timeout")
 	}
 
 	return
@@ -138,7 +138,7 @@ CONTINUE:
 
 	b, err := wrapper.sbuffer.prefetch()
 	if err != nil {
-		logg.E("mux got err: ", err)
+		logg.E("prefetch err: ", err)
 		wrapper.Close()
 		goto CONTINUE
 	}
