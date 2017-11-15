@@ -255,8 +255,8 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 		proxy.udp.Unlock()
 		payload.UDP = buf.String()
 
-		payload.ProxyAll = proxy.Policy.isset(PolicyGlobal)
-		payload.MITM = proxy.Policy.isset(PolicyManInTheMiddle)
+		payload.ProxyAll = proxy.Policy.IsSet(PolicyGlobal)
+		payload.MITM = proxy.Policy.IsSet(PolicyManInTheMiddle)
 		payload.Key = proxy.Cipher.KeyString
 		payload.Auth = proxy.UserAuth
 
@@ -275,15 +275,15 @@ func (proxy *ProxyClient) handleWebConsole(w http.ResponseWriter, r *http.Reques
 
 		if r.FormValue("update") != "" {
 			if r.FormValue("gproxy") == "on" {
-				proxy.Policy.set(PolicyGlobal)
+				proxy.Policy.Set(PolicyGlobal)
 			} else {
-				proxy.Policy.unset(PolicyGlobal)
+				proxy.Policy.UnSet(PolicyGlobal)
 			}
 
 			if r.FormValue("mitm") == "on" {
-				proxy.Policy.set(PolicyManInTheMiddle)
+				proxy.Policy.Set(PolicyManInTheMiddle)
 			} else {
-				proxy.Policy.unset(PolicyManInTheMiddle)
+				proxy.Policy.UnSet(PolicyManInTheMiddle)
 			}
 
 			proxy.UserAuth = r.FormValue("auth")

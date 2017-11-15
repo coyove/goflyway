@@ -42,6 +42,7 @@ const (
 	PolicyManInTheMiddle = 1 << 1
 	PolicyGlobal         = 1 << 2
 	PolicyTrustClientDNS = 1 << 3
+	PolicyNoWebConsole   = 1 << 4
 )
 
 const (
@@ -59,7 +60,7 @@ var (
 	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	socksHandshake  = []byte{socksVersion5, 1, 0}
-	dummyHeaders    = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection"}
+	dummyHeaders    = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection", "ph"}
 	tlsSkip         = &tls.Config{InsecureSkipVerify: true}
 	hasPort         = regexp.MustCompile(`:\d+$`)
 	isHTTPSSchema   = regexp.MustCompile(`^https:\/\/`)
@@ -69,17 +70,19 @@ var (
 
 type Options byte
 
-func (o *Options) isset(option byte) bool { return (byte(*o) & option) != 0 }
+func (o *Options) IsSet(option byte) bool { return (byte(*o) & option) != 0 }
 
-func (o *Options) set(option byte) { *o = Options(byte(*o) | option) }
+func (o *Options) Set(option byte) { *o = Options(byte(*o) | option) }
 
-func (o *Options) unset(option byte) { *o = Options((byte(*o) | option) - option) }
+func (o *Options) UnSet(option byte) { *o = Options((byte(*o) | option) - option) }
 
-func (o *Options) val() byte { return byte(*o) }
+func (o *Options) Val() byte { return byte(*o) }
 
 func (proxy *ProxyClient) addToDummies(req *http.Request) {
 	for _, field := range dummyHeaders {
-		if x := req.Header.Get(field); x != "" {
+		if field == "" {
+			proxy.dummies.Add("ph", "") // add a placeholder
+		} else if x := req.Header.Get(field); x != "" {
 			proxy.dummies.Add(field, x)
 		}
 	}
@@ -89,7 +92,7 @@ func (proxy *ProxyClient) genHost() string {
 	const tlds = ".com.net.org"
 	if proxy.DummyDomain == "" {
 		i := proxy.Rand.Intn(3) * 4
-		return genWord(proxy.Cipher, true) + tlds[i:i+4]
+		return proxy.Cipher.genWord(true) + tlds[i:i+4]
 	}
 
 	return proxy.DummyDomain
@@ -110,7 +113,7 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response
 		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
 	}
 
-	if proxy.Policy.isset(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
+	if proxy.Policy.IsSet(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
 		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
 		req.Header.Add("Proxy-Authorization", x)
 		req.Header.Add("Authorization", x)
@@ -347,50 +350,6 @@ func base32Decode(text string, alpha bool) ([]byte, error) {
 	}
 
 	return base32Encoding2.DecodeString(text)
-}
-
-func genWord(gc *Cipher, random bool) string {
-	const (
-		vowels = "aeiou"
-		cons   = "bcdfghlmnprst"
-	)
-
-	ret := make([]byte, 16)
-	i, ln := 0, 0
-
-	if random {
-		ret[0] = (vowels + cons)[gc.Rand.Intn(18)]
-		i, ln = 1, gc.Rand.Intn(6)+3
-	} else {
-		gc.Block.Encrypt(ret, gc.Key)
-		ret[0] = (vowels + cons)[ret[0]/15]
-		i, ln = 1, int(ret[15]/85)+6
-	}
-
-	link := func(prev string, this string, thisidx byte) {
-		if strings.ContainsRune(prev, rune(ret[i-1])) {
-			if random {
-				ret[i] = this[gc.Rand.Intn(len(this))]
-			} else {
-				ret[i] = this[ret[i]/thisidx]
-			}
-
-			i++
-		}
-	}
-
-	for i < ln {
-		link(vowels, cons, 20)
-		link(cons, vowels, 52)
-		link(vowels, cons, 20)
-		link(cons, vowels+"tr", 37)
-	}
-
-	if !random {
-		ret[0] -= 32
-	}
-
-	return string(ret[:ln])
 }
 
 func readUntil(r io.Reader, eoh string) ([]byte, bool) {

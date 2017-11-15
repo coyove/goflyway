@@ -21,17 +21,19 @@ import (
 )
 
 type ClientConfig struct {
-	Upstream       string
-	Policy         Options
-	DisableConsole bool
-	Connect2       string
-	Connect2Auth   string
-	UserAuth       string
-	DummyDomain    string
-	URLHeader      string
-	DNSCacheSize   int
+	Upstream string
+	Policy   Options
+	UserAuth string
+
+	Connect2     string
+	Connect2Auth string
+	DummyDomain  string
+	URLHeader    string
+
 	UDPRelayPort   int
 	UDPRelayCoconn int
+
+	DNSCache *lru.Cache
 
 	*Cipher
 }
@@ -51,9 +53,7 @@ type ProxyClient struct {
 		addrs map[net.Addr]bool
 	}
 
-	Nickname  string
 	Localaddr string
-	DNSCache  *lru.Cache
 	Listener  *listenerWrapper
 }
 
@@ -183,22 +183,20 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	}
 
 	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect, nil, proxy.UserAuth)
-	payload := fmt.Sprintf("GET /%s HTTP/1.1\r\nHost: %s\r\n", proxy.Cipher.EncryptCompress(host, rkeybuf...), proxy.genHost())
+	pl := make([]string, 0, len(dummyHeaders)+3)
+	pl = append(pl,
+		"GET /"+proxy.Cipher.EncryptCompress(host, rkeybuf...)+" HTTP/1.1\r\n",
+		"Host: "+proxy.genHost()+"\r\n")
 
-	payloads := make([]string, 0, len(dummyHeaders))
-	proxy.dummies.Info(func(k lru.Key, v interface{}, h int64) {
-		if v != nil && v.(string) != "" && proxy.Cipher.Rand.Intn(5) > 1 {
-			payloads = append(payloads, k.(string)+": "+v.(string)+"\r\n")
+	for _, i := range proxy.Rand.Perm(len(dummyHeaders)) {
+		if h := dummyHeaders[i]; h == "ph" {
+			pl = append(pl, proxy.rkeyHeader+": "+rkey+"\r\n")
+		} else if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
+			pl = append(pl, h+": "+v.(string)+"\r\n")
 		}
-	})
-
-	payloads = append(payloads, fmt.Sprintf("%s: %s\r\n", proxy.rkeyHeader, rkey))
-
-	for _, i := range proxy.Rand.Perm(len(payloads)) {
-		payload += payloads[i]
 	}
 
-	upstreamConn.Write([]byte(payload + "\r\n"))
+	upstreamConn.Write([]byte(strings.Join(pl, "") + "\r\n"))
 
 	buf, found := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
@@ -227,7 +225,7 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.DisableConsole {
+	if strings.HasPrefix(r.RequestURI, "/?goflyway-console") && !proxy.Policy.IsSet(PolicyNoWebConsole) {
 		proxy.handleWebConsole(w, r)
 		return
 	}
@@ -262,7 +260,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if proxy.canDirectConnect(host) {
 			logg.D("CONNECT ", r.RequestURI)
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
-		} else if proxy.Policy.isset(PolicyManInTheMiddle) {
+		} else if proxy.Policy.IsSet(PolicyManInTheMiddle) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI)
@@ -296,7 +294,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			logg.E("proxy pass: ", rURL, ", ", err)
+			logg.E("HTTP forward: ", rURL, ", ", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -317,13 +315,13 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *ProxyClient) canDirectConnect(host string) bool {
-	if proxy.Policy.isset(PolicyDisabled) {
+	if proxy.Policy.IsSet(PolicyDisabled) {
 		return true
 	}
 
 	host, _ = splitHostPort(host)
 	isChineseIP := func(ip string) bool {
-		if proxy.Policy.isset(PolicyGlobal) {
+		if proxy.Policy.IsSet(PolicyGlobal) {
 			return false
 		}
 
@@ -331,7 +329,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 	}
 
 	if lookup.IsChineseWebsite(host) {
-		return !proxy.Policy.isset(PolicyGlobal)
+		return !proxy.Policy.IsSet(PolicyGlobal)
 	}
 
 	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
@@ -352,7 +350,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 	// if it is a foreign ip or we trust local dns repsonse, just return the answer
 	// but if it is a chinese ip, we withhold and query the upstream to double check
 	maybeChinese := isChineseIP(ip)
-	if !maybeChinese || proxy.Policy.isset(PolicyTrustClientDNS) {
+	if !maybeChinese || proxy.Policy.IsSet(PolicyTrustClientDNS) {
 		proxy.DNSCache.Add(host, ip)
 		return maybeChinese
 	}
@@ -494,10 +492,8 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 }
 
 func (proxy *ProxyClient) UpdateKey(newKey string) {
-	proxy.Cipher.KeyString = newKey
-	proxy.Cipher.New()
-	proxy.Nickname = genWord(proxy.Cipher, false)
-	proxy.rkeyHeader = "X-" + proxy.Nickname
+	proxy.Cipher.Init(newKey)
+	proxy.rkeyHeader = "X-" + proxy.Cipher.Alias
 }
 
 func (proxy *ProxyClient) Start() error {
@@ -515,16 +511,13 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	}
 
 	proxyURL := http.ProxyURL(upURL)
-	word := genWord(config.Cipher, false)
 	proxy := &ProxyClient{
 		tp:  &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL},
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
 		tpq: &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, ResponseHeaderTimeout: timeoutOp, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 
 		dummies:    lru.NewCache(len(dummyHeaders)),
-		DNSCache:   lru.NewCache(config.DNSCacheSize),
-		rkeyHeader: "X-" + word,
-		Nickname:   word,
+		rkeyHeader: "X-" + config.Cipher.Alias,
 
 		ClientConfig: config,
 	}

@@ -6,6 +6,7 @@ import (
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
+	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/goflyway/proxy"
 
 	"flag"
@@ -18,23 +19,22 @@ var (
 	cmdConfig = flag.String("c", "", "config file path")
 	cmdGenCA  = flag.Bool("gen-ca", false, "generate certificate / private key")
 
-	cmdKey              = flag.String("k", "0123456789abcdef", "key, important")
-	cmdAuth             = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
-	cmdBasic            = flag.String("b", "iplist", "proxy type, whose value can be: none, iplist, iplist_l, global, global_l")
-	cmdUpstream         = flag.String("up", "", "upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
-	cmdLocal            = flag.String("l", ":8100", "local listening port (remember the colon)")
-	cmdLocal2           = flag.String("p", "", "local listening port, alias of -l")
-	cmdUDPPort          = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
-	cmdUDPonTCP         = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
-	cmdLogLevel         = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
-	cmdDebug            = flag.Bool("debug", false, "debug mode")
-	cmdProxyPassAddr    = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
-	cmdDisableConsole   = flag.Bool("disable-console", false, "disable the access to web console")
-	cmdRecordLocalError = flag.Bool("local-error", false, "log all localhost errors")
-	cmdPartialEncrypt   = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
-	cmdDNSCacheEntries  = flag.Int("dns-cache", 1024, "DNS cache size")
-	cmdThrottling       = flag.Int64("throttling", 0, "traffic throttling, experimental")
-	cmdThrottlingMax    = flag.Int64("throttling-max", 1024*1024, "traffic throttling token bucket max capacity")
+	cmdKey           = flag.String("k", "0123456789abcdef", "key, use your own other than default")
+	cmdAuth          = flag.String("a", "", "proxy authentication, form: username:password (remember the colon)")
+	cmdBasic         = flag.String("b", "iplist", "proxy type, whose value can be: none, iplist, iplist_l, global, global_l")
+	cmdUpstream      = flag.String("up", "", "upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
+	cmdLocal         = flag.String("l", ":8100", "local listening port (remember the colon)")
+	cmdLocal2        = flag.String("p", "", "local listening port, alias of -l")
+	cmdUDPPort       = flag.Int64("udp", 0, "server UDP relay listening port, 0 to disable")
+	cmdUDPonTCP      = flag.Int64("udp-tcp", 1, "use N TCP connections to relay UDP")
+	cmdLogLevel      = flag.String("lv", "log", "logging level, whose value can be: dbg, log, warn, err or off")
+	cmdDebug         = flag.Bool("debug", false, "debug mode")
+	cmdProxyPass     = flag.String("proxy-pass", "", "use goflyway as a reverse proxy, HTTP only")
+	cmdNoWebConsole  = flag.Bool("no-web", false, "disable the access to web console")
+	cmdPartial       = flag.Bool("partial", false, "partially encrypt the tunnel traffic")
+	cmdDNSCache      = flag.Int("dns-cache", 1024, "DNS cache size")
+	cmdThrottling    = flag.Int64("throt", 0, "traffic throttling, experimental")
+	cmdThrottlingMax = flag.Int64("throt-max", 1024*1024, "traffic throttling token bucket max capacity")
 )
 
 func loadConfig() {
@@ -61,15 +61,13 @@ func loadConfig() {
 		*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
 		*cmdLogLevel = cf.GetString("default", "loglevel", *cmdLogLevel)
 		*cmdBasic = cf.GetString("default", "type", *cmdBasic)
-		*cmdRecordLocalError = cf.GetBool("misc", "localerror", *cmdRecordLocalError)
-		*cmdProxyPassAddr = cf.GetString("misc", "proxypass", *cmdProxyPassAddr)
 
-		*cmdDisableConsole = cf.GetBool("misc", "disableconsole", *cmdDisableConsole)
-		*cmdDNSCacheEntries = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCacheEntries)))
-		*cmdPartialEncrypt = cf.GetBool("misc", "partial", *cmdPartialEncrypt)
-
-		*cmdThrottling = cf.GetInt("experimental", "throttling", *cmdThrottling)
-		*cmdThrottlingMax = cf.GetInt("experimental", "throttlingmax", *cmdThrottlingMax)
+		*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
+		*cmdNoWebConsole = cf.GetBool("misc", "noweb", *cmdNoWebConsole)
+		*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
+		*cmdPartial = cf.GetBool("misc", "partial", *cmdPartial)
+		*cmdThrottling = cf.GetInt("misc", "throt", *cmdThrottling)
+		*cmdThrottlingMax = cf.GetInt("misc", "throtmax", *cmdThrottlingMax)
 	}
 }
 
@@ -109,7 +107,7 @@ func main() {
 	}
 
 	logg.SetLevel(*cmdLogLevel)
-	logg.RecordLocalhostError(*cmdRecordLocalError)
+	//logg.RecordLocalhostError(*cmdRecordLocalError)
 
 	if *cmdKey == "0123456789abcdef" {
 		logg.W("you are using the default key, please change it by setting -k=KEY")
@@ -121,23 +119,23 @@ func main() {
 		}
 	}
 
-	cipher := &proxy.Cipher{
-		KeyString: *cmdKey,
-		Partial:   *cmdPartialEncrypt,
-	}
-	cipher.New()
+	cipher := &proxy.Cipher{Partial: *cmdPartial}
+	cipher.Init(*cmdKey)
 
 	cc := &proxy.ClientConfig{
-		DNSCacheSize:   *cmdDNSCacheEntries,
-		DisableConsole: *cmdDisableConsole,
 		UserAuth:       *cmdAuth,
 		Upstream:       *cmdUpstream,
 		UDPRelayPort:   int(*cmdUDPPort),
 		UDPRelayCoconn: int(*cmdUDPonTCP),
 		Cipher:         cipher,
+		DNSCache:       lru.NewCache(*cmdDNSCache),
 	}
 
-	var policy byte
+	var policy proxy.Options
+	if *cmdNoWebConsole {
+		policy.Set(proxy.PolicyNoWebConsole)
+	}
+
 	if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
 		c2, c2a := (*cmdUpstream)[:idx2], ""
 		if idx1 != idx2 {
@@ -147,7 +145,7 @@ func main() {
 
 		if c2 == "mitm" {
 			logg.L("man-in-the-middle to intercept HTTPS")
-			policy |= proxy.PolicyManInTheMiddle
+			policy.Set(proxy.PolicyManInTheMiddle)
 		} else {
 			logg.L("using HTTPS proxy as the frontend: ", c2)
 			cc.Connect2 = c2
@@ -176,16 +174,16 @@ func main() {
 
 	switch *cmdBasic {
 	case "none":
-		policy |= proxy.PolicyDisabled
+		policy.Set(proxy.PolicyDisabled)
 
 	case "global_l":
-		policy |= proxy.PolicyTrustClientDNS
+		policy.Set(proxy.PolicyTrustClientDNS)
 		fallthrough
 	case "global":
-		policy |= proxy.PolicyGlobal
+		policy.Set(proxy.PolicyGlobal)
 
 	case "iplist_l":
-		policy |= proxy.PolicyTrustClientDNS
+		policy.Set(proxy.PolicyTrustClientDNS)
 		fallthrough
 	case "iplist":
 		// do nothing, default policy
@@ -193,14 +191,14 @@ func main() {
 		logg.W("invalid proxy type: ", *cmdBasic)
 	}
 
-	cc.Policy = proxy.Options(policy)
+	cc.Policy = policy
 
 	sc := &proxy.ServerConfig{
 		Cipher:         cipher,
 		UDPRelayListen: int(*cmdUDPPort),
 		Throttling:     *cmdThrottling,
 		ThrottlingMax:  *cmdThrottlingMax,
-		ProxyPassAddr:  *cmdProxyPassAddr,
+		ProxyPassAddr:  *cmdProxyPass,
 	}
 
 	if *cmdAuth != "" {
@@ -231,7 +229,7 @@ func main() {
 			client = proxy.NewClient(*cmdLocal, cc)
 		}
 
-		logg.L("Hi! ", client.Nickname, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
+		logg.L("Hi! ", client.Cipher.Alias, ", proxy is listening at ", client.Localaddr, ", upstream is ", client.Upstream)
 		logg.F(client.Start())
 	} else {
 		// save some space because server doesn't need lookup

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"math/rand"
+	"strings"
 )
 
 const (
@@ -45,6 +46,7 @@ type Cipher struct {
 	Block     cipher.Block
 	Partial   bool
 	Rand      *rand.Rand
+	Alias     string
 }
 
 type io_t byte
@@ -144,8 +146,9 @@ func (gc *Cipher) getCipherStream(key []byte) *inplace_ctr_t {
 	}
 }
 
-func (gc *Cipher) New() (err error) {
-	gc.Key = []byte(gc.KeyString)
+func (gc *Cipher) Init(key string) (err error) {
+	gc.KeyString = key
+	gc.Key = []byte(key)
 
 	for len(gc.Key) < 32 {
 		gc.Key = append(gc.Key, gc.Key...)
@@ -153,8 +156,53 @@ func (gc *Cipher) New() (err error) {
 
 	gc.Block, err = aes.NewCipher(gc.Key[:32])
 	gc.Rand = gc.NewRand()
+	gc.Alias = gc.genWord(false)
 
 	return
+}
+
+func (gc *Cipher) genWord(random bool) string {
+	const (
+		vowels = "aeiou"
+		cons   = "bcdfghlmnprst"
+	)
+
+	ret := make([]byte, 16)
+	i, ln := 0, 0
+
+	if random {
+		ret[0] = (vowels + cons)[gc.Rand.Intn(18)]
+		i, ln = 1, gc.Rand.Intn(6)+3
+	} else {
+		gc.Block.Encrypt(ret, gc.Key)
+		ret[0] = (vowels + cons)[ret[0]/15]
+		i, ln = 1, int(ret[15]/85)+6
+	}
+
+	link := func(prev string, this string, thisidx byte) {
+		if strings.ContainsRune(prev, rune(ret[i-1])) {
+			if random {
+				ret[i] = this[gc.Rand.Intn(len(this))]
+			} else {
+				ret[i] = this[ret[i]/thisidx]
+			}
+
+			i++
+		}
+	}
+
+	for i < ln {
+		link(vowels, cons, 20)
+		link(cons, vowels, 52)
+		link(vowels, cons, 20)
+		link(cons, vowels+"tr", 37)
+	}
+
+	if !random {
+		ret[0] -= 32
+	}
+
+	return string(ret[:ln])
 }
 
 func (gc *Cipher) genIV(ss ...byte) []byte {
@@ -257,7 +305,7 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 			retB[i] = byte(r.Intn(255) + 1)
 			ret[i-2] = retB[i]
 		}
-	} else if !o.isset(doDNS) {
+	} else if !o.IsSet(doDNS) {
 		ret = payload
 		retB = make([]byte, 1+1+ln+len(auth))
 		copy(retB[2:], payload)
@@ -279,7 +327,7 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 		copy(retB[2+ln:], []byte(auth))
 	}
 
-	retB[0], retB[1] = o.val(), checksum1b(retB[2:])
+	retB[0], retB[1] = o.Val(), checksum1b(retB[2:])
 	s1, s2, s3, s4 := byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256))
 
 	return base64.StdEncoding.EncodeToString(

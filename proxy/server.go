@@ -171,7 +171,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add(dnsRespHeader, ip)
 		w.WriteHeader(200)
 
-	} else if options.isset(doConnect) {
+	} else if options.IsSet(doConnect) {
 		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
 			replyRandom()
@@ -195,7 +195,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
 		downstreamConn.Write([]byte(p))
 		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
-	} else if options.isset(doForward) {
+	} else if options.IsSet(doForward) {
 		if !proxy.decryptRequest(r, rkeybuf) {
 			replyRandom()
 			return
@@ -206,7 +206,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del(proxy.rkeyHeader)
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
-			logg.E("proxy pass: ", r.URL, ", ", err)
+			logg.E("HTTP forward: ", r.URL, ", ", err)
 			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
@@ -222,7 +222,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		iocc.Partial = false // HTTP must be fully encrypted
 
 		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, iocc); err != nil {
-			logg.E("copy ", nr, "bytes: ", err)
+			logg.E("copy ", nr, " bytes: ", err)
 		}
 
 		tryClose(resp.Body)
@@ -233,16 +233,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func StartServer(addr string, config *ServerConfig) {
-	word := genWord(config.Cipher, false)
 	proxy := &ProxyUpstream{
-		tp: &http.Transport{
-			TLSClientConfig: tlsSkip,
-		},
+		tp: &http.Transport{ TLSClientConfig: tlsSkip },
 
 		ServerConfig:  config,
 		blacklist:     lru.NewCache(128),
 		trustedTokens: make(map[string]bool),
-		rkeyHeader:    "X-" + word,
+		rkeyHeader:    "X-" + config.Cipher.Alias,
 	}
 
 	if config.ProxyPassAddr != "" {
@@ -289,6 +286,6 @@ func StartServer(addr string, config *ServerConfig) {
 		addr = (&net.TCPAddr{IP: net.IPv4zero, Port: port}).String()
 	}
 
-	logg.L("Hi! ", word, ", server is listening at ", addr)
+	logg.L("Hi! ", proxy.Cipher.Alias, ", server is listening at ", addr)
 	logg.F(http.ListenAndServe(addr, proxy))
 }
