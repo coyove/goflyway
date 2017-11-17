@@ -37,6 +37,7 @@ var (
 	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
 	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
 	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
+	cmdCloseConn  = flag.Int64("close-conn", 20*1000, "[SC] close connections when they go idle for at least N sec")
 )
 
 func loadConfig() {
@@ -75,6 +76,7 @@ func loadConfig() {
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
 	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
+	*cmdCloseConn = cf.GetInt("misc", "closeconn", *cmdCloseConn)
 }
 
 func main() {
@@ -223,6 +225,10 @@ func main() {
 		server := proxy.NewServer(":8101", sc)
 		logg.F(server.Start())
 		return
+	}
+
+	if *cmdCloseConn > 0 {
+		proxy.StartPurgeConns(int(*cmdCloseConn))
 	}
 
 	var localaddr string

@@ -121,15 +121,20 @@ type conn_state_t struct {
 
 var connState = struct {
 	sync.Mutex
-	iid uint64
-	m   map[uintptr]*conn_state_t
+	iid     uint64
+	started bool
+	mconns  map[uintptr]*conn_state_t
 }{
-	m: make(map[uintptr]*conn_state_t),
+	mconns: make(map[uintptr]*conn_state_t),
 }
 
 var errPeacefullyEnd = errors.New("i'm cool")
 
 func markActive(src interface{}, iid uint64) {
+	if !connState.started {
+		return
+	}
+
 	srcConn, _ := src.(net.Conn)
 	if srcConn == nil {
 		return
@@ -137,34 +142,39 @@ func markActive(src interface{}, iid uint64) {
 
 	connState.Lock()
 	id := uintptr((*iface)(unsafe.Pointer(&src)).data)
-	if connState.m[id] == nil {
-		connState.m[id] = &conn_state_t{srcConn, time.Now().UnixNano(), iid}
+	if connState.mconns[id] == nil {
+		connState.mconns[id] = &conn_state_t{srcConn, time.Now().UnixNano(), iid}
 	} else {
-		connState.m[id].last = time.Now().UnixNano()
+		connState.mconns[id].last = time.Now().UnixNano()
 	}
 	connState.Unlock()
 
 	// logg.D("markActive ", srcConn.RemoteAddr(), " ", iid)
 }
 
-func init() {
+func StartPurgeConns(maxIdleTime int) {
+	if connState.started {
+		return
+	}
+	connState.started = true
+
 	go func() {
 		count := 0
 		for {
 			connState.Lock()
 			ns := time.Now().UnixNano()
-			for id, state := range connState.m {
-				if (ns - state.last) > int64(timeoutOp) {
+			for id, state := range connState.mconns {
+				if (ns - state.last) > int64(maxIdleTime*1e6) {
 					//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 					state.conn.Close()
-					delete(connState.m, id)
+					delete(connState.mconns, id)
 				}
 			}
 
 			if count++; count == 60 {
 				count = 0
-				if len(connState.m) > 0 {
-					logg.D("active connections: ", len(connState.m))
+				if len(connState.mconns) > 0 {
+					logg.D("active connections: ", len(connState.mconns))
 				}
 			}
 
