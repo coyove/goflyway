@@ -45,7 +45,7 @@ func Redirect(dst interface{}) {
 		logCallback = dst.(func(int64, string))
 	case string:
 		fn := dst.(string)
-		if fn[0] == '~' {
+		if fn[0] == '*' {
 			fn = fn[1:]
 			logFileOnly = false
 		} else {

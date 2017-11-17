@@ -1,9 +1,13 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"net"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -104,6 +108,62 @@ func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
 // 	Partial bool
 // }
 
+type iface struct {
+	tab  unsafe.Pointer
+	data unsafe.Pointer
+}
+
+type conn_state_t struct {
+	conn net.Conn
+	last int64
+}
+
+var readConn = struct {
+	sync.Mutex
+	m map[uintptr]*conn_state_t
+}{
+	m: make(map[uintptr]*conn_state_t),
+}
+
+var errPeacefullyEnd = errors.New("i'm cool")
+
+func mark(src io.Reader) {
+	srcConn, _ := src.(net.Conn)
+	if srcConn == nil {
+		return
+	}
+
+	readConn.Lock()
+	id := uintptr((*iface)(unsafe.Pointer(&src)).data)
+	if readConn.m[id] == nil {
+		readConn.m[id] = &conn_state_t{srcConn, time.Now().UnixNano()}
+	} else {
+		readConn.m[id].last = time.Now().UnixNano()
+	}
+	readConn.Unlock()
+}
+
+func init() {
+	go func() {
+		for {
+			readConn.Lock()
+			ns := time.Now().UnixNano()
+			for id, state := range readConn.m {
+
+				if (ns - state.last) > int64(timeoutDial) {
+					state.conn.Close()
+					delete(readConn.m, id)
+				}
+			}
+
+			readConn.Unlock()
+			time.Sleep(time.Second)
+		}
+	}()
+}
+
+var iid uint64 = 0
+
 func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig) (written int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -115,7 +175,18 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 	ctr := (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key)
 	encrypted := 0
 
+	u := atomic.AddUint64(&iid, 1)
+
+	logg.D("open ", u)
+	// retries := 0
+	// srcConn, _ := src.(*net.TCPConn)
+	// if srcConn != nil {
+
+	// }
+
 	for {
+		logg.D("mark ", u)
+		mark(src)
 		nr, er := src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
@@ -166,10 +237,19 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 				err = io.ErrShortWrite
 				break
 			}
+
+			// retries = 0
 		}
 
 		if er != nil {
-			if er != io.EOF {
+			// if ne, _ := er.(net.Error); ne != nil && ne.Timeout() {
+			// 	logg.D(u, " ", retries, " ", addr)
+			// 	if retries++; retries < 10 {
+			// 		continue
+			// 	}
+			// }
+
+			if er != io.EOF && !strings.Contains(er.Error(), "use of closed network connection") {
 				err = er
 			}
 			break
@@ -180,6 +260,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		dst.Write([]byte("0\r\n\r\n"))
 	}
 
+	logg.D("close ", u)
 	return written, err
 }
 
