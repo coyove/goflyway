@@ -116,68 +116,78 @@ type iface struct {
 type conn_state_t struct {
 	conn net.Conn
 	last int64
+	iid  uint64
 }
 
-var readConn = struct {
+var connState = struct {
 	sync.Mutex
-	m map[uintptr]*conn_state_t
+	iid uint64
+	m   map[uintptr]*conn_state_t
 }{
 	m: make(map[uintptr]*conn_state_t),
 }
 
 var errPeacefullyEnd = errors.New("i'm cool")
 
-func mark(src io.Reader) {
+func markActive(src interface{}, iid uint64) {
 	srcConn, _ := src.(net.Conn)
 	if srcConn == nil {
 		return
 	}
 
-	readConn.Lock()
+	connState.Lock()
 	id := uintptr((*iface)(unsafe.Pointer(&src)).data)
-	if readConn.m[id] == nil {
-		readConn.m[id] = &conn_state_t{srcConn, time.Now().UnixNano()}
+	if connState.m[id] == nil {
+		connState.m[id] = &conn_state_t{srcConn, time.Now().UnixNano(), iid}
 	} else {
-		readConn.m[id].last = time.Now().UnixNano()
+		connState.m[id].last = time.Now().UnixNano()
 	}
-	readConn.Unlock()
+	connState.Unlock()
+
+	// logg.D("markActive ", srcConn.RemoteAddr(), " ", iid)
 }
 
 func init() {
 	go func() {
+		count := 0
 		for {
-			readConn.Lock()
+			connState.Lock()
 			ns := time.Now().UnixNano()
-			for id, state := range readConn.m {
-
-				if (ns - state.last) > int64(timeoutDial) {
+			for id, state := range connState.m {
+				if (ns - state.last) > int64(timeoutOp) {
+					//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 					state.conn.Close()
-					delete(readConn.m, id)
+					delete(connState.m, id)
 				}
 			}
 
-			readConn.Unlock()
+			if count++; count == 60 {
+				count = 0
+				if len(connState.m) > 0 {
+					logg.D("active connections: ", len(connState.m))
+				}
+			}
+
+			connState.Unlock()
 			time.Sleep(time.Second)
 		}
 	}()
 }
 
-var iid uint64 = 0
-
 func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig) (written int64, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			logg.E("wtf, ", r)
-		}
-	}()
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		logg.E("wtf, ", r)
+	// 	}
+	// }()
 
 	buf := make([]byte, 32*1024)
 	ctr := (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key)
 	encrypted := 0
 
-	u := atomic.AddUint64(&iid, 1)
+	u := atomic.AddUint64(&connState.iid, 1)
 
-	logg.D("open ", u)
+	// logg.D("open ", u)
 	// retries := 0
 	// srcConn, _ := src.(*net.TCPConn)
 	// if srcConn != nil {
@@ -185,8 +195,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 	// }
 
 	for {
-		logg.D("mark ", u)
-		mark(src)
+		markActive(src, u)
 		nr, er := src.Read(buf)
 		if nr > 0 {
 			xbuf := buf[0:nr]
@@ -212,6 +221,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 
 			var nw int
 			var ew error
+			markActive(dst, u)
 			if config.Chunked {
 				hlen := strconv.FormatInt(int64(nr), 16)
 				if _, ew = dst.Write([]byte(hlen + "\r\n")); ew == nil {
@@ -229,7 +239,9 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if ew != nil {
-				err = ew
+				if !strings.Contains(ew.Error(), errConnClosedMsg) {
+					err = ew
+				}
 				break
 			}
 
@@ -249,7 +261,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			// 	}
 			// }
 
-			if er != io.EOF && !strings.Contains(er.Error(), "use of closed network connection") {
+			if er != io.EOF && !strings.Contains(er.Error(), errConnClosedMsg) {
 				err = er
 			}
 			break
@@ -260,7 +272,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		dst.Write([]byte("0\r\n\r\n"))
 	}
 
-	logg.D("close ", u)
+	// logg.D("close ", u)
 	return written, err
 }
 

@@ -51,6 +51,7 @@ const (
 	timeoutOp           = time.Duration(20) * time.Second
 	invalidRequestRetry = 2
 	dnsRespHeader       = "ETag"
+	errConnClosedMsg    = "use of closed network connection"
 )
 
 var (

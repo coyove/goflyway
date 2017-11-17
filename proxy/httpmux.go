@@ -120,7 +120,7 @@ CONTINUE:
 	if err != nil || c == nil {
 		logg.E("listener: ", err)
 
-		if strings.Contains(err.Error(), "use of closed network connection") {
+		if strings.Contains(err.Error(), errConnClosedMsg) {
 			return nil, err
 		}
 
