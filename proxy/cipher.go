@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"sync"
+
 	"github.com/coyove/goflyway/pkg/counter"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/msg64"
@@ -49,7 +51,13 @@ type Cipher struct {
 	Alias     string
 }
 
-type io_t byte
+type io_t struct {
+	sync.Mutex
+	iid     uint64
+	started bool
+	aggr    chan bool
+	mconns  map[uintptr]*conn_state_t
+}
 
 type inplace_ctr_t struct {
 	b       cipher.Block

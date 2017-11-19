@@ -42,6 +42,7 @@ const (
 	PolicyManInTheMiddle = 1 << 1
 	PolicyGlobal         = 1 << 2
 	PolicyTrustClientDNS = 1 << 3
+	PolicyAggrClosing    = 1 << 4
 )
 
 const (

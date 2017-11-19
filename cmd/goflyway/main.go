@@ -37,7 +37,9 @@ var (
 	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
 	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
 	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
-	cmdCloseConn  = flag.Int64("close-conn", 20*1000, "[SC] close connections when they go idle for at least N sec")
+
+	cmdCloseConn  = flag.Int64("close-after", 20, "[SC] close connections when they go idle for at least N sec")
+	cmdAggClosing = flag.Bool("200", false, "[C] close connections aggressively to keep its number under 200, use with caution")
 )
 
 func loadConfig() {
@@ -76,7 +78,9 @@ func loadConfig() {
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
 	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
+
 	*cmdCloseConn = cf.GetInt("misc", "closeconn", *cmdCloseConn)
+	*cmdAggClosing = cf.GetBool("misc", "aggrclose", *cmdAggClosing)
 }
 
 func main() {
@@ -188,6 +192,10 @@ func main() {
 		default:
 			fmt.Println("* invalid proxy type:", *cmdBasic)
 		}
+
+		if *cmdAggClosing {
+			cc.Policy.Set(proxy.PolicyAggrClosing)
+		}
 	}
 
 	if *cmdUpstream == "" || *cmdDebug {
@@ -228,7 +236,7 @@ func main() {
 	}
 
 	if *cmdCloseConn > 0 {
-		proxy.StartPurgeConns(int(*cmdCloseConn))
+		cipher.IO.StartPurgeConns(int(*cmdCloseConn))
 	}
 
 	var localaddr string
