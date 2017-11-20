@@ -545,9 +545,6 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	proxy.Cipher.IO.mconns = make(map[uintptr]*conn_state_t)
-	proxy.Cipher.IO.aggr = make(chan bool)
-
 	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024), retry24: proxy.Policy.IsSet(PolicyAggrClosing)}
 	proxy.Localaddr = localaddr
 

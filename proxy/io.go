@@ -147,7 +147,10 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	if iot.started {
 		return
 	}
+
 	iot.started = true
+	iot.mconns = make(map[uintptr]*conn_state_t)
+	iot.aggr = make(chan bool)
 
 	go func() {
 		count := 0
@@ -178,7 +181,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			default:
 				for id, state := range iot.mconns {
 					if (ns - state.last) > int64(maxIdleTime*1e9) {
-						//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
+						logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 						state.conn.Close()
 						delete(iot.mconns, id)
 					}
