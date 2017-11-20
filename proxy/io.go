@@ -180,7 +180,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				iot.aggr <- true
 			default:
 				for id, state := range iot.mconns {
-					if (ns - state.last) > int64(maxIdleTime*1e9) {
+					if (ns - state.last) > int64(maxIdleTime)*1e9 {
 						//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 						state.conn.Close()
 						delete(iot.mconns, id)
