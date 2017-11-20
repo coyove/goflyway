@@ -144,34 +144,44 @@ func print(l string, params ...interface{}) {
 		}
 	}
 
+	if l == "X" {
+		// immediately print fatal message
+		printRaw(0, m.lead+m.message, nil)
+		return
+	}
+
 	msgQueue <- &m
 }
 
-func loopPrint() {
+func printRaw(ts int64, str string, buf *bytes.Buffer) {
+	if logFile != nil {
+		if buf != nil {
+			buf.WriteString(str)
+			buf.WriteString("\n")
+
+			if buf.Len() > 16*1024 {
+				logFile.Write(buf.Bytes())
+				buf.Reset()
+			}
+		} else {
+			logFile.Write([]byte(str))
+		}
+	}
+
+	if logCallback != nil {
+		logCallback(ts, str)
+	} else if !logFileOnly {
+		fmt.Println(str)
+	}
+}
+
+func printLoop() {
 	var count, nop int
 	var lastMsg *msg_t
 	var lastTime = time.Now()
 	logBuffer := &bytes.Buffer{}
 
 	print := func(m *msg_t) {
-		pp := func(ts int64, str string) {
-			if logFile != nil {
-				logBuffer.WriteString(str)
-				logBuffer.WriteString("\n")
-
-				if logBuffer.Len() > 16*1024 {
-					logFile.Write(logBuffer.Bytes())
-					logBuffer.Reset()
-				}
-			}
-
-			if logCallback != nil {
-				logCallback(ts, str)
-			} else if !logFileOnly {
-				fmt.Println(str)
-			}
-		}
-
 		if lastMsg != nil && m != nil {
 			// this message is similar to the last one
 			if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
@@ -185,7 +195,7 @@ func loopPrint() {
 		}
 
 		if count > 0 {
-			pp(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count))
+			printRaw(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count), logBuffer)
 		}
 
 		if lastMsg == nil && m == nil {
@@ -193,7 +203,7 @@ func loopPrint() {
 		}
 
 		if m != nil {
-			pp(m.ts, m.lead+m.message)
+			printRaw(m.ts, m.lead+m.message, logBuffer)
 			lastMsg = m
 		}
 
@@ -225,7 +235,7 @@ func Start() {
 	}
 
 	started = true
-	go loopPrint()
+	go printLoop()
 }
 
 func D(params ...interface{}) {
