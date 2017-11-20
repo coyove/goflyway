@@ -17,6 +17,8 @@ import (
 	"strings"
 )
 
+var version = "__devel__"
+
 var (
 	cmdConfig     = flag.String("c", "", "[SC] config file path")
 	cmdLogLevel   = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
@@ -84,6 +86,8 @@ func loadConfig() {
 }
 
 func main() {
+	fmt.Println("goflyway (build " + version + ")")
+
 	loadConfig()
 
 	if *cmdGenCA {
@@ -108,9 +112,9 @@ func main() {
 	}
 
 	if *cmdUpstream != "" {
-		fmt.Println("* goflyway client launched")
+		fmt.Println("* launched as client")
 	} else {
-		fmt.Println("* goflyway server (upstream) launched")
+		fmt.Println("* launched as server (aka upstream)")
 	}
 
 	if *cmdKey == "0123456789abcdef" {
