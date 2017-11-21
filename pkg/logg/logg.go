@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+const (
+	LvDebug = iota - 1
+	LvLog
+	LvWarning
+	LvError
+	LvOff
+	LvPrint = 99
+)
+
 var (
 	logLevel     = 0
 	fatalAsError = false
@@ -20,7 +29,7 @@ var (
 	logCallback  func(ts int64, msg string)
 )
 
-func SetLevel(lv string) {
+func SetLevel(lv string) int {
 	switch lv {
 	case "dbg":
 		logLevel = -1
@@ -37,6 +46,12 @@ func SetLevel(lv string) {
 	default:
 		panic("unexpected log level: " + lv)
 	}
+
+	return logLevel
+}
+
+func GetLevel() int {
+	return logLevel
 }
 
 func Redirect(dst interface{}) {

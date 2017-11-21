@@ -3,15 +3,14 @@ package proxy
 import (
 	"sync"
 
-	"github.com/coyove/goflyway/pkg/counter"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/msg64"
+	"github.com/coyove/goflyway/pkg/rand"
 
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/binary"
-	"math/rand"
 	"strings"
 )
 
@@ -46,8 +45,8 @@ type Cipher struct {
 	Key       []byte
 	KeyString string
 	Block     cipher.Block
+	Rand      *rand.ConcurrentRand
 	Partial   bool
-	Rand      *rand.Rand
 	Alias     string
 }
 
@@ -163,7 +162,7 @@ func (gc *Cipher) Init(key string) (err error) {
 	}
 
 	gc.Block, err = aes.NewCipher(gc.Key[:32])
-	gc.Rand = gc.NewRand()
+	gc.Rand = rand.New(int64(binary.BigEndian.Uint64(gc.Key[:8])))
 	gc.Alias = gc.genWord(false)
 
 	return
@@ -236,10 +235,8 @@ func (gc *Cipher) genIV(ss ...byte) []byte {
 }
 
 func (gc *Cipher) Encrypt(buf []byte, ss ...byte) []byte {
-	r := gc.NewRand()
-
 	if ss == nil || len(ss) < 2 {
-		b, b2 := byte(r.Intn(256)), byte(r.Intn(256))
+		b, b2 := byte(gc.Rand.Intn(256)), byte(gc.Rand.Intn(256))
 		return append(xor(gc.Block, gc.genIV(b, b2), buf), b, b2)
 	}
 
@@ -281,13 +278,6 @@ func (gc *Cipher) DecryptDecompress(str string, rkey ...byte) string {
 	return msg64.Decompress(gc.Decrypt(buf, rkey...))
 }
 
-func (gc *Cipher) NewRand() *rand.Rand {
-	var k int64 = int64(binary.BigEndian.Uint64(gc.Key[:8]))
-	var k2 int64 = counter.GetCounter()
-
-	return rand.New(rand.NewSource(k2 ^ k))
-}
-
 func checksum1b(buf []byte) byte {
 	s := int16(1)
 	for _, b := range buf {
@@ -297,7 +287,7 @@ func checksum1b(buf []byte) byte {
 }
 
 func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte) {
-	r, ln := gc.NewRand(), ivLen
+	ln := ivLen
 
 	// +------------+-------------+-----------+-- -  -   -
 	// | Options 1b | checksum 1b | iv 128bit | auth data ...
@@ -310,7 +300,7 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 		retB = make([]byte, 1+1+ln+len(auth))
 
 		for i := 2; i < ln+2; i++ {
-			retB[i] = byte(r.Intn(255) + 1)
+			retB[i] = byte(gc.Rand.Intn(255) + 1)
 			ret[i-2] = retB[i]
 		}
 	} else if !o.IsSet(doDNS) {
@@ -336,7 +326,8 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 	}
 
 	retB[0], retB[1] = o.Val(), checksum1b(retB[2:])
-	s1, s2, s3, s4 := byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256))
+	s1, s2, s3, s4 := byte(gc.Rand.Intn(256)), byte(gc.Rand.Intn(256)),
+		byte(gc.Rand.Intn(256)), byte(gc.Rand.Intn(256))
 
 	return base64.StdEncoding.EncodeToString(
 		append(

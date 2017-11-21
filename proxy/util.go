@@ -177,7 +177,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) bo
 	}
 	req.Header.Set("Cookie", strings.Join(cookies, ";"))
 
-	if origin := req.Header.Get("Origin"); origin != "" {
+	if origin := req.Header.Get("Origin"); len(origin) > 4 {
 		req.Header.Set("Origin", proxy.DecryptString(origin[:len(origin)-4], rkeybuf...))
 	}
 

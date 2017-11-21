@@ -1,4 +1,6 @@
-package counter
+//+build !windows,!linux
+
+package rand
 
 import (
 	"time"

@@ -1,20 +1,20 @@
 package msg64
 
 import (
-	"math/rand"
 	"strings"
-	"time"
+
+	"github.com/coyove/goflyway/pkg/rand"
 )
 
 var crc16Table [256]uint16
-var r *rand.Rand
+var r *rand.ConcurrentRand
 
 func init() {
 	for i := 0; i < 256; i++ {
 		crc16Table[i] = uint16(0x1021 * i)
 	}
 
-	r = rand.New(rand.NewSource(time.Now().UnixNano()))
+	r = rand.New()
 }
 
 func crc16(v interface{}) uint16 {
