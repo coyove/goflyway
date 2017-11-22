@@ -276,6 +276,11 @@ func main() {
 		runtime.GC()
 		server := proxy.NewServer(localaddr, sc)
 		fmt.Println("* upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
+		if strings.HasPrefix(sc.ProxyPassAddr, "http") {
+			fmt.Println("* alternatively act as a reverse proxy:", sc.ProxyPassAddr)
+		} else {
+			fmt.Println("* alternatively act as a file server:", sc.ProxyPassAddr)
+		}
 		logg.F(server.Start())
 	}
 }

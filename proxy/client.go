@@ -159,10 +159,10 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return nil, err
 	}
 
-	respbuf, found := readUntil(connectConn, "\r\n\r\n")
-	if !found {
+	respbuf, err := readUntil(connectConn, "\r\n\r\n")
+	if err != nil {
 		connectConn.Close()
-		return nil, errors.New("connect2: malformed repsonse")
+		return nil, err
 	}
 
 	if !bytes.Contains(respbuf, okHTTP[9:14]) { // []byte(" 200 ")
@@ -202,9 +202,13 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 
 	upstreamConn.Write([]byte(strings.Join(pl, "") + "\r\n"))
 
-	buf, found := readUntil(upstreamConn, "\r\n\r\n")
+	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
-	if !found || len(buf) < 15 || !bytes.Equal(buf[:15], okHTTP[:15]) {
+	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], okHTTP[:15]) {
+		if err != nil {
+			logg.E(err)
+		}
+
 		upstreamConn.Close()
 		downstreamConn.Close()
 		return nil
@@ -268,7 +272,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
-			http.Error(w, "request uri must be absolute", http.StatusInternalServerError)
+			http.Error(w, "request URI must be absolute", http.StatusInternalServerError)
 			return
 		}
 

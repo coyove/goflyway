@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/coyove/goflyway/pkg/logg"
 
@@ -50,7 +51,7 @@ const (
 	timeoutTCP          = time.Duration(60) * time.Second
 	timeoutDial         = time.Duration(5) * time.Second
 	timeoutOp           = time.Duration(20) * time.Second
-	invalidRequestRetry = 2
+	invalidRequestRetry = 10
 	dnsRespHeader       = "ETag"
 	errConnClosedMsg    = "use of closed network connection"
 )
@@ -151,7 +152,7 @@ func stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			logg.W("unexpected uri: ", uri)
+			logg.W("unexpected URI: ", uri)
 		}
 	} else {
 		uri = uri[1:]
@@ -281,7 +282,7 @@ func (proxy *ProxyClient) basicAuth(token string) string {
 
 func tryClose(b io.ReadCloser) {
 	if err := b.Close(); err != nil {
-		logg.W("can't close: ", err)
+		logg.W("cannot close: ", err)
 	}
 }
 
@@ -354,7 +355,7 @@ func base32Decode(text string, alpha bool) ([]byte, error) {
 	return base32Encoding2.DecodeString(text)
 }
 
-func readUntil(r io.Reader, eoh string) ([]byte, bool) {
+func readUntil(r io.Reader, eoh string) ([]byte, error) {
 	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
 	eidx, found := 0, false
 
@@ -375,11 +376,15 @@ func readUntil(r io.Reader, eoh string) ([]byte, bool) {
 
 		if err != nil {
 			if err != io.EOF {
-				logg.E("readUntil: ", err)
+				return nil, err
 			}
 			break
 		}
 	}
 
-	return respbuf.Bytes(), found
+	if !found {
+		return nil, fmt.Errorf("readUntil cannot find the pattern: %s", eoh)
+	}
+
+	return respbuf.Bytes(), nil
 }

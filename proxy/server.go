@@ -65,9 +65,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 	return ioc
 }
 
-func (proxy *ProxyUpstream) Write(w http.ResponseWriter, r *http.Request, p []byte, code int) (n int, err error) {
-	_, key, _ := proxy.Cipher.ReverseIV(r.Header.Get(proxy.rkeyHeader))
-
+func (proxy *ProxyUpstream) Write(w http.ResponseWriter, key, p []byte, code int) (n int, err error) {
 	if ctr := proxy.Cipher.getCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
 	}
@@ -93,7 +91,7 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 }
 
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	replyRandom := func() {
+	replySomething := func() {
 		if proxy.rp == nil {
 			round := proxy.Rand.Intn(32) + 32
 			buf := make([]byte, 2048)
@@ -115,7 +113,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		logg.W("unknown address: ", r.RemoteAddr)
-		replyRandom()
+		replySomething()
 		return
 	}
 
@@ -123,9 +121,9 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	options, rkeybuf, authbuf := proxy.Cipher.ReverseIV(rkey)
 
 	if rkeybuf == nil {
-		logg.W("can't find header, check your client's key, from: ", addr)
+		logg.D("cannot find header, check your client's key, from: ", addr)
 		proxy.blacklist.Add(addr, nil)
-		replyRandom()
+		replySomething()
 		return
 	}
 
@@ -145,7 +143,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r == -1 {
 			logg.W("someone is using an old token: ", addr)
 			proxy.blacklist.Add(addr, nil)
-			replyRandom()
+			replySomething()
 			return
 		}
 
@@ -157,8 +155,8 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h, _ := proxy.blacklist.GetHits(addr); h > invalidRequestRetry {
-		logg.W("repeated access using invalid key from: ", addr)
-		// replyRandom()
+		logg.D("repeated access using invalid key from: ", addr)
+		// replySomething()
 		// return
 	}
 
@@ -177,7 +175,8 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if options.IsSet(doConnect) {
 		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
 		if host == "" {
-			replyRandom()
+			logg.W("we had a valid rkey, but invalid host, from: ", addr)
+			replySomething()
 			return
 		}
 
@@ -200,7 +199,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
 	} else if options.IsSet(doForward) {
 		if !proxy.decryptRequest(r, rkeybuf) {
-			replyRandom()
+			replySomething()
 			return
 		}
 
@@ -210,7 +209,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
 			logg.E("HTTP forward: ", r.URL, ", ", err)
-			proxy.Write(w, r, []byte(err.Error()), http.StatusInternalServerError)
+			proxy.Write(w, rkeybuf, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
 
@@ -231,7 +230,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tryClose(resp.Body)
 	} else {
 		proxy.blacklist.Add(addr, nil)
-		replyRandom()
+		replySomething()
 	}
 }
 
@@ -280,10 +279,8 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 				return nil
 			}
 
-			logg.L("alternatively act as reverse proxy: ", config.ProxyPassAddr)
 			proxy.rp = httputil.NewSingleHostReverseProxy(u)
 		} else {
-			logg.L("alternatively act as file server: ", config.ProxyPassAddr)
 			proxy.rp = http.FileServer(http.Dir(config.ProxyPassAddr))
 		}
 	}

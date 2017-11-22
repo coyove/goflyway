@@ -184,7 +184,6 @@ var (
 
 type ConcurrentRand struct {
 	tap  int32 // index into vec
-	feed int32 // index into vec
 	seed int64
 	vec  [_LEN]int64 // current feedback register
 }
@@ -201,15 +200,10 @@ func seedrand(x int32) int32 {
 }
 
 func New(seeds ...int64) *ConcurrentRand {
-	seed := GetCounter() % _M
-	if len(seeds) > 0 {
-		seed = seeds[0] ^ seed
-	}
-
-	rng := &ConcurrentRand{
-		tap:  0,
-		feed: _LEN - _TAP,
-		seed: seed,
+	rng := &ConcurrentRand{}
+	rng.seed = GetCounter() % _M
+	for _, s := range seeds {
+		rng.seed ^= s
 	}
 
 	if rng.seed < 0 {
@@ -252,9 +246,8 @@ func (src *ConcurrentRand) Uint64() uint64 {
 		tap += _LEN
 	}
 
-	feed := atomic.AddInt32(&src.feed, -1)
+	feed := tap - _TAP
 	if feed < 0 {
-		atomic.CompareAndSwapInt32(&src.feed, feed, feed+_LEN)
 		feed += _LEN
 	}
 
