@@ -207,37 +207,23 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 		dst.Del(k)
 	}
 
+	setcookies := []string{}
 	for k, vs := range src {
 	READ:
 		for _, v := range vs {
-			cip := func(ei, di int) {
-				if rkeybuf == nil {
-					// rkeybuf is nil, so do nothing
-					return
-				}
-
-				if enc {
-					v = v[:ei] + "=" + gc.EncryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
-				} else {
-					v = v[:ei] + "=" + gc.DecryptString(v[ei+1:di], rkeybuf...) + ";" + v[di+1:]
-				}
-			}
-
 			switch strings.ToLower(k) {
 			case "set-cookie":
-				ei, di := strings.Index(v, "="), strings.Index(v, ";")
-
-				if ei > -1 && di > ei {
-					cip(ei, di)
-				}
-
-				ei = strings.Index(v, "main=") // [Dd]omain
-				if ei > -1 {
-					for di = ei + 5; di < len(v); di++ {
-						if v[di] == ';' {
-							cip(ei+4, di)
-							break
+				if rkeybuf != nil {
+					if enc {
+						setcookies = append(setcookies, v)
+						continue READ
+					} else {
+						ei, di := strings.Index(v, "="), strings.Index(v, ";")
+						if di == -1 {
+							di = len(v)
 						}
+
+						v = gc.DecryptDecompress(v[ei+1:di], rkeybuf...)
 					}
 				}
 			case "content-encoding", "content-type":
@@ -257,8 +243,18 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 				}
 			}
 
-			dst.Add(k, v)
+			for _, vn := range strings.Split(v, "\n") {
+				dst.Add(k, vn)
+			}
 		}
+	}
+
+	if len(setcookies) > 0 && rkeybuf != nil {
+		// some http proxies or middlewares will combine multiple Set-Cookie headers into one
+		// but some browsers do not support this behavior
+		// here we just do the combination in advance and split them when decrypting
+		dst.Add("Set-Cookie", gc.genWord(true)+"="+
+			gc.EncryptCompress(strings.Join(setcookies, "\n"), rkeybuf...)+"; Domain="+gc.genWord(true)+".com; HttpOnly")
 	}
 }
 
