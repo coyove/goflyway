@@ -384,3 +384,7 @@ func readUntil(r io.Reader, eoh string) ([]byte, error) {
 
 	return respbuf.Bytes(), nil
 }
+
+func isClosedConnErr(err error) bool {
+	return strings.Contains(err.Error(), errConnClosedMsg)
+}

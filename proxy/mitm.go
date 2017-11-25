@@ -113,6 +113,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 		bufTLSClient := bufio.NewReader(tlsClient)
 
 		for {
+			proxy.Cipher.IO.markActive(tlsClient, 0)
+
 			var err error
 			var rURL string
 			var buf []byte
@@ -130,7 +132,9 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
-				logg.E("cannot read request: ", err)
+				if !isClosedConnErr(err) {
+					logg.E("cannot read request: ", err)
+				}
 				break
 			}
 

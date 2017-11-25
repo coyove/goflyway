@@ -137,7 +137,7 @@ CONTINUE:
 
 		logg.E("listener: ", err)
 
-		if strings.Contains(errs, errConnClosedMsg) {
+		if isClosedConnErr(err) {
 			return nil, err
 		}
 

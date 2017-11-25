@@ -1,11 +1,12 @@
 package proxy
 
 import (
+	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"sort"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -126,8 +127,11 @@ func (iot *io_t) markActive(src interface{}, iid uint64) {
 		return
 	}
 
-	srcConn, _ := src.(net.Conn)
-	if srcConn == nil {
+	var srcConn net.Conn
+	switch src.(type) {
+	case net.Conn, tls.Conn:
+		srcConn = src.(net.Conn)
+	default:
 		return
 	}
 
@@ -162,6 +166,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			case <-iot.aggr:
 				if len(iot.mconns) <= keepConnectionsUnder {
 					logg.W("total connections is under ", keepConnectionsUnder, ", nothing to do")
+					iot.aggr <- true
 					break
 				}
 
@@ -172,11 +177,14 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				sort.Sort(arr)
 				for i := 0; i < len(arr)-keepConnectionsUnder; i++ {
 					ms := (ns - arr[i].last) / 1e6
-					logg.L("closing ", arr[i].iid, ": ", arr[i].conn.RemoteAddr, ", last active: ", ms, "ms ago")
+					logg.L("closing ", arr[i].iid, ": ", arr[i].conn.RemoteAddr(), ", last active: ", ms, "ms ago")
 					arr[i].conn.Close()
 					delete(iot.mconns, arr[i].iid)
 				}
 
+				if logg.GetLevel() == logg.LvDebug {
+					fmt.Print("\a")
+				}
 				iot.aggr <- true
 			default:
 				for id, state := range iot.mconns {
@@ -266,7 +274,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if ew != nil {
-				if !strings.Contains(ew.Error(), errConnClosedMsg) {
+				if !isClosedConnErr(ew) {
 					err = ew
 				}
 				break
@@ -288,7 +296,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			// 	}
 			// }
 
-			if er != io.EOF && !strings.Contains(er.Error(), errConnClosedMsg) {
+			if er != io.EOF && !isClosedConnErr(er) {
 				err = er
 			}
 			break
