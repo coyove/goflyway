@@ -533,6 +533,13 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
+	if config.Policy.IsSet(PolicyAggrClosing) && config.Policy.IsSet(PolicyManInTheMiddle) {
+		// plus other fds, we should have a number smaller than 100
+		proxy.tp.MaxIdleConns = 30
+		proxy.tpd.MaxIdleConns = 30
+		proxy.tpq.MaxIdleConns = 30
+	}
+
 	if proxy.UDPRelayCoconn <= 0 {
 		proxy.UDPRelayCoconn = 1
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -19,15 +20,6 @@ type IOConfig struct {
 	Chunked bool
 	Partial bool
 }
-
-// func (gc *Cipher) blockedIO(target, source interface{}, key []byte, options *IOConfig) {
-// 	var wg sync.WaitGroup
-
-// 	wg.Add(2)
-// 	go gc.ioCopyOrWarn(target.(io.Writer), source.(io.Reader), key, options, &wg)
-// 	go gc.ioCopyOrWarn(source.(io.Writer), target.(io.Reader), key, options, &wg)
-// 	wg.Wait()
-// }
 
 func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 
@@ -54,27 +46,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 
 	// copy from target, encrypt, to source
 	go iot.copyClose(sourceTCP, targetTCP, key, options)
-	// } else {
-	// 	logg.D(target, source)
-	// 	go func() {
-	// 		gc.blockedIO(target, source, key, options)
-	// 		source.Close()
-	// 		target.Close()
-	// 	}()
-	// }
 }
-
-// func (gc *Cipher) WrapIO(dst io.Writer, src io.Reader, key []byte, options *IOConfig) *IOCopyCipher {
-
-// 	return &IOCopyCipher{
-// 		Dst:     dst,
-// 		Src:     src,
-// 		Key:     key,
-// 		Partial: gc.Partial,
-// 		Cipher:  gc,
-// 		Config:  options,
-// 	}
-// }
 
 func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
 	ts := time.Now()
@@ -87,29 +59,9 @@ func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
 	src.CloseRead()
 }
 
-// func (gc *Cipher) ioCopyOrWarn(dst io.Writer, src io.Reader, key []byte, options *IOConfig, wg *sync.WaitGroup) {
-// 	ts := time.Now()
-
-// 	if _, err := gc.WrapIO(dst, src, key, options).DoCopy(); err != nil {
-// 		logg.E("io.copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
-// 	}
-
-// 	wg.Done()
-// }
-
-// type IOCopyCipher struct {
-// 	Dst    io.Writer
-// 	Src    io.Reader
-// 	Key    []byte
-// 	Cipher *Cipher
-// 	Config *IOConfig
-
-// 	// can be altered outside
-// 	Partial bool
-// }
-
 type conn_state_t struct {
 	conn net.Conn
+	fd   uintptr
 	last int64
 	iid  uintptr
 }
@@ -128,9 +80,21 @@ func (iot *io_t) markActive(src interface{}, iid uint64) {
 	}
 
 	var srcConn net.Conn
+	var tcpConn *net.TCPConn
+
+REPEAT:
 	switch src.(type) {
-	case net.Conn, tls.Conn:
+	case *connWrapper:
+		src = src.(*connWrapper).Conn
+		goto REPEAT
+	case *tls.Conn:
+		// field "conn" is always the first in tls.Conn (at least from go 1.4)
+		// so it is safe to cast *tls.Conn to net.Conn
+		src = *(*net.Conn)(unsafe.Pointer(src.(*tls.Conn)))
+		goto REPEAT
+	case net.Conn:
 		srcConn = src.(net.Conn)
+		tcpConn, _ = src.(*net.TCPConn)
 	default:
 		return
 	}
@@ -139,7 +103,14 @@ func (iot *io_t) markActive(src interface{}, iid uint64) {
 	id := uintptr((*[2]unsafe.Pointer)(unsafe.Pointer(&src))[1])
 
 	if iot.mconns[id] == nil {
-		iot.mconns[id] = &conn_state_t{srcConn, time.Now().UnixNano(), id}
+		c := &conn_state_t{srcConn, 0, time.Now().UnixNano(), id}
+		if tcpConn != nil {
+			if f, err := tcpConn.File(); err == nil {
+				c.fd = f.Fd()
+				syscall.SetNonblock(int(c.fd), true)
+			}
+		}
+		iot.mconns[id] = c
 	} else {
 		iot.mconns[id].last = time.Now().UnixNano()
 	}
@@ -164,6 +135,17 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 			select {
 			case <-iot.aggr:
+				if iot.count24++; iot.count24%4 == 0 && logg.GetLevel() == logg.LvDebug {
+					// very dangerous
+					fmt.Print("\a")
+					logg.W("goflyway is now closing down all file descriptors larger than 100")
+					for i := 100; i <= int(iot.maxfd); i++ {
+						syscall.Close(i)
+					}
+					iot.aggr <- true
+					break
+				}
+
 				if len(iot.mconns) <= keepConnectionsUnder {
 					logg.W("total connections is under ", keepConnectionsUnder, ", nothing to do")
 					iot.aggr <- true
@@ -187,7 +169,12 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				}
 				iot.aggr <- true
 			default:
+				iot.maxfd = 0
 				for id, state := range iot.mconns {
+					if state.fd > iot.maxfd {
+						iot.maxfd = state.fd
+					}
+
 					if (ns - state.last) > int64(maxIdleTime)*1e9 {
 						//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 						state.conn.Close()
@@ -198,7 +185,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				if count++; count == 60 {
 					count = 0
 					if len(iot.mconns) > 0 {
-						logg.D("active connections: ", len(iot.mconns))
+						logg.D("active connections: ", len(iot.mconns), ", max fd: ", iot.maxfd)
 					}
 				}
 			}

@@ -55,6 +55,8 @@ type io_t struct {
 	iid     uint64
 	started bool
 	aggr    chan bool
+	maxfd   uintptr
+	count24 int
 	mconns  map[uintptr]*conn_state_t
 }
 
