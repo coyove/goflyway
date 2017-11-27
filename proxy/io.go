@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sort"
 	"strconv"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/coyove/goflyway/pkg/fd"
 	"github.com/coyove/goflyway/pkg/logg"
 )
 
@@ -80,7 +81,6 @@ func (iot *io_t) markActive(src interface{}, iid uint64) {
 	}
 
 	var srcConn net.Conn
-	var tcpConn *net.TCPConn
 
 REPEAT:
 	switch src.(type) {
@@ -94,7 +94,6 @@ REPEAT:
 		goto REPEAT
 	case net.Conn:
 		srcConn = src.(net.Conn)
-		tcpConn, _ = src.(*net.TCPConn)
 	default:
 		return
 	}
@@ -103,14 +102,7 @@ REPEAT:
 	id := uintptr((*[2]unsafe.Pointer)(unsafe.Pointer(&src))[1])
 
 	if iot.mconns[id] == nil {
-		c := &conn_state_t{srcConn, 0, time.Now().UnixNano(), id}
-		if tcpConn != nil {
-			if f, err := tcpConn.File(); err == nil {
-				c.fd = f.Fd()
-				syscall.SetNonblock(int(c.fd), true)
-			}
-		}
-		iot.mconns[id] = c
+		iot.mconns[id] = &conn_state_t{srcConn, fd.ConnFD(srcConn), time.Now().UnixNano(), id}
 	} else {
 		iot.mconns[id].last = time.Now().UnixNano()
 	}
@@ -135,12 +127,14 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 			select {
 			case <-iot.aggr:
-				if iot.count24++; iot.count24%4 == 0 && logg.GetLevel() == logg.LvDebug {
-					// very dangerous
+				if iot.count24++; iot.count24%4 == 0 && logg.GetLevel() == logg.LvDebug && runtime.GOOS == "darwin" {
+					// if had too many errno 24, we forcefully close fds larger than 100
+					// this is a very dangerous action, which is just a workaround under macOS
+					// and cannot guarantee that everything works after closing
 					fmt.Print("\a")
-					logg.W("goflyway is now closing down all file descriptors larger than 100")
+					logg.W("goflyway is now trying to close down all file descriptors larger than 100")
 					for i := 100; i <= int(iot.maxfd); i++ {
-						syscall.Close(i)
+						fd.CloseFD(i)
 					}
 					iot.aggr <- true
 					break
@@ -172,6 +166,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				iot.maxfd = 0
 				for id, state := range iot.mconns {
 					if state.fd > iot.maxfd {
+						// quite meaningless to compare handles under Windows
 						iot.maxfd = state.fd
 					}
 
