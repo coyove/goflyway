@@ -10,11 +10,11 @@ import (
 func ConnFD(conn net.Conn) (fd uintptr) {
 	switch conn.(type) {
 	case *net.TCPConn:
-		if f, err := conn.(*net.TCPConn).File(); err != nil {
+		if f, err := conn.(*net.TCPConn).File(); err == nil {
 			fd = f.Fd()
 		}
 	case *net.UDPConn:
-		if f, err := conn.(*net.UDPConn).File(); err != nil {
+		if f, err := conn.(*net.UDPConn).File(); err == nil {
 			fd = f.Fd()
 		}
 	}
