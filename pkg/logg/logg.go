@@ -133,11 +133,6 @@ func print(l string, params ...interface{}) {
 		switch p.(type) {
 		case *net.OpError:
 			op := p.(*net.OpError)
-			// if op.Source != nil && op.Addr != nil {
-			// 	if strings.Split(op.Source.String(), ":")[0] == strings.Split(op.Addr.String(), ":")[0] {
-			// 		return
-			// 	}
-			// }
 
 			if op.Source == nil && op.Addr == nil {
 				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
@@ -151,8 +146,14 @@ func print(l string, params ...interface{}) {
 		case *net.DNSError:
 			op := p.(*net.DNSError)
 
-			if m.message += fmt.Sprintf("dns lookup err: %s", op.Name); op.IsTimeout {
+			if m.message += fmt.Sprintf("DNS lookup err"); op.IsTimeout {
 				m.message += ", timed out"
+			}
+
+			if op.Name == "" {
+				m.message += ": " + op.Name
+			} else {
+				m.message += ", but with an empty name (?)"
 			}
 		default:
 			m.message += fmt.Sprintf("%+v", p)

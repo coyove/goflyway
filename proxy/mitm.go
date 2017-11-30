@@ -132,7 +132,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
-				if !isClosedConnErr(err) {
+				if !isClosedConnErr(err) && buf[0] != ')' {
 					logg.E("cannot read request: ", err)
 				}
 				break
