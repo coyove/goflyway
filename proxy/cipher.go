@@ -65,7 +65,6 @@ type inplace_ctr_t struct {
 	ctr     []byte
 	out     []byte
 	outUsed int
-	ptr     int
 }
 
 // From src/crypto/cipher/ctr.go
@@ -93,18 +92,8 @@ func (x *inplace_ctr_t) XorBuffer(buf []byte) {
 			x.outUsed = 0
 		}
 
-		if x.ptr == 0 && len(buf) > 10 {
-			if buf[0] == 0x1f && buf[1] == 0x8b {
-				// ignore the first 10 bytes of gzip
-				x.ptr = 10
-				x.XorBuffer(buf[10:])
-				return
-			}
-		}
-
 		buf[i] ^= x.out[x.outUsed]
 		x.outUsed++
-		x.ptr++
 	}
 }
 
