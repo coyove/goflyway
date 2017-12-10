@@ -220,7 +220,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	return upstreamConn
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string) net.Conn {
+func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
@@ -248,7 +248,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		return nil
 	}
 
-	downstreamConn.Write(okSOCKS)
+	downstreamConn.Write(resp)
 	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
@@ -306,6 +306,9 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyManInTheMiddle) {
 			proxy.manInTheMiddle(proxyClient, host)
+		} else if proxy.Policy.IsSet(PolicyWebSocket) {
+			logg.D("WS^ ", r.RequestURI)
+			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI)
 			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP)
@@ -501,7 +504,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", host)
-			proxy.dialUpstreamAndBridgeWS(conn, host)
+			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS)
 		} else {
 			logg.D("SOCKS^ ", host)
 			proxy.dialUpstreamAndBridge(conn, host, okSOCKS)
