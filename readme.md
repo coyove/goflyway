@@ -1,7 +1,12 @@
 # goflyway, HTTP tunnel in Go
 
-goflyway is a very simple end-to-end HTTP/SOCKS5 proxy tool with encryption. For more info, please refer to the following links.
+goflyway is an end-to-end encrypted HTTP/SOCKS5 proxy client/server written in golang, featuring:
 
-[中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)
+1. TCP tunneling
+2. TCP tunneling over WebSocket
+3. Man-in-the-middle
+4. UDP over TCP (SOCKS5)
 
-[English](https://github.com/coyove/goflyway/wiki/Getting-Started)
+For more info, please refer to the following links.
+
+[中文](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B) / [English](https://github.com/coyove/goflyway/wiki/Getting-Started)

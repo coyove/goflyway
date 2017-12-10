@@ -240,19 +240,17 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 //   + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
 //   |                     Payload Data continued ...                |
 //   +---------------------------------------------------------------+
-func wsWrite(dst io.Writer, payload []byte, mask bool) (int, error) {
+func wsWrite(dst io.Writer, payload []byte, mask bool) (n int, err error) {
 	if len(payload) > 65535 {
 		panic("don't support payload larger than 65535 yet")
 	}
 
-	buf := make([]byte, 4, 8+len(payload))
+	buf := make([]byte, 4)
 	buf[0] = 2 // binary
 	buf[1] = 126
 	binary.BigEndian.PutUint16(buf[2:], uint16(len(payload)))
 
-	idx := 4
 	if mask {
-		idx = 8
 		buf[1] |= 0x80
 		buf = append(buf, 0, 0, 0, 0)
 		key := uint32(rand.GetCounter())
@@ -263,8 +261,11 @@ func wsWrite(dst io.Writer, payload []byte, mask bool) (int, error) {
 		}
 	}
 
-	buf = append(buf[:idx], payload...)
-	return dst.Write(buf)
+	if n, err = dst.Write(buf); err != nil {
+		return
+	}
+
+	return dst.Write(payload)
 }
 
 func wsRead(src io.Reader) (payload []byte, n int, err error) {
@@ -278,12 +279,17 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 	}
 
 	mask := (buf[1] & 0x80) > 0
-	if (buf[1] & 0x7f) != 126 {
-		logg.E("goflyway doesn't accept payload longer than 65535, please check")
-		return
-	}
+	ln := int(buf[1] & 0x7f)
 
-	ln := int(binary.BigEndian.Uint16(buf[2:4]))
+	if ln != 126 {
+		if ln == 127 {
+			logg.E("goflyway doesn't accept payload longer than 65535, please check")
+			return
+		}
+		// ln : 0 ~ 125
+	} else {
+		ln = int(binary.BigEndian.Uint16(buf[2:4]))
+	}
 
 	if mask {
 		if n, err = io.ReadAtLeast(src, buf, 4); err != nil {
@@ -389,7 +395,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 				break
 			}
 
-			if nr != nw && config.WSCtrl == 0 {
+			if nr != nw {
 				err = io.ErrShortWrite
 				break
 			}

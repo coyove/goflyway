@@ -194,17 +194,18 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		var p string
 		if options.IsSet(doWebSocket) {
 			ioc.WSCtrl = wsServer
-			p := fmt.Sprintf(
+			p = fmt.Sprintf(
 				"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", rkey)
-			downstreamConn.Write([]byte(p))
-			proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
 		} else {
-			p := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
-			downstreamConn.Write([]byte(p))
-			proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
+			p = fmt.Sprintf(
+				"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
 		}
+
+		downstreamConn.Write([]byte(p))
+		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
 	} else if options.IsSet(doForward) {
 		if !proxy.decryptRequest(r, rkeybuf) {
 			replySomething()
