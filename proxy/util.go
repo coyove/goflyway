@@ -28,22 +28,23 @@ const (
 )
 
 const (
-	doConnect = 1
-	doForward = 1 << 1
-	doRSV5    = 1 << 2
-	doRSV1    = 1 << 3
-	doDNS     = 1 << 4
-	doRSV2    = 1 << 5
-	doRSV3    = 1 << 6
-	doRSV4    = 1 << 7
+	doConnect = 1 << iota
+	doForward
+	doWebSocket
+	doDNS
+	doRSV1
+	doRSV2
+	doRSV3
+	doRSV4
 )
 
 const (
-	PolicyDisabled       = 1
-	PolicyManInTheMiddle = 1 << 1
-	PolicyGlobal         = 1 << 2
-	PolicyTrustClientDNS = 1 << 3
-	PolicyAggrClosing    = 1 << 4
+	PolicyDisabled = 1 << iota
+	PolicyManInTheMiddle
+	PolicyGlobal
+	PolicyTrustClientDNS
+	PolicyAggrClosing
+	PolicyWebSocket
 )
 
 const (

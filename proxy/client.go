@@ -220,6 +220,42 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	return upstreamConn
 }
 
+func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string) net.Conn {
+	upstreamConn, err := proxy.dialUpstream()
+	if err != nil {
+		logg.E(err)
+		downstreamConn.Close()
+		return nil
+	}
+
+	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect+doWebSocket, nil, proxy.UserAuth)
+	pl := "GET /" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + " HTTP/1.1\r\n" +
+		"Host: " + proxy.genHost() + "\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		proxy.rkeyHeader + ": " + rkey + "\r\n\r\n"
+
+	upstreamConn.Write([]byte(pl))
+
+	buf, err := readUntil(upstreamConn, "\r\n\r\n")
+	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
+		if err != nil {
+			logg.E(err)
+		}
+
+		upstreamConn.Close()
+		downstreamConn.Close()
+		return nil
+	}
+
+	downstreamConn.Write(okSOCKS)
+	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
+		Partial: proxy.Partial,
+		WSCtrl:  wsClient,
+	})
+	return upstreamConn
+}
+
 func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, resp []byte) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
@@ -463,6 +499,9 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 		if proxy.canDirectConnect(host) {
 			logg.D("SOCKS ", host)
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
+		} else if proxy.Policy.IsSet(PolicyWebSocket) {
+			logg.D("WS^ ", host)
+			proxy.dialUpstreamAndBridgeWS(conn, host)
 		} else {
 			logg.D("SOCKS^ ", host)
 			proxy.dialUpstreamAndBridge(conn, host, okSOCKS)

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -14,12 +15,23 @@ import (
 
 	"github.com/coyove/goflyway/pkg/fd"
 	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/rand"
+)
+
+const (
+	wsClient = iota + 1
+	wsClientDstIsUpstream
+	wsClientSrcIsUpstream
+	wsServer
+	wsServerDstIsDownstream
+	wsServerSrcIsDownstream
 )
 
 type IOConfig struct {
 	Bucket  *TokenBucket
 	Chunked bool
 	Partial bool
+	WSCtrl  byte
 }
 
 func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
@@ -41,12 +53,25 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 		return
 	}
 
-	// if targetOK && sourceOK {
 	// copy from source, decrypt, to target
-	go iot.copyClose(targetTCP, sourceTCP, key, options)
+	o := options
+	switch o.WSCtrl {
+	case wsServer:
+		o.WSCtrl = wsServerDstIsDownstream
+	case wsClient:
+		o.WSCtrl = wsClientSrcIsUpstream
+	}
+	go iot.copyClose(targetTCP, sourceTCP, key, o)
 
 	// copy from target, encrypt, to source
-	go iot.copyClose(sourceTCP, targetTCP, key, options)
+	o = options
+	switch o.WSCtrl {
+	case wsServer:
+		o.WSCtrl = wsServerSrcIsDownstream
+	case wsClient:
+		o.WSCtrl = wsClientDstIsUpstream
+	}
+	go iot.copyClose(sourceTCP, targetTCP, key, o)
 }
 
 func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
@@ -191,6 +216,97 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	}()
 }
 
+// wsWrite and wsRead are simple implementations of RFC6455
+// we assume that all payloads are 65535 bytes at max
+// we don't care control frames and everything is binary
+// we don't close it explicitly, it closes when the TCP connection closes
+// we don't ping or pong
+//
+//   0                   1                   2                   3
+//   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//   +-+-+-+-+-------+-+-------------+-------------------------------+
+//   |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+//   |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+//   |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+//   | |1|2|3|       |K|             |                               |
+//   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+//   |     Extended payload length continued, if payload len == 127  |
+//   + - - - - - - - - - - - - - - - +-------------------------------+
+//   |                               |Masking-key, if MASK set to 1  |
+//   +-------------------------------+-------------------------------+
+//   | Masking-key (continued)       |          Payload Data         |
+//   +-------------------------------- - - - - - - - - - - - - - - - +
+//   :                     Payload Data continued ...                :
+//   + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+//   |                     Payload Data continued ...                |
+//   +---------------------------------------------------------------+
+func wsWrite(dst io.Writer, payload []byte, mask bool) (int, error) {
+	if len(payload) > 65535 {
+		panic("don't support payload larger than 65535 yet")
+	}
+
+	buf := make([]byte, 4, 8+len(payload))
+	buf[0] = 2 // binary
+	buf[1] = 126
+	binary.BigEndian.PutUint16(buf[2:], uint16(len(payload)))
+
+	idx := 4
+	if mask {
+		idx = 8
+		buf[1] |= 0x80
+		buf = append(buf, 0, 0, 0, 0)
+		key := uint32(rand.GetCounter())
+		binary.BigEndian.PutUint32(buf[4:8], key)
+
+		for i, b := 0, buf[4:8]; i < len(payload); i++ {
+			payload[i] ^= b[i%4]
+		}
+	}
+
+	buf = append(buf[:idx], payload...)
+	return dst.Write(buf)
+}
+
+func wsRead(src io.Reader) (payload []byte, n int, err error) {
+	buf := make([]byte, 4)
+	if n, err = io.ReadAtLeast(src, buf, 4); err != nil {
+		return
+	}
+
+	if buf[0] != 2 {
+		logg.W("goflyway doesn't accept opcode other than 2, please check")
+	}
+
+	mask := (buf[1] & 0x80) > 0
+	if (buf[1] & 0x7f) != 126 {
+		logg.E("goflyway doesn't accept payload longer than 65535, please check")
+		return
+	}
+
+	ln := int(binary.BigEndian.Uint16(buf[2:4]))
+
+	if mask {
+		if n, err = io.ReadAtLeast(src, buf, 4); err != nil {
+			return
+		}
+		// now buf contains mask key
+	}
+
+	payload = make([]byte, ln)
+	if n, err = io.ReadAtLeast(src, payload, ln); err != nil {
+		return
+	}
+
+	if mask {
+		for i, b := 0, buf[:4]; i < len(payload); i++ {
+			payload[i] ^= b[i%4]
+		}
+	}
+
+	// n == ln, err == nil,
+	return
+}
+
 func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig) (written int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -204,16 +320,20 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 
 	u := atomic.AddUint64(&iot.iid, 1)
 
-	// logg.D("open ", u)
-	// retries := 0
-	// srcConn, _ := src.(*net.TCPConn)
-	// if srcConn != nil {
-
-	// }
-
 	for {
 		iot.markActive(src, u)
-		nr, er := src.Read(buf)
+		var nr int
+		var er error
+
+		switch config.WSCtrl {
+		case wsClientSrcIsUpstream, wsServerSrcIsDownstream:
+			// we are client, reading from upstream, or
+			// we are server, reading from downstream
+			buf, nr, er = wsRead(src)
+		default:
+			nr, er = src.Read(buf)
+		}
+
 		if nr > 0 {
 			xbuf := buf[0:nr]
 
@@ -248,7 +368,14 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 				}
 
 			} else {
-				nw, ew = dst.Write(xbuf)
+				switch config.WSCtrl {
+				case wsServerDstIsDownstream:
+					nw, ew = wsWrite(dst, xbuf, false)
+				case wsClientDstIsUpstream:
+					nw, ew = wsWrite(dst, xbuf, true)
+				default:
+					nw, ew = dst.Write(xbuf)
+				}
 			}
 
 			if nw > 0 {
@@ -262,7 +389,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 				break
 			}
 
-			if nr != nw {
+			if nr != nw && config.WSCtrl == 0 {
 				err = io.ErrShortWrite
 				break
 			}

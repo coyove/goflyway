@@ -26,8 +26,8 @@ var (
 	cmdGenCA      = flag.Bool("gen-ca", false, "[C] generate certificate (ca.pem) and private key (key.pem)")
 	cmdKey        = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
 	cmdAuth       = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
-	cmdBasic      = flag.String("b", "iplist", "[C] proxy type: {none, iplist, iplist_l, global, global_l}")
-	cmdUpstream   = flag.String("up", "", "[C] upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm}@]ip:port[;domain[?header]]")
+	cmdBasic      = flag.String("b", "iplist", "[C] proxy type: {none, iplist, iplist_l, global}")
+	cmdUpstream   = flag.String("up", "", "[C] upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm,ws}@]ip:port[;domain[?header]]")
 	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
 	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
 	cmdUDPPort    = flag.Int64("udp", 0, "[SC] server UDP relay listening port, 0 to disable")
@@ -149,10 +149,14 @@ func main() {
 				c2 = c2[idx1+1:]
 			}
 
-			if c2 == "mitm" {
-				fmt.Println("* man-in-the-middle to intercept HTTPS")
+			switch c2 {
+			case "mitm":
+				fmt.Println("* man-in-the-middle to intercept HTTPS (HTTP proxy mode only)")
 				cc.Policy.Set(proxy.PolicyManInTheMiddle)
-			} else {
+			case "ws":
+				fmt.Println("* use WebSocket protocol to relay data (SOCKS5 proxy mode only)")
+				cc.Policy.Set(proxy.PolicyWebSocket)
+			default:
 				fmt.Println("* using HTTPS proxy as the frontend:", c2)
 				cc.Connect2 = c2
 				cc.Connect2Auth = c2a
@@ -181,13 +185,8 @@ func main() {
 		switch *cmdBasic {
 		case "none":
 			cc.Policy.Set(proxy.PolicyDisabled)
-
-		case "global_l":
-			cc.Policy.Set(proxy.PolicyTrustClientDNS)
-			fallthrough
 		case "global":
 			cc.Policy.Set(proxy.PolicyGlobal)
-
 		case "iplist_l":
 			cc.Policy.Set(proxy.PolicyTrustClientDNS)
 			fallthrough
