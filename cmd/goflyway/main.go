@@ -160,12 +160,13 @@ func main() {
 			cc.Upstream = parts[1]
 			cc.Connect2Auth, cc.Connect2 = parseAuthURL(parts[0])
 			fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
-		} else if http, ws, cfhttp, cfws, fwd :=
+		} else if http, ws, cfhttp, cfws, fwd, fwdws :=
 			strings.HasPrefix(cmd, "http://"),
 			strings.HasPrefix(cmd, "ws://"),
 			strings.HasPrefix(cmd, "cfhttp://"),
 			strings.HasPrefix(cmd, "cfws://"),
-			strings.HasPrefix(cmd, "forward://"); http || ws || fwd || cfws || cfhttp {
+			strings.HasPrefix(cmd, "forward://"),
+			strings.HasPrefix(cmd, "forwardws://"); http || ws || fwd || cfws || cfhttp || fwdws {
 
 			parts := strings.Split(cmd, "_")
 			cc.Connect2Auth, cc.Upstream = parseAuthURL(parts[0])
@@ -181,15 +182,16 @@ func main() {
 				fmt.Println("* use proxy [", cc.Upstream, "] as the frontend")
 			}
 
-			switch true {
-			case cfws, ws:
-				cc.Policy.Set(proxy.PolicyWebSocket)
-				fmt.Println("* use WebSocket protocol to transfer data")
-			case fwd:
+			if fwdws || fwd {
 				cc.URLHeader = "X-Forwarded-Url"
 				fmt.Println("* forward request, store the true URL in X-Forwarded-Url header")
-				fallthrough
-			case http, cfhttp:
+			}
+
+			switch true {
+			case fwdws, cfws, ws:
+				cc.Policy.Set(proxy.PolicyWebSocket)
+				fmt.Println("* use WebSocket protocol to transfer data")
+			case fwd, http, cfhttp:
 				cc.Policy.Set(proxy.PolicyManInTheMiddle)
 				fmt.Println("* man-in-the-middle to intercept HTTPS (HTTP proxy mode only)")
 			}

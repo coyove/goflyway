@@ -229,9 +229,17 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	}
 
 	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect+doWebSocket, nil, proxy.UserAuth)
-	pl := "GET /" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + " HTTP/1.1\r\n" +
-		"Host: " + proxy.genHost() + "\r\n" +
-		"Upgrade: websocket\r\n" +
+	var pl string
+	if proxy.URLHeader == "" {
+		pl = "GET /" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + " HTTP/1.1\r\n" +
+			"Host: " + proxy.genHost() + "\r\n"
+	} else {
+		pl = "GET http://" + proxy.Upstream + "/ HTTP/1.1\r\n" +
+			"Host: " + proxy.Upstream + "\r\n" +
+			proxy.URLHeader + ": http://" + proxy.genHost() + "/" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + "\r\n"
+	}
+
+	pl += "Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
 		"Sec-WebSocket-Key: " + rkey[:24] + "\r\n" +
 		"Sec-WebSocket-Version: 13\r\n" +
@@ -244,7 +252,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		if err != nil {
 			logg.E(err)
 		}
-
+		logg.D(string(buf))
 		upstreamConn.Close()
 		downstreamConn.Close()
 		return nil
