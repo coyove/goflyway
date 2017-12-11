@@ -233,6 +233,8 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		"Host: " + proxy.genHost() + "\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: " + rkey[:24] + "\r\n" +
+		"Sec-WebSocket-Version: 13\r\n" +
 		proxy.rkeyHeader + ": " + rkey + "\r\n\r\n"
 
 	upstreamConn.Write([]byte(pl))

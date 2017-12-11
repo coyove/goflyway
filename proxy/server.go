@@ -1,8 +1,6 @@
 package proxy
 
 import (
-	"fmt"
-
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
@@ -197,11 +195,9 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var p string
 		if options.IsSet(doWebSocket) {
 			ioc.WSCtrl = wsServer
-			p = fmt.Sprintf(
-				"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", rkey)
+			p = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: " + (rkey + rkey)[4:32] + "\r\n\r\n"
 		} else {
-			p = fmt.Sprintf(
-				"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(time.RFC1123))
+			p = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: " + time.Now().UTC().Format(time.RFC1123) + "\r\n\r\n"
 		}
 
 		downstreamConn.Write([]byte(p))
