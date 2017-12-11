@@ -27,7 +27,7 @@ var (
 	cmdKey        = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
 	cmdAuth       = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
 	cmdBasic      = flag.String("b", "iplist", "[C] proxy type: {none, iplist, iplist_l, global}")
-	cmdUpstream   = flag.String("up", "", "[C] upstream server address, form: [[username:password@]{https_proxy_ip:https_proxy_port,mitm,ws}@]ip:port[;domain[?header]]")
+	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
 	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
 	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
 	cmdUDPPort    = flag.Int64("udp", 0, "[SC] server UDP relay listening port, 0 to disable")
@@ -132,54 +132,67 @@ func main() {
 			fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
 		}
 
-		cc = &proxy.ClientConfig{}
-		cc.UserAuth = *cmdAuth
-		cc.Upstream = *cmdUpstream
-		cc.UDPRelayPort = int(*cmdUDPPort)
-		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
-		cc.Cipher = cipher
-		cc.DNSCache = lru.NewCache(*cmdDNSCache)
-		cc.CACache = lru.NewCache(256)
-		cc.CA = lib.TryLoadCert()
-
-		if idx1, idx2 := strings.Index(*cmdUpstream, "@"), strings.LastIndex(*cmdUpstream, "@"); idx1 > -1 && idx2 > -1 {
-			c2, c2a := (*cmdUpstream)[:idx2], ""
-			if idx1 != idx2 {
-				c2a = c2[:idx1]
-				c2 = c2[idx1+1:]
+		parseAuthURL := func(in string) (string, string) {
+			if idx := strings.Index(in, "://"); idx > -1 {
+				in = in[idx+3:]
 			}
 
-			switch c2 {
-			case "mitm":
-				fmt.Println("* man-in-the-middle to intercept HTTPS (HTTP proxy mode only)")
-				cc.Policy.Set(proxy.PolicyManInTheMiddle)
-			case "ws":
-				fmt.Println("* use WebSocket protocol to relay data (SOCKS5 proxy mode only)")
+			if idx := strings.Index(in, "@"); idx > -1 {
+				return in[:idx], in[idx+1:]
+			}
+
+			return "", in
+		}
+
+		cc = &proxy.ClientConfig{
+			UserAuth:       *cmdAuth,
+			Upstream:       *cmdUpstream,
+			UDPRelayPort:   int(*cmdUDPPort),
+			UDPRelayCoconn: int(*cmdUDPonTCP),
+			Cipher:         cipher,
+			DNSCache:       lru.NewCache(*cmdDNSCache),
+			CACache:        lru.NewCache(256),
+			CA:             lib.TryLoadCert(),
+		}
+
+		if cmd := *cmdUpstream; strings.HasPrefix(cmd, "https://") {
+			parts := strings.Split(cmd, "_") // len(parts) must be 2
+			cc.Upstream = parts[1]
+			cc.Connect2Auth, cc.Connect2 = parseAuthURL(parts[0])
+			fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
+		} else if http, ws, cfhttp, cfws, fwd :=
+			strings.HasPrefix(cmd, "http://"),
+			strings.HasPrefix(cmd, "ws://"),
+			strings.HasPrefix(cmd, "cfhttp://"),
+			strings.HasPrefix(cmd, "cfws://"),
+			strings.HasPrefix(cmd, "forward://"); http || ws || fwd || cfws || cfhttp {
+
+			parts := strings.Split(cmd, "_")
+			cc.Connect2Auth, cc.Upstream = parseAuthURL(parts[0])
+
+			if len(parts) > 1 {
+				cc.DummyDomain = parts[1]
+			}
+
+			if cfws || cfhttp {
+				fmt.Println("* use [ cloudflare ] as the frontend")
+				cc.DummyDomain = cc.Upstream
+			} else if cc.DummyDomain != "" {
+				fmt.Println("* use proxy [", cc.Upstream, "] as the frontend")
+			}
+
+			switch true {
+			case cfws, ws:
 				cc.Policy.Set(proxy.PolicyWebSocket)
-			default:
-				fmt.Println("* using HTTPS proxy as the frontend:", c2)
-				cc.Connect2 = c2
-				cc.Connect2Auth = c2a
+				fmt.Println("* use WebSocket protocol to transfer data")
+			case fwd:
+				cc.URLHeader = "X-Forwarded-Url"
+				fmt.Println("* forward request, store the true URL in X-Forwarded-Url header")
+				fallthrough
+			case http, cfhttp:
+				cc.Policy.Set(proxy.PolicyManInTheMiddle)
+				fmt.Println("* man-in-the-middle to intercept HTTPS (HTTP proxy mode only)")
 			}
-
-			if c2a != "" {
-				fmt.Println("* ... and using proxy auth:", c2a)
-			}
-
-			up := (*cmdUpstream)[idx2+1:]
-			if idx1 = strings.Index(up, ";"); idx1 > -1 {
-				cc.DummyDomain = up[idx1+1:]
-				up = up[:idx1]
-
-				if idx1 = strings.Index(cc.DummyDomain, "?"); idx1 > -1 {
-					cc.URLHeader = cc.DummyDomain[idx1+1:]
-					cc.DummyDomain = cc.DummyDomain[:idx1]
-					fmt.Println("* the true URL will be stored in:", cc.URLHeader)
-				}
-
-				fmt.Println("* all reqeusts sent out will have", cc.DummyDomain, "as the host name")
-			}
-			cc.Upstream = up
 		}
 
 		switch *cmdBasic {
@@ -189,7 +202,6 @@ func main() {
 			cc.Policy.Set(proxy.PolicyGlobal)
 		case "iplist_l":
 			cc.Policy.Set(proxy.PolicyTrustClientDNS)
-			fallthrough
 		case "iplist":
 			// do nothing, default policy
 		default:
