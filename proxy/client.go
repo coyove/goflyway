@@ -252,7 +252,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		if err != nil {
 			logg.E(err)
 		}
-		logg.D(string(buf))
+
 		upstreamConn.Close()
 		downstreamConn.Close()
 		return nil
@@ -412,13 +412,23 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 		return maybeChinese
 	}
 
-	req, err := http.NewRequest("GET", "http://"+proxy.genHost(), nil)
+	dnsloc := "http://" + proxy.genHost()
+	rkey, _ := proxy.Cipher.NewIV(doDNS, []byte(host), proxy.UserAuth)
+
+	if proxy.URLHeader != "" {
+		dnsloc = "http://" + proxy.Upstream
+	}
+
+	req, err := http.NewRequest("GET", dnsloc, nil)
 	if err != nil {
 		logg.E(err)
 		return maybeChinese
 	}
-	rkey, _ := proxy.Cipher.NewIV(doDNS, []byte(host), proxy.UserAuth)
+
 	req.Header.Add(proxy.rkeyHeader, rkey)
+	if proxy.URLHeader != "" {
+		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost())
+	}
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {

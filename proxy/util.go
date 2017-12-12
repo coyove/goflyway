@@ -380,7 +380,7 @@ func readUntil(r io.Reader, eoh string) ([]byte, error) {
 	}
 
 	if !found {
-		return nil, fmt.Errorf("readUntil cannot find the pattern: %s", eoh)
+		return nil, fmt.Errorf("readUntil cannot find the pattern: %v", []byte(eoh))
 	}
 
 	return respbuf.Bytes(), nil
