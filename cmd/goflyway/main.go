@@ -1,7 +1,9 @@
 package main
 
 import (
+	"net"
 	"net/http"
+	"os"
 
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/config"
@@ -132,18 +134,6 @@ func main() {
 			fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
 		}
 
-		parseAuthURL := func(in string) (string, string) {
-			if idx := strings.Index(in, "://"); idx > -1 {
-				in = in[idx+3:]
-			}
-
-			if idx := strings.Index(in, "@"); idx > -1 {
-				return in[:idx], in[idx+1:]
-			}
-
-			return "", in
-		}
-
 		cc = &proxy.ClientConfig{
 			UserAuth:       *cmdAuth,
 			Upstream:       *cmdUpstream,
@@ -155,45 +145,34 @@ func main() {
 			CA:             lib.TryLoadCert(),
 		}
 
-		if cmd := *cmdUpstream; strings.HasPrefix(cmd, "https://") {
-			parts := strings.Split(cmd, "_") // len(parts) must be 2
-			cc.Upstream = parts[1]
-			cc.Connect2Auth, cc.Connect2 = parseAuthURL(parts[0])
+		if is := func(in string) bool { return strings.HasPrefix(*cmdUpstream, in) }; is("https://") {
+			cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(*cmdUpstream)
 			fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
-		} else if http, ws, cfhttp, cfws, fwd, fwdws :=
-			strings.HasPrefix(cmd, "http://"),
-			strings.HasPrefix(cmd, "ws://"),
-			strings.HasPrefix(cmd, "cfhttp://"),
-			strings.HasPrefix(cmd, "cfws://"),
-			strings.HasPrefix(cmd, "forward://"),
-			strings.HasPrefix(cmd, "forwardws://"); http || ws || fwd || cfws || cfhttp || fwdws {
+		} else if http, ws, cf, fwd, fwdws :=
+			is("http://"), is("ws://"), is("cf://"), is("fwd://"), is("fwds://"); http || ws || cf || fwd || fwdws {
 
-			parts := strings.Split(cmd, "_")
-			cc.Connect2Auth, cc.Upstream = parseAuthURL(parts[0])
+			cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(*cmdUpstream)
 
-			if len(parts) > 1 {
-				cc.DummyDomain = parts[1]
-			}
-
-			if cfws || cfhttp {
-				fmt.Println("* use [ cloudflare ] as the frontend")
+			switch true {
+			case cf:
+				fmt.Println("* connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
 				cc.DummyDomain = cc.Upstream
-			} else if cc.DummyDomain != "" {
-				fmt.Println("* use proxy [", cc.Upstream, "] as the frontend")
-			}
-
-			if fwdws || fwd {
-				cc.URLHeader = "X-Forwarded-Url"
-				fmt.Println("* forward request, store the true URL in X-Forwarded-Url header")
+			case fwdws, fwd:
+				if cc.URLHeader == "" {
+					cc.URLHeader = "X-Forwarded-Url"
+				}
+				fmt.Println("* forward request to [", cc.Upstream, "], store the true URL in [", cc.URLHeader, "] header")
+			case cc.DummyDomain != "":
+				fmt.Println("* use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
 			}
 
 			switch true {
-			case fwdws, cfws, ws:
+			case fwdws, cf, ws:
 				cc.Policy.Set(proxy.PolicyWebSocket)
 				fmt.Println("* use WebSocket protocol to transfer data")
-			case fwd, http, cfhttp:
+			case fwd, http:
 				cc.Policy.Set(proxy.PolicyManInTheMiddle)
-				fmt.Println("* man-in-the-middle to intercept HTTPS (HTTP proxy mode only)")
+				fmt.Println("* use MITM to intercept HTTPS (HTTP proxy mode only)")
 			}
 		}
 
@@ -276,7 +255,7 @@ func main() {
 			}()
 		}
 
-		fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream [", client.Upstream, "]")
+		fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
 		logg.F(client.Start())
 	} else {
 		// save some space because server doesn't need lookup
@@ -296,4 +275,33 @@ func main() {
 		}
 		logg.F(server.Start())
 	}
+}
+
+func parseAuthURL(in string) (auth string, upstream string, header string, dummy string) {
+	// <scheme>://[<username>:<password>@]<host>:<port>[/[?<header>=]<dummy_host>:<dummy_port>]
+	if idx := strings.Index(in, "://"); idx > -1 {
+		in = in[idx+3:]
+	}
+
+	if idx := strings.Index(in, "/"); idx > -1 {
+		dummy = in[idx+1:]
+		in = in[:idx]
+		if idx = strings.Index(dummy, "="); dummy[0] == '?' && idx > -1 {
+			header = dummy[1:idx]
+			dummy = dummy[idx+1:]
+		}
+	}
+
+	upstream = in
+	if idx := strings.Index(in, "@"); idx > -1 {
+		auth = in[:idx]
+		upstream = in[idx+1:]
+	}
+
+	if _, _, err := net.SplitHostPort(upstream); err != nil {
+		fmt.Println("* invalid upstream destination:", upstream, err)
+		os.Exit(1)
+	}
+
+	return
 }
