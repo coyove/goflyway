@@ -148,8 +148,8 @@ func main() {
 		if is := func(in string) bool { return strings.HasPrefix(*cmdUpstream, in) }; is("https://") {
 			cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(*cmdUpstream)
 			fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
-		} else if http, ws, cf, fwd, fwdws :=
-			is("http://"), is("ws://"), is("cf://"), is("fwd://"), is("fwds://"); http || ws || cf || fwd || fwdws {
+		} else if gfw, http, ws, cf, fwd, fwdws :=
+			is("gfw://"), is("http://"), is("ws://"), is("cf://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || fwd || fwdws {
 
 			cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(*cmdUpstream)
 
@@ -161,7 +161,8 @@ func main() {
 				if cc.URLHeader == "" {
 					cc.URLHeader = "X-Forwarded-Url"
 				}
-				fmt.Println("* forward request to [", cc.Upstream, "], store the true URL in [", cc.URLHeader, "] header")
+				fmt.Println("* forward request to [", cc.Upstream, "], store the true URL in [",
+					cc.URLHeader+": http://"+cc.DummyDomain+"/... ]")
 			case cc.DummyDomain != "":
 				fmt.Println("* use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
 			}
