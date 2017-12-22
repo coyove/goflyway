@@ -39,6 +39,7 @@ var (
 	cmdWebConPort = flag.Int("web-port", 8101, "[C] web console listening port, 0 to disable")
 	cmdPartial    = flag.Bool("partial", false, "[SC] partially encrypt the tunnel traffic")
 	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
+	cmdMux        = flag.Int("mux", 0, "[SC] limit the total number of TCP connections, no limit by default")
 	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
 	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
 
@@ -78,6 +79,7 @@ func loadConfig() {
 	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
 	*cmdWebConPort = int(cf.GetInt("misc", "webconport", int64(*cmdWebConPort)))
 	*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
+	*cmdMux = int(cf.GetInt("misc", "mux", int64(*cmdMux)))
 	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
@@ -129,6 +131,11 @@ func main() {
 	var cc *proxy.ClientConfig
 	var sc *proxy.ServerConfig
 
+	if *cmdMux > 0 {
+		fmt.Println("* TCP multiplexer enabled, limit:", *cmdMux)
+		fmt.Println("* when using the multiplexer, you must directly connect to the upstream")
+	}
+
 	if *cmdUpstream != "" || *cmdDebug {
 		if !lookup.LoadOrCreateChinaList("") {
 			fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
@@ -143,6 +150,7 @@ func main() {
 			DNSCache:       lru.NewCache(*cmdDNSCache),
 			CACache:        lru.NewCache(256),
 			CA:             lib.TryLoadCert(),
+			Mux:            *cmdMux,
 		}
 
 		if is := func(in string) bool { return strings.HasPrefix(*cmdUpstream, in) }; is("https://") {
@@ -196,12 +204,14 @@ func main() {
 	}
 
 	if *cmdUpstream == "" || *cmdDebug {
-		sc = &proxy.ServerConfig{}
-		sc.Cipher = cipher
-		sc.UDPRelayListen = int(*cmdUDPPort)
-		sc.Throttling = *cmdThrot
-		sc.ThrottlingMax = *cmdThrotMax
-		sc.ProxyPassAddr = *cmdProxyPass
+		sc = &proxy.ServerConfig{
+			Cipher:         cipher,
+			UDPRelayListen: int(*cmdUDPPort),
+			Throttling:     *cmdThrot,
+			ThrottlingMax:  *cmdThrotMax,
+			ProxyPassAddr:  *cmdProxyPass,
+			Mux:            *cmdMux != 0,
+		}
 
 		if *cmdAuth != "" {
 			sc.Users = map[string]proxy.UserConfig{

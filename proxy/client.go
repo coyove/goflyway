@@ -6,6 +6,7 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
+	"github.com/coyove/tcpmux"
 
 	"bytes"
 	"encoding/base64"
@@ -35,6 +36,8 @@ type ClientConfig struct {
 	UDPRelayPort   int
 	UDPRelayCoconn int
 
+	Mux int
+
 	DNSCache *lru.Cache
 	CA       tls.Certificate
 	CACache  *lru.Cache
@@ -50,6 +53,7 @@ type ProxyClient struct {
 	tpq        *http.Transport // to upstream used for dns query
 	tpd        *http.Transport // to host directly
 	dummies    *lru.Cache
+	pool       *tcpmux.DialPool
 
 	UDP struct {
 		sync.Mutex
@@ -63,7 +67,7 @@ type ProxyClient struct {
 
 func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 	if proxy.Connect2 == "" {
-		upstreamConn, err := net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
+		upstreamConn, err := proxy.pool.DialTimeout(timeoutDial)
 		if err != nil {
 			return nil, err
 		}
@@ -582,6 +586,8 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	proxyURL := http.ProxyURL(upURL)
 	proxy := &ProxyClient{
+		pool: tcpmux.NewDialer(config.Upstream, config.Mux),
+
 		tp:  &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL},
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
 		tpq: &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, ResponseHeaderTimeout: timeoutOp, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
@@ -592,7 +598,9 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		ClientConfig: config,
 	}
 
-	if proxy.Connect2 != "" {
+	tcpmux.Version = config.Cipher.Alias[0] | 0x80
+
+	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
 		proxy.tpq.Dial = func(network, address string) (net.Conn, error) {
 			return proxy.dialUpstream()

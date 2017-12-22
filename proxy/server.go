@@ -4,6 +4,7 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
+	"github.com/coyove/tcpmux"
 
 	"net"
 	"net/http"
@@ -19,6 +20,8 @@ type ServerConfig struct {
 	ThrottlingMax  int64
 	UDPRelayListen int
 	ProxyPassAddr  string
+
+	Mux bool
 
 	Users map[string]UserConfig
 
@@ -263,7 +266,12 @@ func (proxy *ProxyUpstream) Start() error {
 		}()
 	}
 
-	return http.ListenAndServe(proxy.Localaddr, proxy)
+	ln, err := tcpmux.Listen(proxy.Localaddr, proxy.Mux)
+	if err != nil {
+		return err
+	}
+
+	return http.Serve(ln, proxy)
 }
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
@@ -275,6 +283,8 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 		trustedTokens: make(map[string]bool),
 		rkeyHeader:    "X-" + config.Cipher.Alias,
 	}
+
+	tcpmux.Version = config.Cipher.Alias[0] | 0x80
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
