@@ -215,7 +215,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	}
 
 	downstreamConn.Write(resp)
-	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
@@ -259,7 +259,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	}
 
 	downstreamConn.Write(resp)
-	proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
 	})
@@ -275,7 +275,7 @@ func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string
 	}
 
 	downstreamConn.Write(resp)
-	proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
+	go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {

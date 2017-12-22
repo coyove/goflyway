@@ -35,24 +35,6 @@ type IOConfig struct {
 }
 
 func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
-
-	var targetTCP *net.TCPConn
-	var targetOK bool
-
-	switch target.(type) {
-	case *net.TCPConn:
-		targetTCP, targetOK = target.(*net.TCPConn)
-	case *connWrapper:
-		targetTCP, targetOK = target.(*connWrapper).Conn.(*net.TCPConn)
-	}
-
-	sourceTCP, sourceOK := source.(*net.TCPConn)
-
-	if !targetOK || !sourceOK || sourceTCP == nil || targetTCP == nil {
-		logg.E("casting failed: ", target, " ", source)
-		return
-	}
-
 	// copy from source, decrypt, to target
 	o := options
 	switch o.WSCtrl {
@@ -61,7 +43,15 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 	case wsClient:
 		o.WSCtrl = wsClientSrcIsUpstream
 	}
-	go iot.copyClose(targetTCP, sourceTCP, key, o)
+
+	exit := make(chan bool)
+	go func(config IOConfig) {
+		ts := time.Now()
+		if _, err := iot.Copy(target, source, key, config); err != nil {
+			logg.E("bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+		}
+		exit <- true
+	}(o)
 
 	// copy from target, encrypt, to source
 	o = options
@@ -71,18 +61,18 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 	case wsClient:
 		o.WSCtrl = wsClientDstIsUpstream
 	}
-	go iot.copyClose(sourceTCP, targetTCP, key, o)
-}
 
-func (iot *io_t) copyClose(dst, src *net.TCPConn, key []byte, config IOConfig) {
 	ts := time.Now()
-
-	if _, err := iot.Copy(dst, src, key, config); err != nil {
-		logg.E("io copy ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+	if _, err := iot.Copy(source, target, key, o); err != nil {
+		logg.E("bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 	}
 
-	dst.CloseWrite()
-	src.CloseRead()
+	select {
+	case <-exit:
+	}
+
+	target.Close()
+	source.Close()
 }
 
 type conn_state_t struct {

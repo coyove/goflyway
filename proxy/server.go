@@ -201,7 +201,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		downstreamConn.Write([]byte(p))
-		proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
+		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
 	} else if options.IsSet(doForward) {
 		if !proxy.decryptRequest(r, rkeybuf) {
 			replySomething()
