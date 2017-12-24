@@ -13,6 +13,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/coyove/tcpmux"
+
 	"github.com/coyove/goflyway/pkg/fd"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/rand"
@@ -42,6 +44,14 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 		o.WSCtrl = wsServerDstIsDownstream
 	case wsClient:
 		o.WSCtrl = wsClientSrcIsUpstream
+	}
+
+	if s, _ := target.(*tcpmux.Stream); s != nil {
+		s.SetTimeout(iot.idleTime)
+	}
+
+	if s, _ := source.(*tcpmux.Stream); s != nil {
+		s.SetTimeout(iot.idleTime)
 	}
 
 	exit := make(chan bool)
@@ -109,6 +119,9 @@ REPEAT:
 		goto REPEAT
 	case net.Conn:
 		srcConn = src.(net.Conn)
+	case *tcpmux.Stream:
+		// Stream has its own management of timeout
+		return
 	default:
 		return
 	}
@@ -133,6 +146,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.aggr = make(chan bool)
+	iot.idleTime = int64(maxIdleTime)
 
 	go func() {
 		count := 0
