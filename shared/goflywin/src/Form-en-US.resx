@@ -46,7 +46,7 @@
     
     mimetype: application/x-microsoft.net.object.binary.base64
     value   : The object must be serialized with 
-            : System.Serialization.Formatters.Binary.BinaryFormatter
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
             : and then encoded with base64 encoding.
     
     mimetype: application/x-microsoft.net.object.soap.base64
@@ -60,6 +60,7 @@
             : and then encoded with base64 encoding.
     -->
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
       <xsd:complexType>
         <xsd:choice maxOccurs="unbounded">
@@ -68,9 +69,10 @@
               <xsd:sequence>
                 <xsd:element name="value" type="xsd:string" minOccurs="0" />
               </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" />
+              <xsd:attribute name="name" use="required" type="xsd:string" />
               <xsd:attribute name="type" type="xsd:string" />
               <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
             </xsd:complexType>
           </xsd:element>
           <xsd:element name="assembly">
@@ -85,9 +87,10 @@
                 <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
                 <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
               </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
               <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
               <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
             </xsd:complexType>
           </xsd:element>
           <xsd:element name="resheader">
@@ -109,9 +112,108 @@
     <value>2.0</value>
   </resheader>
   <resheader name="reader">
-    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="buttonDelServer" xml:space="preserve">
+    <value>Delete Server</value>
+  </data>
+  <data name="buttonQuit" xml:space="preserve">
+    <value>Quit</value>
+  </data>
+  <data name="buttonStart" xml:space="preserve">
+    <value>Start</value>
+  </data>
+  <data name="buttonStop" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="checkAutoMin" xml:space="preserve">
+    <value>Minimize to systray when proxy started</value>
+  </data>
+  <data name="checkPartial" xml:space="preserve">
+    <value>Partial encryption</value>
+  </data>
+  <data name="groupAuth" xml:space="preserve">
+    <value>Authentication</value>
+  </data>
+  <data name="groupLog" xml:space="preserve">
+    <value>Server Log</value>
+  </data>
+  <data name="groupMisc" xml:space="preserve">
+    <value>Misc</value>
+  </data>
+  <data name="labelAuthPass" xml:space="preserve">
+    <value>Password</value>
+  </data>
+  <data name="labelAuthUser" xml:space="preserve">
+    <value>Username</value>
+  </data>
+  <data name="labelDNS" xml:space="preserve">
+    <value>DNS Cache</value>
+  </data>
+  <data name="labelKey" xml:space="preserve">
+    <value>Key</value>
+  </data>
+  <data name="labelLogLevel" xml:space="preserve">
+    <value>Log Level</value>
+  </data>
+  <data name="labelPort" xml:space="preserve">
+    <value>Local Listen</value>
+  </data>
+  <data name="labelProxyType" xml:space="preserve">
+    <value>Proxy Type</value>
+  </data>
+  <data name="labelServer" xml:space="preserve">
+    <value>Server Address (IP:Port)</value>
+  </data>
+  <data name="labelUDP" xml:space="preserve">
+    <value>Server UDP</value>
+  </data>
+  <data name="labelUDP_TCP" xml:space="preserve">
+    <value>UDP over TCP</value>
+  </data>
+  <data name="menuExit" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+  <data name="menuProxyType" xml:space="preserve">
+    <value>Proxy: iplist only|Proxy: global|Proxy: do not proxy</value>
+  </data>
+  <data name="menuShow" xml:space="preserve">
+    <value>Show goflywin</value>
+  </data>
+  <data name="msgConfirmDelete" xml:space="preserve">
+    <value>Are you sure of deleting this server?</value>
+  </data>
+  <data name="msgPleaseCheckInput" xml:space="preserve">
+    <value>Missing params, please check: server address, local listen and key.</value>
+  </data>
+  <data name="msgSystray" xml:space="preserve">
+    <value>goflywin is minimized</value>
+  </data>
+  <data name="NOTRUNNING" xml:space="preserve">
+    <value>NOT RUNNING</value>
+  </data>
+  <data name="RUNNING" xml:space="preserve">
+    <value>&gt;&gt; RUNNING &lt;&lt;</value>
+  </data>
+  <data name="buttonConsole" xml:space="preserve">
+    <value>Open Console</value>
+  </data>
+  <data name="checkAutostart" xml:space="preserve">
+    <value>Launch goflywin at startup</value>
+  </data>
+  <data name="checkLogtxt" xml:space="preserve">
+    <value>Explicitly log to 'log.txt'</value>
+  </data>
+  <data name="checkMITM" xml:space="preserve">
+    <value>Enable man-in-the-middle</value>
+  </data>
+  <data name="labelDomain" xml:space="preserve">
+    <value>Dummy Domain</value>
+  </data>
+  <data name="labelMITMNote" xml:space="preserve">
+    <value>Please import 'ca.pem' into the 'Trusted Root Certification Authority' store first, then MITM can work properly.</value>
+  </data>
 </root>

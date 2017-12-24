@@ -14,6 +14,7 @@ var IPv4PrivateLookupTable [][]uint32
 type China_list_t map[string]interface{}
 
 var ChinaList China_list_t
+var listLoaded bool
 
 func init() {
 	IPv4LookupTable, IPv4PrivateLookupTable = make([][]uint32, 0), make([][]uint32, 0)
@@ -48,6 +49,10 @@ func init() {
 }
 
 func LoadOrCreateChinaList(raw string) bool {
+	if listLoaded {
+		return false
+	}
+
 	if raw == "" {
 		buf, err := ioutil.ReadFile("./chinalist.txt")
 		if err != nil {
@@ -72,13 +77,15 @@ func LoadOrCreateChinaList(raw string) bool {
 			}
 
 			if i == 0 {
-				top[subs[0]].(China_list_t)["_"] = true
+				// end
+				top[subs[0]] = 0
+			} else {
+				top = top[subs[i]].(China_list_t)
 			}
-
-			top = top[subs[i]].(China_list_t)
 		}
 	}
 
+	listLoaded = true
 	return true
 }
 
@@ -126,14 +133,17 @@ func IsChineseWebsite(host string) bool {
 	for i := len(subs) - 1; i >= 0; i-- {
 		sub := subs[i]
 		if top[sub] == nil {
-			if v, eol := top["_"].(bool); v && eol {
-				return true
-			}
-
 			return false
 		}
 
-		top = top[sub].(China_list_t)
+		switch top[sub].(type) {
+		case China_list_t:
+			top = top[sub].(China_list_t)
+		case int:
+			return top[sub].(int) == 0
+		default:
+			return false
+		}
 	}
 
 	return true

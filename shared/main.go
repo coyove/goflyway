@@ -1,11 +1,9 @@
 package main
 
 /*
-typedef void (*g_callback)(unsigned long long, const char*);
+typedef void (*g_callback)();
 
-static void invoke(g_callback f, unsigned long long ts, const char* msg) {
-	if (f) f(ts, msg);
-}
+static void invoke(g_callback f) { f(); }
 */
 import "C"
 
@@ -13,6 +11,12 @@ import (
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/proxy"
+
+	"fmt"
+	"runtime"
+	"sync"
+	"time"
+	"unsafe"
 )
 
 const (
@@ -22,51 +26,122 @@ const (
 	SVR_ERROR_CODE   = C.int(1 << 15)
 	SVR_ERROR_EXITED = C.int(1 << 1)
 	SVR_ERROR_CREATE = C.int(1 << 2)
+	SVR_ERROR_PANIC  = C.int(1 << 3)
 
 	SVR_GLOBAL = C.int(1<<16) + 0
 	SVR_IPLIST = C.int(1<<16) + 1
 	SVR_NONE   = C.int(1<<16) + 2
+
+	CHAR_BUF_SIZE = 2048
 )
+
+type msg_t struct {
+	ts  int64
+	msg string
+}
 
 // client means "client" of goflyway, server means "server" of local proxy
 // both words can be used here
-var client *proxy.ProxyClient
+var (
+	client        *proxy.ProxyClient
+	clientStarted bool
+	stopMutex     sync.Mutex
+	logMutex      sync.Mutex
+	logs          []msg_t
+)
 
-//export GetNickname
-func GetNickname() *C.char {
-	if client == nil {
-		return nil
+func copyToBuf(pbuf *C.char, str string) {
+	if len(str) >= CHAR_BUF_SIZE-1 {
+		str = str[:CHAR_BUF_SIZE-1] // an extra '\0' for C style string
 	}
 
-	return C.CString(client.Nickname)
+	buf := (*[1 << 24]byte)(unsafe.Pointer(pbuf))
+	copy(buf[:len(str)], []byte(str))
+	buf[len(str)] = 0
+}
+
+//export GetNickname
+func GetNickname(pbuf *C.char) {
+	var name string
+	if client != nil {
+		name = client.Nickname
+	}
+
+	copyToBuf(pbuf, name)
+}
+
+//export ManInTheMiddle
+func ManInTheMiddle(enabled C.int) {
+	if client != nil {
+		// if int(enabled) == 1 {
+		// 	proxy.CA_CERT = []byte(C.GoString(cert))
+		// 	proxy.CA_KEY = []byte(C.GoString(key))
+		// 	proxy.CA, _ = tls.X509KeyPair(proxy.CA_CERT, proxy.CA_KEY)
+		// }
+
+		client.ManInTheMiddle = int(enabled) == 1
+	}
+}
+
+//export GetLastestLogIndex
+func GetLastestLogIndex() C.ulonglong {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	if client == nil {
+		return C.ulonglong(0xffffffffffffffff)
+	}
+
+	return C.ulonglong(len(logs))
+}
+
+//export ReadLog
+func ReadLog(idx C.ulonglong, pbuf *C.char) C.ulonglong {
+	// do not lock here
+	if client == nil || int(idx) >= len(logs) {
+		return C.ulonglong(0)
+	}
+
+	copyToBuf(pbuf, logs[idx].msg)
+	return C.ulonglong(logs[idx].ts)
+}
+
+//export DeleteLogSince
+func DeleteLogSince(idx C.ulonglong) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	if client == nil || int(idx) >= len(logs) {
+		return
+	}
+
+	logs = logs[idx+1:]
 }
 
 //export StartServer
 func StartServer(
-	logLevel *C.char,
-	chinaList *C.char,
-	logCallback C.g_callback,
-	errCallback C.g_callback,
-	upstream *C.char,
-	localaddr *C.char,
-	auth *C.char,
-	key *C.char,
-	partial C.int,
-	dnsSize C.int,
-	udpPort C.int,
-	udptcp C.int,
+	created C.g_callback,
+	logLevel *C.char, chinaList *C.char, upstream *C.char, localaddr *C.char, auth *C.char, key *C.char, domain *C.char,
+	partial C.int, dnsSize C.int, udpPort C.int, udptcp C.int,
 ) C.int {
+	runtime.LockOSThread()
+	stopMutex.Lock()
 
-	if client != nil {
+	if clientStarted {
+		stopMutex.Unlock()
 		return SVR_ALREADY_STARTED
 	}
 
 	logg.SetLevel(C.GoString(logLevel))
 	logg.RecordLocalhostError(false)
 	logg.TreatFatalAsError(true)
-	logg.SetCallback(func(ts int64, msg string) {
-		C.invoke(logCallback, C.ulonglong(ts), C.CString(msg))
-	})
+
+	addLog := func(ts int64, msg string) {
+		logMutex.Lock()
+		logs = append(logs, msg_t{ts, msg})
+		logMutex.Unlock()
+	}
+	logg.SetCallback(addLog)
 
 	logg.Start()
 
@@ -79,6 +154,7 @@ func StartServer(
 	cipher.New()
 
 	cc := &proxy.ClientConfig{
+		DummyDomain:    C.GoString(domain),
 		DNSCacheSize:   int(dnsSize),
 		UserAuth:       C.GoString(auth),
 		Upstream:       C.GoString(upstream),
@@ -89,31 +165,64 @@ func StartServer(
 
 	client = proxy.NewClient(C.GoString(localaddr), cc)
 	if client == nil {
+		stopMutex.Unlock()
 		return SVR_ERROR_CODE | SVR_ERROR_CREATE
 	}
 
+	C.invoke(created)
+
+	stopChan := make(chan bool, 1)
+	ret := C.int(0)
+	logs = make([]msg_t, 0)
+
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ret = SVR_ERROR_CODE | SVR_ERROR_PANIC
+				addLog(time.Now().UnixNano(), fmt.Sprintf("%v", r))
+				setClientNotStarted()
+				stopChan <- true
+			}
+		}()
+
+		clientStarted = true
+		stopMutex.Unlock()
+
 		if err := client.Start(); err != nil {
-			client = nil
-			C.invoke(errCallback, C.ulonglong(SVR_ERROR_CODE|SVR_ERROR_EXITED), C.CString(err.Error()))
+			ret = SVR_ERROR_CODE | SVR_ERROR_EXITED
+			setClientNotStarted()
+			stopChan <- true
 		}
 	}()
 
-	return SVR_STARTED
+	select {
+	case <-stopChan:
+	}
+
+	return ret
+}
+
+func setClientNotStarted() {
+	stopMutex.Lock()
+	clientStarted = false
+	stopMutex.Unlock()
 }
 
 //export StopServer
 func StopServer() {
-	if client != nil {
+	if clientStarted {
 		client.Listener.Close()
-		client = nil
+		setClientNotStarted()
 	}
 }
 
 //export SwitchProxyType
-func SwitchProxyType(t C.int) {
+func SwitchProxyType(t C.int) C.int {
+	stopMutex.Lock()
+	defer stopMutex.Unlock()
+
 	if client == nil {
-		return
+		return C.int(0)
 	}
 
 	switch t {
@@ -128,6 +237,8 @@ func SwitchProxyType(t C.int) {
 		client.NoProxy = false
 		client.GlobalProxy = false
 	}
+
+	return t
 }
 
 func main() {}

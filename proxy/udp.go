@@ -12,8 +12,14 @@ import (
 )
 
 const (
-	UOT_HEADER = byte(0x07)
+	uotMagic = byte(0x07)
 )
+
+type udp_tcp_conn_t struct {
+	Conn net.Conn
+	Hits int64
+	Born int64
+}
 
 type addr_t struct {
 	ip   net.IP
@@ -30,16 +36,14 @@ func (a *addr_t) HostString() string {
 	if a.ip != nil {
 		if len(a.ip) == net.IPv4len {
 			return a.ip.String()
-		} else {
-			return "[" + a.ip.String() + "]"
 		}
-	} else {
-		if strings.Contains(a.host, ":") && a.host[0] != '[' {
-			return "[" + a.host + "]"
-		} else {
-			return a.host
-		}
+		return "[" + a.ip.String() + "]"
 	}
+
+	if strings.Contains(a.host, ":") && a.host[0] != '[' {
+		return "[" + a.host + "]"
+	}
+	return a.host
 }
 
 func (a *addr_t) IP() net.IP {
@@ -71,13 +75,13 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 		typeBuf, n = make([]byte, 256+3+1+1+2), 0
 		// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			logg.E(socksReadErr, err)
 			return 0x0, nil, false
 		}
 	}
 
-	if typeBuf[0] != SOCKS5_VERSION && !omitCheck {
-		logg.E(NOT_SOCKS5)
+	if typeBuf[0] != socksVersion5 && !omitCheck {
+		logg.E(socksVersionErr)
 		return 0x0, nil, false
 	}
 
@@ -88,11 +92,11 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 
 	addr := &addr_t{}
 	switch typeBuf[3] {
-	case SOCKS_TYPE_IPv4:
+	case socksAddrIPv4:
 		addr.size = 3 + 1 + net.IPv4len + 2
-	case SOCKS_TYPE_IPv6:
+	case socksAddrIPv6:
 		addr.size = 3 + 1 + net.IPv6len + 2
-	case SOCKS_TYPE_Dm:
+	case socksAddrDomain:
 		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
 	default:
 		logg.E("socks5 invalid address type")
@@ -101,12 +105,12 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 
 	if conn != nil {
 		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
-			logg.E(CANNOT_READ_BUF, err)
+			logg.E(socksReadErr, err)
 			return 0x0, nil, false
 		}
 	} else {
 		if len(typeBuf) < addr.size {
-			logg.E(CANNOT_READ_BUF, err)
+			logg.E(socksReadErr, err)
 			return 0x0, nil, false
 		}
 	}
@@ -115,9 +119,9 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
 
 	switch typeBuf[3] {
-	case SOCKS_TYPE_IPv4:
+	case socksAddrIPv4:
 		addr.ip = net.IP(rawaddr[1:])
-	case SOCKS_TYPE_IPv6:
+	case socksAddrIPv6:
 		addr.ip = net.IP(rawaddr[1:])
 	default:
 		addr.host = string(rawaddr[2:])
@@ -145,7 +149,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 		tryRead := func(buf []byte, min int) bool {
 			if _, err := io.ReadAtLeast(c, buf, min); err != nil {
 				if derr(err) {
-					logg.E(CANNOT_READ_BUF, err)
+					logg.E(socksReadErr, err)
 				}
 				return false
 			}
@@ -153,12 +157,12 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			return true
 		}
 
-		c.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+		c.SetReadDeadline(time.Now().Add(timeoutTCP))
 		if !tryRead(xbuf, 2) {
 			return "", nil
 		}
 
-		if xbuf[0] != UOT_HEADER {
+		if xbuf[0] != uotMagic {
 			return "", nil
 		}
 
@@ -169,7 +173,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 				return "", nil
 			}
 
-			if !proxy.auth(string(proxy.GCipher.Decrypt(authdata))) {
+			if !proxy.auth(string(proxy.Cipher.Decrypt(authdata))) {
 				return "", nil
 			}
 		} else if proxy.Users != nil {
@@ -192,7 +196,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			return "", nil
 		}
 
-		host := string(proxy.GCipher.Decrypt(hostbuf[:hostlen-4]))
+		host := string(proxy.Cipher.Decrypt(hostbuf[:hostlen-4]))
 		port := int(binary.BigEndian.Uint16(hostbuf[hostlen-4 : hostlen-2]))
 		host = host + ":" + strconv.Itoa(port)
 
@@ -203,7 +207,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 			return "", nil
 		}
 
-		payload = proxy.GCipher.Decrypt(payload)
+		payload = proxy.Cipher.Decrypt(payload)
 		return host, payload
 	}
 
@@ -219,7 +223,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 		return
 	}
 
-	rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
+	rconn.SetWriteDeadline(time.Now().Add(timeoutUDP))
 	if _, err := rconn.Write(payload); err != nil {
 		if derr(err) {
 			logg.E("ttu: write to target: ", err)
@@ -236,7 +240,7 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 				break READ
 			default:
 				if _, buf := readFromTCP(); buf != nil {
-					rconn.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
+					rconn.SetWriteDeadline(time.Now().Add(timeoutUDP))
 					if _, err := rconn.Write(buf); err != nil {
 						if derr(err) {
 							logg.E("ttu: write to target: ", err)
@@ -255,16 +259,16 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 
 	buf := make([]byte, 2048)
 	for { // read from target host udp, write to downstream tcp
-		rconn.SetReadDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
+		rconn.SetReadDeadline(time.Now().Add(timeoutUDP))
 		n, _, err := rconn.ReadFrom(buf)
 		// logg.L(n, ad.String(), err)
 
 		if n > 0 {
-			ybuf := proxy.GCipher.Encrypt(buf[:n])
-			payload := append([]byte{UOT_HEADER, 0, 0}, ybuf...)
+			ybuf := proxy.Cipher.Encrypt(buf[:n])
+			payload := append([]byte{uotMagic, 0, 0}, ybuf...)
 			binary.BigEndian.PutUint16(payload[1:3], uint16(len(ybuf)))
 
-			c.SetWriteDeadline(time.Now().Add(time.Duration(UDP_TIMEOUT) * time.Second))
+			c.SetWriteDeadline(time.Now().Add(timeoutUDP))
 			_, err := c.Write(payload)
 			if err != nil {
 				if derr(err) {
@@ -288,54 +292,71 @@ func (proxy *ProxyUpstream) handleTCPtoUDP(c net.Conn) {
 	rconn.Close()
 }
 
-func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool) {
-	proxy.udp.upstream.Lock()
-	defer proxy.udp.upstream.Unlock()
+func (proxy *ProxyClient) dialForUDP(client net.Addr, dst string) (net.Conn, string, bool, bool) {
+	proxy.UDP.Lock()
+	defer proxy.UDP.Unlock()
 
-	if proxy.udp.upstream.conns == nil {
-		proxy.udp.upstream.conns = make(map[string]net.Conn)
+	if proxy.UDP.Conns == nil {
+		proxy.UDP.Conns = make(map[string]*udp_tcp_conn_t)
 	}
 
-	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.GCipher.Rand.Intn(proxy.UDPRelayCoconn))
-	if conn, ok := proxy.udp.upstream.conns[str]; ok {
-		return conn, str, false
+	if proxy.UDP.Addrs == nil {
+		proxy.UDP.Addrs = make(map[net.Addr]bool)
+	}
+
+	str := client.String() + "-" + dst + "-" + strconv.Itoa(proxy.Cipher.Rand.Intn(proxy.UDPRelayCoconn))
+	if conn, ok := proxy.UDP.Conns[str]; ok {
+		conn.Hits++
+		return conn.Conn, str, false, proxy.UDP.Addrs[client]
 	}
 
 	u, _, _ := net.SplitHostPort(proxy.Upstream)
-	upstreamConn, err := net.Dial("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort))
+	flag := proxy.UDP.Addrs[client]
+	upstreamConn, err := net.DialTimeout("tcp", u+":"+strconv.Itoa(proxy.UDPRelayPort), 2*time.Second)
 	if err != nil {
 		logg.E(err)
-		return nil, "", false
+		return nil, "", false, flag
 	}
 
-	proxy.udp.upstream.conns[str] = upstreamConn
-	return upstreamConn, str, true
+	proxy.UDP.Addrs[client] = true
+	proxy.UDP.Conns[str] = &udp_tcp_conn_t{upstreamConn, 0, time.Now().UnixNano()}
+	return upstreamConn, str, true, flag
 }
 
-func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, auth string, src net.Addr) {
+func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client net.Conn, src net.Addr) {
 	_, dst, ok := parseDstFrom(nil, b, true)
 	if !ok {
+		relay.Close()
+		client.Close()
 		return
 	}
 
-	upstreamConn, token, firstTime := proxy.dialForUDP(src, dst.String())
+	upstreamConn, token, firstTime, srcAddrInUse := proxy.dialForUDP(src, dst.String())
 	if upstreamConn == nil {
+		if !srcAddrInUse {
+			// if it is the first time we were trying to create a upstream conn
+			// and an error occurred, we should close the relay listener
+			// but if it isn't, we cannot close it because another goroutine
+			// may use it, let that goroutine closes it.
+			relay.Close()
+		}
+		client.Close()
 		return
 	}
 
 	// prepare the payload
-	buf := proxy.GCipher.Encrypt(b[dst.size:])
+	buf := proxy.Cipher.Encrypt(b[dst.size:])
 
 	// i know it's better to encrypt ip bytes (4 or 16 + 2 bytes port) rather than
 	// string representation (like "100.200.300.400:56789", that is 21 bytes!)
 	// but this is one time payload, it's fine, easy.
-	enchost := proxy.GCipher.Encrypt([]byte(dst.HostString()))
+	enchost := proxy.Cipher.Encrypt([]byte(dst.HostString()))
 
 	var encauth []byte
 	var authlen = 0
 
-	if auth != "" {
-		encauth = proxy.GCipher.Encrypt([]byte(auth))
+	if proxy.UserAuth != "" {
+		encauth = proxy.Cipher.Encrypt([]byte(proxy.UserAuth))
 		authlen = len(encauth)
 	}
 
@@ -344,7 +365,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 
 	payload := make([]byte, 1+1+authlen+1+len(enchost)+2+2+len(buf))
 
-	payload[0] = UOT_HEADER
+	payload[0] = uotMagic
 
 	payload[1] = byte(authlen)
 	if encauth != nil {
@@ -371,11 +392,11 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 	for {
 		readFromTCP := func() []byte {
 			xbuf := make([]byte, 3)
-			upstreamConn.SetReadDeadline(time.Now().Add(time.Duration(TCP_TIMEOUT) * time.Second))
+			upstreamConn.SetReadDeadline(time.Now().Add(timeoutTCP))
 
 			if _, err := io.ReadAtLeast(upstreamConn, xbuf, 3); err != nil {
 				if err != io.EOF && derr(err) {
-					logg.E(CANNOT_READ_BUF, err)
+					logg.E(socksReadErr, err)
 				}
 
 				return nil
@@ -385,12 +406,12 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 			payload := make([]byte, payloadlen)
 			if _, err := io.ReadAtLeast(upstreamConn, payload, payloadlen); err != nil {
 				if derr(err) {
-					logg.E(CANNOT_READ_BUF, err)
+					logg.E(socksReadErr, err)
 				}
 				return nil
 			}
 
-			return proxy.GCipher.Decrypt(payload)
+			return proxy.Cipher.Decrypt(payload)
 		}
 
 		// read from upstream
@@ -403,19 +424,19 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 			var ln int
 			// prepare the response header
 			if len(dst.ip) == net.IPv4len {
-				copy(xbuf, UDP_REQUEST_HEADER)
+				copy(xbuf, udpHeaderIPv4)
 				copy(xbuf[4:8], dst.ip)
 				binary.BigEndian.PutUint16(xbuf[8:], uint16(dst.port))
-				copy(xbuf[len(UDP_REQUEST_HEADER):], buf)
+				copy(xbuf[len(udpHeaderIPv4):], buf)
 
-				ln = len(buf) + len(UDP_REQUEST_HEADER)
+				ln = len(buf) + len(udpHeaderIPv4)
 			} else {
-				copy(xbuf, UDP_REQUEST_HEADER6)
+				copy(xbuf, udpHeaderIPv6)
 				copy(xbuf[4:20], dst.ip)
 				binary.BigEndian.PutUint16(xbuf[20:], uint16(dst.port))
-				copy(xbuf[len(UDP_REQUEST_HEADER6):], buf)
+				copy(xbuf[len(udpHeaderIPv6):], buf)
 
-				ln = len(buf) + len(UDP_REQUEST_HEADER6)
+				ln = len(buf) + len(udpHeaderIPv6)
 			}
 
 			_, err = relay.WriteTo(xbuf[:ln], src)
@@ -429,12 +450,12 @@ func (proxy *ProxyClient) handleUDPtoTCP(b []byte, relay *net.UDPConn, client ne
 		}
 	}
 
-	proxy.udp.upstream.Lock()
-	delete(proxy.udp.upstream.conns, token)
-	proxy.udp.upstream.Unlock()
+	proxy.UDP.Lock()
+	delete(proxy.UDP.Conns, token)
+	delete(proxy.UDP.Addrs, src)
+	proxy.UDP.Unlock()
 
 	upstreamConn.Close()
 	client.Close()
 	relay.Close()
-	logg.D("udp close: ", client)
 }

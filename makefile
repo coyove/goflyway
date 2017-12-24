@@ -1,7 +1,7 @@
-IMAGE_NAME?=coyove/goflyway
 NAME?=goflyway
 SOURCE?=./cmd/goflyway/main.go
-LIST?=chinalist.txt
+LIST?=chinalist.txt ca.pem
+VERSION:=$(shell date +%y%m%d%H%M%S)
 
 .PHONY: release windows darwin linux clean
 
@@ -11,15 +11,16 @@ clean:
 build: build/goflyway
 
 build/goflyway:
-	mkdir -p build && go build -o $@ ./cmd/goflyway && cp $(LIST) build/
-
-.PHONY: build_image
-build_image:
-	docker build -t $(IMAGE_NAME) .
+	mkdir -p build && go build -o $@ ./cmd/goflyway && cp -t build/ $(LIST)
 
 release: windows darwin linux
 
-release = GOOS=$(1) GOARCH=$(2) go build -o build/$(3) ./cmd/goflyway && cp $(LIST) build/
+# don't use ldflags -X
+release = \
+	sed -i -- 's/__devel__/$(VERSION)/g' $(SOURCE) && \
+	GOOS=$(1) GOARCH=$(2) go build -o build/$(3) ./cmd/goflyway && \
+	sed -i -- 's/$(VERSION)/__devel__/g' $(SOURCE) && \
+	cp -t build/ $(LIST)
 tar = cd build && tar -cvzf $(NAME)_$(1)_$(2).tar.gz $(NAME) $(LIST) && rm $(NAME)
 zip = cd build && zip $(NAME)_$(1)_$(2).zip $(NAME).exe $(LIST) && rm $(NAME).exe
 

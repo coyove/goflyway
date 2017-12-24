@@ -1,24 +1,35 @@
 package logg
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 )
 
-var ignoreLocalhost = true
-var fatalAsError = false
-var logLevel = 0
-var logCallback func(ts int64, msg string)
+const (
+	LvDebug = iota - 1
+	LvLog
+	LvWarning
+	LvError
+	LvOff
+	LvPrint = 99
+)
 
-func RecordLocalhostError(r bool) {
-	ignoreLocalhost = !r
-}
+var (
+	logLevel     = 0
+	fatalAsError = false
+	started      = false
+	logFileOnly  = false
+	logFile      *os.File
+	logCallback  func(ts int64, msg string)
+)
 
-func SetLevel(lv string) {
+func SetLevel(lv string) int {
 	switch lv {
 	case "dbg":
 		logLevel = -1
@@ -30,13 +41,34 @@ func SetLevel(lv string) {
 		logLevel = 2
 	case "off":
 		logLevel = 3
+	case "pp":
+		logLevel = 99
 	default:
 		panic("unexpected log level: " + lv)
 	}
+
+	return logLevel
 }
 
-func SetCallback(f func(ts int64, msg string)) {
-	logCallback = f
+func GetLevel() int {
+	return logLevel
+}
+
+func Redirect(dst interface{}) {
+	switch dst.(type) {
+	case func(int64, string):
+		logCallback = dst.(func(int64, string))
+	case string:
+		fn := dst.(string)
+		if fn[0] == '*' {
+			fn = fn[1:]
+			logFileOnly = false
+		} else {
+			logFileOnly = true
+		}
+
+		logFile, _ = os.Create(fn)
+	}
 }
 
 func TreatFatalAsError(flag bool) {
@@ -48,11 +80,15 @@ func timestamp() string {
 	mil := t.UnixNano() % 1e9
 	mil /= 1e6
 
-	return fmt.Sprintf("%02d%02d %02d:%02d:%02d.%03d", t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), mil)
+	return fmt.Sprintf("%02d%02d/%02d%02d%02d.%03d", t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), mil)
 }
 
-func lead(l string) string {
-	return ("[" + l + " " + timestamp() + "] ")
+func trunc(fn string) string {
+	idx := strings.LastIndex(fn, "/")
+	if idx == -1 {
+		idx = strings.LastIndex(fn, "\\")
+	}
+	return fn[idx+1:]
 }
 
 // Widnows WSA error messages are way too long to print
@@ -87,20 +123,16 @@ type msg_t struct {
 	message string
 }
 
-var msgQueue = make(chan msg_t)
+var msgQueue = make(chan *msg_t)
 
 func print(l string, params ...interface{}) {
-	m := msg_t{lead: lead(l), ts: time.Now().UnixNano()}
+	_, fn, line, _ := runtime.Caller(2)
+	m := msg_t{lead: fmt.Sprintf("[%s%s:%s(%d)] ", l, timestamp(), trunc(fn), line), ts: time.Now().UnixNano()}
 
 	for _, p := range params {
 		switch p.(type) {
 		case *net.OpError:
 			op := p.(*net.OpError)
-			if ignoreLocalhost && op.Source != nil && op.Addr != nil {
-				if strings.Split(op.Source.String(), ":")[0] == strings.Split(op.Addr.String(), ":")[0] {
-					return
-				}
-			}
 
 			if op.Source == nil && op.Addr == nil {
 				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
@@ -114,75 +146,123 @@ func print(l string, params ...interface{}) {
 		case *net.DNSError:
 			op := p.(*net.DNSError)
 
-			if m.message += fmt.Sprintf("dns lookup err: %s", op.Name); op.IsTimeout {
+			if m.message += fmt.Sprintf("DNS lookup err"); op.IsTimeout {
 				m.message += ", timed out"
+			}
+
+			if op.Name == "" {
+				m.message += ": " + op.Name
+			} else {
+				m.message += ", but with an empty name (?)"
 			}
 		default:
 			m.message += fmt.Sprintf("%+v", p)
 		}
 	}
 
-	msgQueue <- m
+	if l == "X" {
+		// immediately print fatal message
+		printRaw(0, m.lead+m.message, nil)
+		return
+	}
+
+	msgQueue <- &m
+}
+
+func printRaw(ts int64, str string, buf *bytes.Buffer) {
+	if logFile != nil {
+		if buf != nil {
+			buf.WriteString(str)
+			buf.WriteString("\n")
+
+			if buf.Len() > 16*1024 {
+				logFile.Write(buf.Bytes())
+				buf.Reset()
+			}
+		} else {
+			logFile.Write([]byte(str))
+		}
+	}
+
+	if logCallback != nil {
+		logCallback(ts, str)
+	} else if !logFileOnly {
+		fmt.Println(str)
+	}
+}
+
+func printLoop() {
+	var count, nop int
+	var lastMsg *msg_t
+	var lastTime = time.Now()
+	logBuffer := &bytes.Buffer{}
+
+	print := func(m *msg_t) {
+		if lastMsg != nil && m != nil {
+			// this message is similar to the last one
+			if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
+				if time.Now().Sub(lastTime).Seconds() < 5.0 {
+					count++
+					return
+				}
+
+				// though similar, 5s timeframe is over, we should print this message anyway
+			}
+		}
+
+		if count > 0 {
+			printRaw(lastMsg.ts, fmt.Sprintf(strings.Repeat(" ", len(lastMsg.lead))+"... %d similar message(s)", count), logBuffer)
+		}
+
+		if lastMsg == nil && m == nil {
+			return
+		}
+
+		if m != nil {
+			printRaw(m.ts, m.lead+m.message, logBuffer)
+			lastMsg = m
+		}
+
+		lastTime, count, nop = time.Now(), 0, 0
+	}
+
+	for {
+	L:
+		for {
+			select {
+			case m := <-msgQueue:
+				print(m)
+			default:
+				if nop++; nop > 10 {
+					print(nil)
+				}
+				// nothing in queue to print, quit loop
+				break L
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func Start() {
-	go func() {
-		var count int
-		var lastMsg *msg_t
-		var lastTime time.Time = time.Now()
+	if started {
+		return
+	}
 
-		for {
-		L:
-			for {
-				select {
-				case m := <-msgQueue:
-					if lastMsg != nil {
-						if (m.dst != "" && m.dst == lastMsg.dst) || m.message == lastMsg.message {
-							if time.Now().Sub(lastTime).Seconds() < 5.0 {
-								count++
-
-								if count < 100 {
-									continue L
-								}
-							}
-						}
-
-						if count > 0 {
-							str := fmt.Sprintf(strings.Repeat(" ", len(m.lead))+"... %d similar message(s)", count)
-							if logCallback != nil {
-								logCallback(m.ts, str)
-							} else {
-								fmt.Println(str)
-							}
-						}
-					}
-
-					if logCallback != nil {
-						logCallback(m.ts, m.lead+m.message)
-					} else {
-						fmt.Println(m.lead + m.message)
-					}
-					lastMsg, lastTime, count = &m, time.Now(), 0
-				default:
-					// nothing in queue to print, quit loop
-					break L
-				}
-			}
-
-			time.Sleep(200 * time.Millisecond)
-		}
-	}()
+	started = true
+	go printLoop()
 }
 
 func D(params ...interface{}) {
 	if logLevel <= -1 {
-		print("D", params...)
+		print("_", params...)
 	}
 }
 
 func L(params ...interface{}) {
 	if logLevel <= 0 {
-		print(" ", params...)
+		print("_", params...)
 	}
 }
 
@@ -195,6 +275,12 @@ func W(params ...interface{}) {
 func E(params ...interface{}) {
 	if logLevel <= 2 {
 		print("E", params...)
+	}
+}
+
+func P(params ...interface{}) {
+	if logLevel == 99 {
+		print("P", params...)
 	}
 }
 

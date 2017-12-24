@@ -1,4 +1,4 @@
-package counter
+package rand
 
 import (
 	"syscall"
