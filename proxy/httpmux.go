@@ -18,11 +18,9 @@ type Conn struct {
 	len   int
 	cap   int
 	first byte
+	err   error
 
 	net.Conn
-
-	err     error
-	timeout int // in milliseconds
 }
 
 func (c *Conn) FirstByte() (b byte, err error) {
@@ -32,7 +30,6 @@ func (c *Conn) FirstByte() (b byte, err error) {
 	c.len = 1
 	c.cap = 1
 
-	c.Conn.SetReadDeadline(time.Now().Add(time.Duration(c.timeout) * time.Millisecond))
 	n, err = c.Conn.Read(*(*[]byte)(unsafe.Pointer(c)))
 	c.err = err
 
@@ -98,8 +95,9 @@ CONTINUE:
 		goto CONTINUE
 	}
 
-	wrapper := &Conn{Conn: c, timeout: 2000}
+	wrapper := &Conn{Conn: c}
 
+	wrapper.SetReadDeadline(time.Now().Add(2000 * time.Millisecond))
 	b, err := wrapper.FirstByte()
 	if err != nil {
 		if err != io.EOF {
