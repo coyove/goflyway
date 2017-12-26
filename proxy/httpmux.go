@@ -1,117 +1,71 @@
 package proxy
 
 import (
+	"strconv"
+	"time"
+	"unsafe"
+
 	"github.com/coyove/goflyway/pkg/logg"
 
-	"errors"
 	"io"
 	"net"
 	"strings"
-	"time"
 )
 
-// prefetchReader can prefetch one byte from the reader before Read()
-type prefetchReader struct {
-	src io.Reader
+// Conn can prefetch one byte from net.Conn before Read()
+type Conn struct {
+	data  uintptr
+	len   int
+	cap   int
+	first byte
 
-	first   byte
-	reseted bool
+	net.Conn
+
 	err     error
-	timeout int
-
-	obpool *OneBytePool
+	timeout int // in milliseconds
 }
 
-func (ur *prefetchReader) readTimeout(buf []byte) (n int, err error) {
-	finish := make(chan bool, 1)
+func (c *Conn) FirstByte() (b byte, err error) {
+	var n int
 
-	go func() {
-		n, err = ur.src.Read(buf)
-		finish <- true
-	}()
+	c.data = uintptr(unsafe.Pointer(c)) + strconv.IntSize/8*3
+	c.len = 1
+	c.cap = 1
 
-	select {
-	case <-finish:
-	case <-time.After(time.Duration(ur.timeout) * time.Millisecond):
-		err = errors.New("i/o read timeout")
+	c.Conn.SetReadDeadline(time.Now().Add(time.Duration(c.timeout) * time.Millisecond))
+	n, err = c.Conn.Read(*(*[]byte)(unsafe.Pointer(c)))
+	c.err = err
+
+	if n == 1 {
+		b = c.first
 	}
 
 	return
 }
 
-func (ur *prefetchReader) prefetch() (byte, error) {
-	buf := ur.obpool.Get()
-	defer ur.obpool.Free(buf)
-
-	n, err := ur.readTimeout(buf)
-	ur.err = err
-
-	if n == 1 {
-		ur.first = buf[0]
-		return buf[0], nil
+func (c *Conn) Read(p []byte) (int, error) {
+	if c.err != nil {
+		return 0, c.err
 	}
 
-	return buf[0], err
-}
-
-func (ur *prefetchReader) Read(p []byte) (int, error) {
-	if ur.err != nil {
-		return 0, ur.err
-	}
-
-	if !ur.reseted {
-		p[0] = ur.first
+	if c.len == 1 {
+		p[0] = c.first
 		xp := p[1:]
 
-		n, err := ur.src.Read(xp)
-		ur.reseted = true
+		n, err := c.Conn.Read(xp)
+		c.len = 0
 
 		return n + 1, err
 	}
 
-	return ur.src.Read(p)
-}
-
-type OneBytePool chan []byte
-
-func NewOneBytePool(s int) *OneBytePool {
-	p := OneBytePool(make(chan []byte, s))
-	return &p
-}
-
-func (p *OneBytePool) Get() []byte {
-	select {
-	case buf := <-*p:
-		return buf
-	default:
-		return make([]byte, 1)
-	}
-}
-
-func (p *OneBytePool) Free(buf []byte) {
-	select {
-	case *p <- buf:
-	default:
-	}
-}
-
-type connWrapper struct {
-	net.Conn
-	sbuffer *prefetchReader
-}
-
-func (cw *connWrapper) Read(p []byte) (int, error) {
-	return cw.sbuffer.Read(p)
+	return c.Conn.Read(p)
 }
 
 type listenerWrapper struct {
 	net.Listener
 
-	proxy     *ProxyClient
-	httpConn  connWrapper
-	socksConn connWrapper
-	obpool    *OneBytePool
-	retry24   bool
+	proxy   *ProxyClient
+	retry24 bool
 }
 
 func (l *listenerWrapper) Accept() (net.Conn, error) {
@@ -144,16 +98,9 @@ CONTINUE:
 		goto CONTINUE
 	}
 
-	wrapper := &connWrapper{
-		Conn: c,
-		sbuffer: &prefetchReader{
-			src:     c,
-			obpool:  l.obpool,
-			timeout: 2000, // 2 seconds
-		},
-	}
+	wrapper := &Conn{Conn: c, timeout: 2000}
 
-	b, err := wrapper.sbuffer.prefetch()
+	b, err := wrapper.FirstByte()
 	if err != nil {
 		if err != io.EOF {
 			logg.E("prefetch err: ", err)

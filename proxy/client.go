@@ -634,7 +634,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, obpool: NewOneBytePool(1024), retry24: proxy.Policy.IsSet(PolicyAggrClosing)}
+	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, retry24: proxy.Policy.IsSet(PolicyAggrClosing)}
 	proxy.Localaddr = localaddr
 
 	return proxy

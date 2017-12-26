@@ -109,8 +109,8 @@ func (iot *io_t) markActive(src interface{}, iid uint64) {
 
 REPEAT:
 	switch src.(type) {
-	case *connWrapper:
-		src = src.(*connWrapper).Conn
+	case *Conn:
+		src = src.(*Conn).Conn
 		goto REPEAT
 	case *tls.Conn:
 		// field "conn" is always the first in tls.Conn (at least from go 1.4)
