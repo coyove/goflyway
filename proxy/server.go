@@ -282,7 +282,7 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 		rkeyHeader:    "X-" + config.Cipher.Alias,
 	}
 
-	tcpmux.Version = config.Cipher.Alias[0] | 0x80
+	tcpmux.Version = checksum1b([]byte(config.Cipher.Alias)) | 0x80
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
