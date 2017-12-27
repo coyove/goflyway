@@ -21,8 +21,6 @@ type ServerConfig struct {
 	UDPRelayListen int
 	ProxyPassAddr  string
 
-	Mux bool
-
 	Users map[string]UserConfig
 
 	*Cipher
@@ -266,7 +264,7 @@ func (proxy *ProxyUpstream) Start() error {
 		}()
 	}
 
-	ln, err := tcpmux.Listen(proxy.Localaddr, proxy.Mux)
+	ln, err := tcpmux.Listen(proxy.Localaddr, true)
 	if err != nil {
 		return err
 	}

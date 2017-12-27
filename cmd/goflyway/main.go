@@ -39,7 +39,7 @@ var (
 	cmdWebConPort = flag.Int("web-port", 8101, "[C] web console listening port, 0 to disable")
 	cmdPartial    = flag.Bool("partial", false, "[SC] partially encrypt the tunnel traffic")
 	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
-	cmdMux        = flag.Int("mux", 0, "[SC] limit the total number of TCP connections, no limit by default")
+	cmdMux        = flag.Int("mux", 0, "[C] limit the total number of TCP connections, no limit by default")
 	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
 	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
 
@@ -210,7 +210,6 @@ func main() {
 			Throttling:     *cmdThrot,
 			ThrottlingMax:  *cmdThrotMax,
 			ProxyPassAddr:  *cmdProxyPass,
-			Mux:            *cmdMux != 0,
 		}
 
 		if *cmdAuth != "" {

@@ -1,62 +1,15 @@
 package proxy
 
 import (
-	"strconv"
 	"time"
-	"unsafe"
 
 	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/tcpmux"
 
 	"io"
 	"net"
 	"strings"
 )
-
-// Conn can prefetch one byte from net.Conn before Read()
-type Conn struct {
-	data  uintptr
-	len   int
-	cap   int
-	first byte
-	err   error
-
-	net.Conn
-}
-
-func (c *Conn) FirstByte() (b byte, err error) {
-	var n int
-
-	c.data = uintptr(unsafe.Pointer(c)) + strconv.IntSize/8*3
-	c.len = 1
-	c.cap = 1
-
-	n, err = c.Conn.Read(*(*[]byte)(unsafe.Pointer(c)))
-	c.err = err
-
-	if n == 1 {
-		b = c.first
-	}
-
-	return
-}
-
-func (c *Conn) Read(p []byte) (int, error) {
-	if c.err != nil {
-		return 0, c.err
-	}
-
-	if c.len == 1 {
-		p[0] = c.first
-		xp := p[1:]
-
-		n, err := c.Conn.Read(xp)
-		c.len = 0
-
-		return n + 1, err
-	}
-
-	return c.Conn.Read(p)
-}
 
 type listenerWrapper struct {
 	net.Listener
@@ -95,10 +48,12 @@ CONTINUE:
 		goto CONTINUE
 	}
 
-	wrapper := &Conn{Conn: c}
+	wrapper := &tcpmux.Conn{Conn: c}
 
 	wrapper.SetReadDeadline(time.Now().Add(2000 * time.Millisecond))
 	b, err := wrapper.FirstByte()
+	wrapper.SetReadDeadline(time.Time{})
+
 	if err != nil {
 		if err != io.EOF {
 			logg.E("prefetch err: ", err)
