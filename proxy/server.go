@@ -254,29 +254,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *ProxyUpstream) Start() error {
-	if proxy.UDPRelayListen != 0 {
-		l, err := net.ListenTCP("tcp", &net.TCPAddr{
-			IP:   net.IPv6zero,
-			Port: proxy.UDPRelayListen,
-		})
-
-		if err != nil {
-			return err
-		}
-
-		go func() {
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					logg.E(err)
-					break
-				}
-
-				go proxy.handleTCPtoUDP(c)
-			}
-		}()
-	}
-
 	ln, err := tcpmux.Listen(proxy.Localaddr, true)
 	if err != nil {
 		return err

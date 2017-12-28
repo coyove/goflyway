@@ -395,11 +395,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if ew != nil {
-				if ne, _ := ew.(net.Error); ne != nil && ne.Timeout() {
-					break
-				}
-
-				if !isClosedConnErr(ew) {
+				if !isClosedConnErr(ew) && !isTimeoutErr(ew) {
 					err = ew
 				}
 				break
@@ -415,11 +411,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		}
 
 		if er != nil {
-			if ne, _ := er.(net.Error); ne != nil && ne.Timeout() {
-				break
-			}
-
-			if er != io.EOF && !isClosedConnErr(er) {
+			if er != io.EOF && !isClosedConnErr(er) && !isTimeoutErr(er) {
 				err = er
 			}
 			break

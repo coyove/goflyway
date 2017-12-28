@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"fmt"
+	"net"
 
 	"github.com/coyove/goflyway/pkg/logg"
 
@@ -388,4 +389,12 @@ func readUntil(r io.Reader, eoh string) ([]byte, error) {
 
 func isClosedConnErr(err error) bool {
 	return strings.Contains(err.Error(), errConnClosedMsg)
+}
+
+func isTimeoutErr(err error) bool {
+	if ne, ok := err.(net.Error); ok {
+		return ne.Timeout()
+	}
+
+	return false
 }

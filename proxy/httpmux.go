@@ -71,31 +71,3 @@ CONTINUE:
 		return wrapper, err
 	}
 }
-
-type upstreamListenerWrapper struct {
-	net.Listener
-	proxy *ProxyUpstream
-}
-
-func (l *upstreamListenerWrapper) Accept() (net.Conn, error) {
-CONTINUE:
-	c, err := l.Listener.Accept()
-	if err != nil || c == nil {
-		logg.E("listener: ", err)
-
-		if isClosedConnErr(err) {
-			return nil, err
-		}
-
-		goto CONTINUE
-	}
-
-	if conn, _ := c.(*tcpmux.Conn); conn != nil {
-		if b, _ := conn.FirstByte(); b == uotMagic {
-			go l.proxy.handleTCPtoUDP(c)
-			goto CONTINUE
-		}
-	}
-
-	return c, err
-}

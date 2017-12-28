@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
-	"time"
 )
 
 var webConsoleHTML, _ = template.New("console").Parse(`
@@ -153,11 +152,6 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		<tr><th>{{.I18N.HostCert}}</th><th>{{.I18N.Hits}}</th></tr>
 		{{.Cert}}
 	</table></div>
-
-	<div class=folder><button onclick=unfold(this) fold=false>{{.I18N.UDPCache}}</button><table class=dns>
-		<tr><th>{{.I18N.UDPRelay}}</th><th>{{.I18N.Age}}</th><th>{{.I18N.Hits}}</th></tr>
-		{{.UDP}}
-	</table></div>
 `)
 
 var _i18n = map[string]map[string]string{
@@ -242,20 +236,6 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 				buf.WriteString("<tr><td>n/a</td><td align=right>n/a</td></tr>")
 			}
 			payload.Cert = buf.String()
-
-			buf.Reset()
-			proxy.UDP.Lock()
-			if len(proxy.UDP.Conns) == 0 {
-				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
-			} else {
-				now := time.Now().UnixNano()
-				for tok, t := range proxy.UDP.Conns {
-					buf.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%d ms</td><td align=right>%d</td></tr>",
-						tok, (now-t.Born)/1e6, t.Hits))
-				}
-			}
-			proxy.UDP.Unlock()
-			payload.UDP = buf.String()
 
 			payload.ProxyAll = proxy.Policy.IsSet(pp.PolicyGlobal)
 			payload.MITM = proxy.Policy.IsSet(pp.PolicyManInTheMiddle)

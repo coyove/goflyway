@@ -19,7 +19,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -54,12 +53,6 @@ type ProxyClient struct {
 	tpd        *http.Transport // to host directly
 	dummies    *lru.Cache
 	pool       *tcpmux.DialPool
-
-	UDP struct {
-		sync.Mutex
-		Conns map[string]*udp_tcp_conn_t
-		Addrs map[net.Addr]bool
-	}
 
 	Localaddr string
 	Listener  *listenerWrapper
