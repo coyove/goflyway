@@ -32,7 +32,7 @@ var (
 	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
 	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
 	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
-	cmdUDPPort    = flag.Int64("udp", 0, "[SC] server UDP relay listening port, 0 to disable")
+	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] server UDP relay listening port, 0 to disable")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
 	cmdDebug      = flag.Bool("debug", false, "[C] turn on debug mode")
 	cmdProxyPass  = flag.String("proxy-pass", "", "[C] use goflyway as a reverse HTTP proxy")
@@ -71,7 +71,7 @@ func loadConfig() {
 	*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
 	*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
 	*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
-	*cmdUDPPort = cf.GetInt("default", "udp", *cmdUDPPort)
+	*cmdDiableUDP = cf.GetBool("default", "disableudp", *cmdDiableUDP)
 	*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
 	*cmdBasic = cf.GetString("default", "type", *cmdBasic)
 	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
@@ -144,7 +144,6 @@ func main() {
 		cc = &proxy.ClientConfig{
 			UserAuth:       *cmdAuth,
 			Upstream:       *cmdUpstream,
-			UDPRelayPort:   int(*cmdUDPPort),
 			UDPRelayCoconn: int(*cmdUDPonTCP),
 			Cipher:         cipher,
 			DNSCache:       lru.NewCache(*cmdDNSCache),
@@ -205,11 +204,10 @@ func main() {
 
 	if *cmdUpstream == "" || *cmdDebug {
 		sc = &proxy.ServerConfig{
-			Cipher:         cipher,
-			UDPRelayListen: int(*cmdUDPPort),
-			Throttling:     *cmdThrot,
-			ThrottlingMax:  *cmdThrotMax,
-			ProxyPassAddr:  *cmdProxyPass,
+			Cipher:        cipher,
+			Throttling:    *cmdThrot,
+			ThrottlingMax: *cmdThrotMax,
+			ProxyPassAddr: *cmdProxyPass,
 		}
 
 		if *cmdAuth != "" {

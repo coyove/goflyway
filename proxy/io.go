@@ -117,6 +117,8 @@ REPEAT:
 		// so it is safe to cast *tls.Conn to net.Conn
 		src = *(*net.Conn)(unsafe.Pointer(src.(*tls.Conn)))
 		goto REPEAT
+	case *udpBridgeConn:
+		srcConn = src.(*udpBridgeConn)
 	case net.Conn:
 		srcConn = src.(net.Conn)
 	case *tcpmux.Stream:
@@ -393,6 +395,10 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if ew != nil {
+				if ne, _ := ew.(net.Error); ne != nil && ne.Timeout() {
+					break
+				}
+
 				if !isClosedConnErr(ew) {
 					err = ew
 				}
@@ -400,6 +406,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if nr != nw {
+				logg.D(nr, " ", nw, xbuf)
 				err = io.ErrShortWrite
 				break
 			}
@@ -408,12 +415,9 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		}
 
 		if er != nil {
-			// if ne, _ := er.(net.Error); ne != nil && ne.Timeout() {
-			// 	logg.D(u, " ", retries, " ", addr)
-			// 	if retries++; retries < 10 {
-			// 		continue
-			// 	}
-			// }
+			if ne, _ := er.(net.Error); ne != nil && ne.Timeout() {
+				break
+			}
 
 			if er != io.EOF && !isClosedConnErr(er) {
 				err = er

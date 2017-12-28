@@ -186,7 +186,23 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ioc := proxy.getIOConfig(auth)
 		ioc.Partial = options.IsSet(doPartial)
 
-		targetSiteConn, err := net.Dial("tcp", host)
+		var targetSiteConn net.Conn
+		var err error
+
+		if options.IsSet(doUDPRelay) {
+			uaddr, _ := net.ResolveUDPAddr("udp", host)
+
+			var rconn *net.UDPConn
+			rconn, err = net.DialUDP("udp", nil, uaddr)
+			targetSiteConn = &udpBridgeConn{
+				UDPConn: rconn,
+				udpSrc:  uaddr,
+			}
+			// rconn.Write([]byte{6, 7, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 98, 97, 105, 100, 117, 3, 99, 111, 109, 0, 0, 1, 0, 1})
+		} else {
+			targetSiteConn, err = net.Dial("tcp", host)
+		}
+
 		if err != nil {
 			logg.E(err)
 			downstreamConn.Close()
@@ -266,7 +282,7 @@ func (proxy *ProxyUpstream) Start() error {
 		return err
 	}
 
-	return http.Serve(&upstreamListenerWrapper{ln, proxy}, proxy)
+	return http.Serve(ln, proxy)
 }
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {

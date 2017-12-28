@@ -182,7 +182,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 	return connectConn, nil
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte) net.Conn {
+func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
@@ -190,7 +190,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		return nil
 	}
 
-	var opt Options = doConnect
+	opt := Options(doConnect | extra)
 	if proxy.Partial {
 		opt.Set(doPartial)
 	}
@@ -223,13 +223,16 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		return nil
 	}
 
-	downstreamConn.Write(resp)
+	if resp != nil {
+		downstreamConn.Write(resp)
+	}
+
 	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte) net.Conn {
+func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
@@ -237,7 +240,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		return nil
 	}
 
-	var opt Options = doConnect + doWebSocket
+	opt := Options(doConnect | doWebSocket | extra)
 	if proxy.Partial {
 		opt.Set(doPartial)
 	}
@@ -272,7 +275,10 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		return nil
 	}
 
-	downstreamConn.Write(resp)
+	if resp != nil {
+		downstreamConn.Write(resp)
+	}
+
 	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
@@ -332,10 +338,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", r.RequestURI)
-			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP)
+			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP, 0)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI)
-			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP)
+			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP, 0)
 		}
 	} else {
 		// normal http requests
@@ -538,10 +544,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", host)
-			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS)
+			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS, 0)
 		} else {
 			logg.D("SOCKS^ ", host)
-			proxy.dialUpstreamAndBridge(conn, host, okSOCKS)
+			proxy.dialUpstreamAndBridge(conn, host, okSOCKS, 0)
 		}
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
@@ -552,20 +558,13 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 		// prepare the response to answer the client
 		response, port := make([]byte, len(okSOCKS)), relay.LocalAddr().(*net.UDPAddr).Port
+		logg.D("UDP relay listening port: ", port)
+
 		copy(response, okSOCKS)
 		binary.BigEndian.PutUint16(response[8:], uint16(port))
 		conn.Write(response)
-		logg.D("UDP relay listening port: ", port)
 
-		for {
-			buf := make([]byte, 2048)
-			n, src, err := relay.ReadFrom(buf)
-			if err != nil {
-				break
-			}
-
-			go proxy.handleUDPtoTCP(buf[:n], relay, conn, src)
-		}
+		proxy.handleUDPtoTCP(relay, conn)
 	default:
 		logClose("do not support TCP bind")
 	}

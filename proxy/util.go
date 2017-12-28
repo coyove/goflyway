@@ -33,9 +33,9 @@ const (
 	doWebSocket             // Use WebSocket protocol
 	doDNS                   // DNS query request
 	doPartial               // Partial encryption
+	doUDPRelay              // UDP relay request
+	doRSV1                  // Reserved
 	doRSV2                  // Reserved
-	doRSV3                  // Reserved
-	doRSV4                  // Reserved
 )
 
 const (
