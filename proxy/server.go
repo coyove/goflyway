@@ -59,8 +59,6 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 	if proxy.Throttling > 0 {
 		ioc.Bucket = NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)
 	}
-
-	ioc.Partial = proxy.Cipher.Partial
 	return ioc
 }
 
@@ -186,6 +184,8 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		ioc := proxy.getIOConfig(auth)
+		ioc.Partial = options.IsSet(doPartial)
+
 		targetSiteConn, err := net.Dial("tcp", host)
 		if err != nil {
 			logg.E(err)
@@ -226,10 +226,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		iocc := proxy.getIOConfig(auth)
-		iocc.Partial = false // HTTP must be fully encrypted
-
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, iocc); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, proxy.getIOConfig(auth)); err != nil {
 			logg.E("copy ", nr, " bytes: ", err)
 		}
 
@@ -269,7 +266,7 @@ func (proxy *ProxyUpstream) Start() error {
 		return err
 	}
 
-	return http.Serve(ln, proxy)
+	return http.Serve(&upstreamListenerWrapper{ln, proxy}, proxy)
 }
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {

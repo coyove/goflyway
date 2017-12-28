@@ -28,14 +28,14 @@ const (
 )
 
 const (
-	doConnect = 1 << iota
-	doForward
-	doWebSocket
-	doDNS
-	doRSV1
-	doRSV2
-	doRSV3
-	doRSV4
+	doConnect   = 1 << iota // Establish TCP tunnel
+	doForward               // Forward plain HTTP request
+	doWebSocket             // Use WebSocket protocol
+	doDNS                   // DNS query request
+	doPartial               // Partial encryption
+	doRSV2                  // Reserved
+	doRSV3                  // Reserved
+	doRSV4                  // Reserved
 )
 
 const (

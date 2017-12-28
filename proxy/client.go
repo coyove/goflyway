@@ -190,7 +190,12 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		return nil
 	}
 
-	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect, nil, proxy.UserAuth)
+	var opt Options = doConnect
+	if proxy.Partial {
+		opt.Set(doPartial)
+	}
+
+	rkey, rkeybuf := proxy.Cipher.NewIV(opt, nil, proxy.UserAuth)
 	pl := make([]string, 0, len(dummyHeaders)+3)
 	pl = append(pl,
 		"GET /"+proxy.Cipher.EncryptCompress(host, rkeybuf...)+" HTTP/1.1\r\n",
@@ -232,7 +237,12 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		return nil
 	}
 
-	rkey, rkeybuf := proxy.Cipher.NewIV(doConnect+doWebSocket, nil, proxy.UserAuth)
+	var opt Options = doConnect + doWebSocket
+	if proxy.Partial {
+		opt.Set(doPartial)
+	}
+
+	rkey, rkeybuf := proxy.Cipher.NewIV(opt, nil, proxy.UserAuth)
 	var pl string
 	if proxy.URLHeader == "" {
 		pl = "GET /" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + " HTTP/1.1\r\n" +
@@ -534,10 +544,6 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialUpstreamAndBridge(conn, host, okSOCKS)
 		}
 	case 3:
-		if proxy.UDPRelayPort == 0 {
-			logClose("use command -udp to enable UDP relay")
-		}
-
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
 			logClose("cannot create UDP relay server: ", err)
@@ -634,7 +640,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	proxy.Listener = &listenerWrapper{Listener: mux, proxy: proxy, retry24: proxy.Policy.IsSet(PolicyAggrClosing)}
+	proxy.Listener = &listenerWrapper{mux, proxy}
 	proxy.Localaddr = localaddr
 
 	return proxy

@@ -13,9 +13,7 @@ import (
 
 type listenerWrapper struct {
 	net.Listener
-
-	proxy   *ProxyClient
-	retry24 bool
+	proxy *ProxyClient
 }
 
 func (l *listenerWrapper) Accept() (net.Conn, error) {
@@ -25,7 +23,7 @@ CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
 		errs := err.Error()
-		if l.retry24 && strings.Contains(errs, "too many open files") && !isC24Retried {
+		if l.proxy.Policy.IsSet(PolicyAggrClosing) && strings.Contains(errs, "too many open files") && !isC24Retried {
 			// if this is the first time we encounter "too many open files"
 			// inform the daemon to aggresively close the old connections so we can try again
 			// normally error 24 is not that likely to happen in most of time
@@ -72,4 +70,32 @@ CONTINUE:
 	default:
 		return wrapper, err
 	}
+}
+
+type upstreamListenerWrapper struct {
+	net.Listener
+	proxy *ProxyUpstream
+}
+
+func (l *upstreamListenerWrapper) Accept() (net.Conn, error) {
+CONTINUE:
+	c, err := l.Listener.Accept()
+	if err != nil || c == nil {
+		logg.E("listener: ", err)
+
+		if isClosedConnErr(err) {
+			return nil, err
+		}
+
+		goto CONTINUE
+	}
+
+	if conn, _ := c.(*tcpmux.Conn); conn != nil {
+		if b, _ := conn.FirstByte(); b == uotMagic {
+			go l.proxy.handleTCPtoUDP(c)
+			goto CONTINUE
+		}
+	}
+
+	return c, err
 }
