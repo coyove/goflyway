@@ -16,10 +16,10 @@ import (
 )
 
 type ServerConfig struct {
-	Throttling     int64
-	ThrottlingMax  int64
-	UDPRelayListen int
-	ProxyPassAddr  string
+	Throttling    int64
+	ThrottlingMax int64
+	DisableUDP    bool
+	ProxyPassAddr string
 
 	Users map[string]UserConfig
 
@@ -190,6 +190,12 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 
 		if options.IsSet(doUDPRelay) {
+			if proxy.DisableUDP {
+				logg.W("client is trying to send UDP data but we disabled it")
+				downstreamConn.Close()
+				return
+			}
+
 			uaddr, _ := net.ResolveUDPAddr("udp", host)
 
 			var rconn *net.UDPConn
@@ -259,6 +265,7 @@ func (proxy *ProxyUpstream) Start() error {
 		return err
 	}
 
+	proxy.Cipher.IO.Ob = ln.(*tcpmux.ListenPool)
 	return http.Serve(ln, proxy)
 }
 

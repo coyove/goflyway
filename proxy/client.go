@@ -10,7 +10,6 @@ import (
 
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +31,6 @@ type ClientConfig struct {
 	DummyDomain  string
 	URLHeader    string
 
-	UDPRelayPort   int
 	UDPRelayCoconn int
 
 	Mux int
@@ -545,21 +543,13 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
-			logClose("cannot create UDP relay server: ", err)
+			logClose("can't create UDP relay server: ", err)
 			return
 		}
 
-		// prepare the response to answer the client
-		response, port := make([]byte, len(okSOCKS)), relay.LocalAddr().(*net.UDPAddr).Port
-		logg.D("UDP relay listening port: ", port)
-
-		copy(response, okSOCKS)
-		binary.BigEndian.PutUint16(response[8:], uint16(port))
-		conn.Write(response)
-
 		proxy.handleUDPtoTCP(relay, conn)
 	default:
-		logClose("do not support TCP bind")
+		logClose("goflyway does not support TCP bind")
 	}
 }
 
@@ -594,6 +584,10 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		rkeyHeader: "X-" + config.Cipher.Alias,
 
 		ClientConfig: config,
+	}
+
+	if config.Mux > 0 {
+		proxy.Cipher.IO.Ob = proxy.pool
 	}
 
 	tcpmux.Version = checksum1b([]byte(config.Cipher.Alias)) | 0x80

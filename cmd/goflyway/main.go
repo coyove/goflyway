@@ -32,7 +32,7 @@ var (
 	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
 	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
 	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
-	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] server UDP relay listening port, 0 to disable")
+	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] disable UDP relay")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
 	cmdDebug      = flag.Bool("debug", false, "[C] turn on debug mode")
 	cmdProxyPass  = flag.String("proxy-pass", "", "[C] use goflyway as a reverse HTTP proxy")
@@ -208,6 +208,7 @@ func main() {
 			Throttling:    *cmdThrot,
 			ThrottlingMax: *cmdThrotMax,
 			ProxyPassAddr: *cmdProxyPass,
+			DisableUDP:    *cmdDiableUDP,
 		}
 
 		if *cmdAuth != "" {

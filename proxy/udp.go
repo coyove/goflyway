@@ -2,8 +2,7 @@ package proxy
 
 import (
 	"fmt"
-	"sync"
-	"sync/atomic"
+	"time"
 
 	"github.com/coyove/goflyway/pkg/logg"
 
@@ -136,9 +135,10 @@ type udpBridgeConn struct {
 		remain int
 	}
 
-	socks   bool
-	dst     *addr_t
-	onClose func()
+	socks bool
+	dst   *addr_t
+
+	closed bool
 }
 
 func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
@@ -164,7 +164,7 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 		if !ok {
 			return 0, fmt.Errorf("invalid SOCKS header: %v", b[:n])
 		}
-		logg.D("dst: ", dst.String())
+
 		copy(b[2:], b[dst.size:n])
 		n -= dst.size
 	} else {
@@ -173,7 +173,7 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 
 PUT_HEADER:
 	binary.BigEndian.PutUint16(b, uint16(n))
-	logg.D("UDP read ", n, " bytes, ", b[:n])
+	logg.D("UDP read ", n, " bytes")
 	return n + 2, err
 }
 
@@ -205,7 +205,7 @@ func (c *udpBridgeConn) write(b []byte) (n int, err error) {
 		binary.BigEndian.PutUint16(xbuf[5+hl:], uint16(c.dst.port))
 		ln = 5 + hl + 2
 		copy(xbuf[ln:], b)
-		logg.D(xbuf[:ln+len(b)])
+		// logg.D(xbuf[:ln+len(b)])
 	} else if len(c.dst.ip) == net.IPv4len {
 		copy(xbuf, udpHeaderIPv4)
 		copy(xbuf[4:8], c.dst.ip)
@@ -235,7 +235,9 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	defer func() {
 		if err == nil {
 			n = len(b)
-			logg.D("UDP write ", n, " bytes, ", b)
+			logg.D("UDP write ", n, " bytes")
+		} else {
+			logg.D("UDP write error: ", err)
 		}
 	}()
 
@@ -280,6 +282,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 1 {
+		logg.D("rare case: incomplete header")
 		c.waitingMore.buf = b
 		c.waitingMore.incompleteLen = true // "len" should have 2 bytes, we got 1
 		return 1, nil
@@ -290,6 +293,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 
 TEST:
 	if len(buf) < ln {
+		logg.D("rare case: incomplete buffer")
 		c.waitingMore.buf = buf
 		c.waitingMore.remain = ln - len(buf)
 		return len(b), nil
@@ -300,6 +304,7 @@ TEST:
 	}
 
 	// len(buf) > ln
+	logg.D("rare case: overflow buffer")
 	if n, err = c.write(buf[:ln]); err != nil {
 		return
 	}
@@ -308,15 +313,20 @@ TEST:
 }
 
 func (c *udpBridgeConn) Close() error {
-	if c.onClose != nil {
-		c.onClose()
-	}
+	c.closed = true
 	return c.UDPConn.Close()
 }
 
 func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 	defer relay.Close()
 	defer client.Close()
+
+	// prepare the response to answer the client
+	response, port := make([]byte, len(okSOCKS)), relay.LocalAddr().(*net.UDPAddr).Port
+
+	copy(response, okSOCKS)
+	binary.BigEndian.PutUint16(response[8:], uint16(port))
+	client.Write(response)
 
 	buf := make([]byte, 2048)
 	n, src, err := relay.ReadFrom(buf)
@@ -331,18 +341,18 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		return
 	}
 
+	logg.D("UDP relay listening port: ", port, ", destination: ", dst.String())
+
 	maxConns := proxy.UDPRelayCoconn
 	srcs := make([]*udpBridgeConn, maxConns)
 	conns := make([]net.Conn, maxConns)
 
-	count := uint64(0)
 	for i := 0; i < maxConns; i++ {
 		srcs[i] = &udpBridgeConn{
 			UDPConn: relay,
 			socks:   true,
 			udpSrc:  src,
 			dst:     dst,
-			onClose: func() { atomic.AddUint64(&count, 1) },
 		}
 
 		if i == 0 {
@@ -357,12 +367,21 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		}
 	}
 
-	wait := sync.NewCond(&sync.Mutex{})
-	wait.L.Lock()
-	for count < uint64(maxConns) {
-		wait.Wait()
-	}
-	wait.L.Unlock()
+	// Connections may be double closed, so we manually check them
+	for {
+		count := 0
+		for _, src := range srcs {
+			if src.closed {
+				count++
+			}
+		}
 
-	logg.D("utt over: ", srcs[0].udpSrc.String())
+		if count == maxConns {
+			break
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	logg.D("closing relay port ", port)
 }

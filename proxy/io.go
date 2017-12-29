@@ -213,6 +213,11 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 					if len(iot.mconns) > 0 {
 						logg.D("active connections: ", len(iot.mconns), ", max fd: ", iot.maxfd)
 					}
+
+					if iot.Ob != nil {
+						c, s := iot.Ob.Count()
+						logg.D("multiplexer state: ", c, "/", s)
+					}
 				}
 			}
 
