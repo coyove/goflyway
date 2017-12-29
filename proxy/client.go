@@ -464,7 +464,7 @@ func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
 	buf := make([]byte, 1+1+255+1+255)
 	n, err := io.ReadAtLeast(conn, buf, 2)
 	if err != nil {
-		logg.E(socksReadErr, err)
+		logg.E(err)
 		return false
 	}
 
@@ -491,17 +491,17 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 	buf := make([]byte, 2)
 	if _, err := io.ReadAtLeast(conn, buf, 2); err != nil {
-		logClose(socksReadErr, err)
+		logClose(err)
 		return
 	} else if buf[0] != socksVersion5 {
-		logClose(socksVersionErr)
+		logClose(fmt.Sprintf(socksVersionErr, buf[0]))
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err := io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		logClose(socksReadErr, err)
+		logClose(err)
 		return
 	}
 
@@ -521,9 +521,9 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	}
 	// handshake over
 	// tunneling start
-	method, addr, ok := parseDstFrom(conn, nil, false)
-	if !ok {
-		conn.Close()
+	method, addr, err := parseUDPHeader(conn, nil, false)
+	if err != nil {
+		logClose(err)
 		return
 	}
 
@@ -548,8 +548,6 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 		}
 
 		proxy.handleUDPtoTCP(relay, conn)
-	default:
-		logClose("goflyway does not support TCP bind")
 	}
 }
 

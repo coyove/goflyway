@@ -13,18 +13,18 @@ import (
 	"strings"
 )
 
-type addr_t struct {
+type uAddr struct {
 	ip   net.IP
 	host string
 	port int
 	size int
 }
 
-func (a *addr_t) String() string {
+func (a *uAddr) String() string {
 	return a.HostString() + ":" + strconv.Itoa(a.port)
 }
 
-func (a *addr_t) HostString() string {
+func (a *uAddr) HostString() string {
 	if a.ip != nil {
 		if len(a.ip) == net.IPv4len {
 			return a.ip.String()
@@ -38,7 +38,7 @@ func (a *addr_t) HostString() string {
 	return a.host
 }
 
-func (a *addr_t) IP() net.IP {
+func (a *uAddr) IP() net.IP {
 	if a.ip != nil {
 		return a.ip
 	}
@@ -51,7 +51,7 @@ func (a *addr_t) IP() net.IP {
 	return ip.IP
 }
 
-func (a *addr_t) IsAllZeros() bool {
+func (a *uAddr) IsAllZeros() bool {
 	if a.ip != nil {
 		return a.ip.IsUnspecified() && a.port == 0
 	}
@@ -59,58 +59,53 @@ func (a *addr_t) IsAllZeros() bool {
 	return false
 }
 
-func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t, bool) {
-	var err error
+func parseUDPHeader(conn net.Conn, buf []byte, omitCheck bool) (method byte, addr *uAddr, err error) {
 	var n int
 
-	if typeBuf == nil {
-		typeBuf, n = make([]byte, 256+3+1+1+2), 0
+	if buf == nil {
+		buf, n = make([]byte, 256+3+1+1+2), 0
 		// conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		if n, err = io.ReadAtLeast(conn, typeBuf, 3+1+net.IPv4len+2); err != nil {
-			logg.E(socksReadErr, err)
-			return 0x0, nil, false
+		if n, err = io.ReadAtLeast(conn, buf, 3+1+net.IPv4len+2); err != nil {
+			return
 		}
 	}
 
-	if typeBuf[0] != socksVersion5 && !omitCheck {
-		logg.E(socksVersionErr)
-		return 0x0, nil, false
+	if !omitCheck {
+		if buf[0] != socksVersion5 {
+			return 0, nil, fmt.Errorf(socksVersionErr, buf[0])
+		}
+
+		if buf[1] != 0x01 && buf[1] != 0x03 {
+			return 0, nil, fmt.Errorf(socksMethodErr, buf[1])
+		}
 	}
 
-	if typeBuf[1] != 0x01 && typeBuf[1] != 0x03 && !omitCheck { // 0x01: establish a TCP/IP stream connection
-		logg.E("socks5 invalid command: ", typeBuf[1])
-		return 0x0, nil, false
-	}
-
-	addr := &addr_t{}
-	switch typeBuf[3] {
+	addr = &uAddr{}
+	switch buf[3] {
 	case socksAddrIPv4:
 		addr.size = 3 + 1 + net.IPv4len + 2
 	case socksAddrIPv6:
 		addr.size = 3 + 1 + net.IPv6len + 2
 	case socksAddrDomain:
-		addr.size = 3 + 1 + 1 + int(typeBuf[4]) + 2
+		addr.size = 3 + 1 + 1 + int(buf[4]) + 2
 	default:
-		logg.E("socks5 invalid address type")
-		return 0x0, nil, false
+		return 0, nil, fmt.Errorf(socksAddressErr, buf[3])
 	}
 
 	if conn != nil {
-		if _, err = io.ReadFull(conn, typeBuf[n:addr.size]); err != nil {
-			logg.E(socksReadErr, err)
-			return 0x0, nil, false
+		if _, err = io.ReadFull(conn, buf[n:addr.size]); err != nil {
+			return
 		}
 	} else {
-		if len(typeBuf) < addr.size {
-			logg.E(socksReadErr, err)
-			return 0x0, nil, false
+		if len(buf) < addr.size {
+			return 0, nil, io.EOF
 		}
 	}
 
-	rawaddr := typeBuf[3 : addr.size-2]
-	addr.port = int(binary.BigEndian.Uint16(typeBuf[addr.size-2 : addr.size]))
+	rawaddr := buf[3 : addr.size-2]
+	addr.port = int(binary.BigEndian.Uint16(buf[addr.size-2 : addr.size]))
 
-	switch typeBuf[3] {
+	switch buf[3] {
 	case socksAddrIPv4:
 		addr.ip = net.IP(rawaddr[1:])
 	case socksAddrIPv6:
@@ -119,7 +114,7 @@ func parseDstFrom(conn net.Conn, typeBuf []byte, omitCheck bool) (byte, *addr_t,
 		addr.host = string(rawaddr[2:])
 	}
 
-	return typeBuf[1], addr, true
+	return buf[1], addr, nil
 }
 
 type udpBridgeConn struct {
@@ -136,7 +131,7 @@ type udpBridgeConn struct {
 	}
 
 	socks bool
-	dst   *addr_t
+	dst   *uAddr
 
 	closed bool
 }
@@ -160,9 +155,9 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 	}
 
 	if c.socks {
-		_, dst, ok := parseDstFrom(nil, b[:n], true)
-		if !ok {
-			return 0, fmt.Errorf("invalid SOCKS header: %v", b[:n])
+		_, dst, err := parseUDPHeader(nil, b[:n], true)
+		if err != nil {
+			return 0, err
 		}
 
 		copy(b[2:], b[dst.size:n])
@@ -205,21 +200,22 @@ func (c *udpBridgeConn) write(b []byte) (n int, err error) {
 		binary.BigEndian.PutUint16(xbuf[5+hl:], uint16(c.dst.port))
 		ln = 5 + hl + 2
 		copy(xbuf[ln:], b)
-		// logg.D(xbuf[:ln+len(b)])
+		//
 	} else if len(c.dst.ip) == net.IPv4len {
+		ln = len(udpHeaderIPv4)
+
 		copy(xbuf, udpHeaderIPv4)
 		copy(xbuf[4:8], c.dst.ip)
 		binary.BigEndian.PutUint16(xbuf[8:], uint16(c.dst.port))
-		copy(xbuf[len(udpHeaderIPv4):], b)
+		copy(xbuf[ln:], b)
 
-		ln = len(udpHeaderIPv4)
 	} else {
+		ln = len(udpHeaderIPv6)
+
 		copy(xbuf, udpHeaderIPv6)
 		copy(xbuf[4:20], c.dst.ip)
 		binary.BigEndian.PutUint16(xbuf[20:], uint16(c.dst.port))
-		copy(xbuf[len(udpHeaderIPv6):], b)
-
-		ln = len(udpHeaderIPv6)
+		copy(xbuf[ln:], b)
 	}
 
 	n, err = c.WriteTo(xbuf[:ln+len(b)], c.udpSrc)
@@ -335,9 +331,9 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		return
 	}
 
-	_, dst, ok := parseDstFrom(nil, buf[:n], true)
-	if !ok {
-		logg.E("initial packet contains invalid dest")
+	_, dst, err := parseUDPHeader(nil, buf[:n], true)
+	if err != nil {
+		logg.E(err)
 		return
 	}
 
@@ -383,5 +379,5 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		time.Sleep(time.Second)
 	}
 
-	logg.D("closing relay port ", port)
+	logg.D("closing relay port: ", port)
 }

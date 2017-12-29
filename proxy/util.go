@@ -24,8 +24,9 @@ const (
 	socksAddrIPv4   = 1
 	socksAddrDomain = 3
 	socksAddrIPv6   = 4
-	socksReadErr    = "cannot read buffer: "
-	socksVersionErr = "invalid SOCKS version (SOCKS5 only)"
+	socksVersionErr = "invalid SOCKS version: %d"
+	socksMethodErr  = "invalid SOCKS method: %d"
+	socksAddressErr = "invalid SOCKS address type: %d"
 )
 
 const (
