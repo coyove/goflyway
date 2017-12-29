@@ -57,6 +57,7 @@ var (
 	_ = flag.String("acl", "", "placeholder")
 	_ = flag.String("m", "", "placeholder")
 	_ = flag.String("b", "", "placeholder")
+	_ = flag.Bool("V", true, "placeholder")
 	_ = flag.Bool("fast-open", true, "placeholder")
 )
 
