@@ -75,7 +75,7 @@ func loadConfig() {
 		return
 	}
 
-	if strings.HasSuffix(path, ".json") {
+	if strings.Contains(path, "shadowsocks.conf") {
 		cmds := make(map[string]interface{})
 		if err := json.Unmarshal(buf, &cmds); err != nil {
 			fmt.Println("* can't parse config file:", err)
@@ -84,6 +84,7 @@ func loadConfig() {
 
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
+		*cmdMux = 10
 		return
 	}
 
