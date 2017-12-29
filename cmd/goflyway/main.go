@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -22,29 +23,41 @@ import (
 var version = "__devel__"
 
 var (
-	cmdConfig     = flag.String("c", "", "[SC] config file path")
-	cmdLogLevel   = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
-	cmdLogFile    = flag.String("lf", "", "[SC] log to file")
-	cmdGenCA      = flag.Bool("gen-ca", false, "[C] generate certificate (ca.pem) and private key (key.pem)")
-	cmdKey        = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
-	cmdAuth       = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
-	cmdBasic      = flag.String("b", "iplist", "[C] proxy type: {none, iplist, iplist_l, global}")
-	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
-	cmdLocal      = flag.String("l", ":8100", "[SC] local listening address")
-	cmdLocal2     = flag.String("p", "", "[SC] local listening address, alias of -l")
-	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] disable UDP relay")
-	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
-	cmdDebug      = flag.Bool("debug", false, "[C] turn on debug mode")
-	cmdProxyPass  = flag.String("proxy-pass", "", "[C] use goflyway as a reverse HTTP proxy")
-	cmdWebConPort = flag.Int("web-port", 8101, "[C] web console listening port, 0 to disable")
-	cmdPartial    = flag.Bool("partial", false, "[SC] partially encrypt the tunnel traffic")
-	cmdDNSCache   = flag.Int("dns-cache", 1024, "[C] DNS cache size")
-	cmdMux        = flag.Int("mux", 0, "[C] limit the total number of TCP connections, no limit by default")
-	cmdThrot      = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
-	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
+	cmdGenCA = flag.Bool("gen-ca", false, "generate certificate (ca.pem) and private key (key.pem)")
+	cmdDebug = flag.Bool("debug", false, "turn on debug mode")
 
-	cmdCloseConn  = flag.Int64("close-after", 20, "[SC] close connections when they go idle for at least N sec")
-	cmdAggClosing = flag.Bool("200", false, "[C] close connections aggressively to keep its number under 200, use with caution")
+	// General flags
+	cmdConfig    = flag.String("c", "", "[SC] config file path")
+	cmdLogLevel  = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
+	cmdLogFile   = flag.String("lf", "", "[SC] log to file")
+	cmdAuth      = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
+	cmdKey       = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
+	cmdLocal     = flag.String("l", ":8100", "[SC] local listening address")
+	cmdCloseConn = flag.Int64("t", 20, "[SC] close connections when they go idle for at least N sec")
+
+	// Server flags
+	cmdThrot     = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
+	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
+	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] disable UDP relay")
+	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
+
+	// Client flags
+	cmdBasic      = flag.String("y", "iplist", "[C] proxy type: {none, iplist, iplist_l, global}")
+	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
+	cmdPartial    = flag.Bool("partial", false, "[C] partially encrypt the tunnel traffic")
+	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
+	cmdWebConPort = flag.Int64("web-port", 8101, "[C] web console listening port, 0 to disable")
+	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
+	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
+
+	// Shadowsocks compatible flags
+	cmdLocal2 = flag.String("p", "", "server listening address")
+
+	_ = flag.Bool("u", true, "placeholder")
+	_ = flag.String("acl", "", "placeholder")
+	_ = flag.String("m", "", "placeholder")
+	_ = flag.String("b", "", "placeholder")
+	_ = flag.Bool("fast-open", true, "placeholder")
 )
 
 func loadConfig() {
@@ -57,13 +70,25 @@ func loadConfig() {
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		fmt.Println("* cannot load config file:", err)
+		fmt.Println("* can't load config file:", err)
+		return
+	}
+
+	if strings.HasSuffix(path, ".json") {
+		cmds := make(map[string]interface{})
+		if err := json.Unmarshal(buf, &cmds); err != nil {
+			fmt.Println("* can't parse config file:", err)
+			return
+		}
+
+		*cmdKey = cmds["password"].(string)
+		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
 		return
 	}
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		fmt.Println("* cannot parse config file:", err)
+		fmt.Println("* can't parse config file:", err)
 		return
 	}
 
@@ -77,16 +102,15 @@ func loadConfig() {
 	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
 
 	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
-	*cmdWebConPort = int(cf.GetInt("misc", "webconport", int64(*cmdWebConPort)))
-	*cmdDNSCache = int(cf.GetInt("misc", "dnscache", int64(*cmdDNSCache)))
-	*cmdMux = int(cf.GetInt("misc", "mux", int64(*cmdMux)))
+	*cmdWebConPort = cf.GetInt("misc", "webconport", *cmdWebConPort)
+	*cmdDNSCache = cf.GetInt("misc", "dnscache", *cmdDNSCache)
+	*cmdMux = cf.GetInt("misc", "mux", *cmdMux)
 	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
 	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
 
 	*cmdCloseConn = cf.GetInt("misc", "closeconn", *cmdCloseConn)
-	*cmdAggClosing = cf.GetBool("misc", "aggrclose", *cmdAggClosing)
 }
 
 func main() {
@@ -146,10 +170,10 @@ func main() {
 			Upstream:       *cmdUpstream,
 			UDPRelayCoconn: int(*cmdUDPonTCP),
 			Cipher:         cipher,
-			DNSCache:       lru.NewCache(*cmdDNSCache),
+			DNSCache:       lru.NewCache(int(*cmdDNSCache)),
 			CACache:        lru.NewCache(256),
 			CA:             lib.TryLoadCert(),
-			Mux:            *cmdMux,
+			Mux:            int(*cmdMux),
 		}
 
 		if is := func(in string) bool { return strings.HasPrefix(*cmdUpstream, in) }; is("https://") {
@@ -195,10 +219,6 @@ func main() {
 			// do nothing, default policy
 		default:
 			fmt.Println("* invalid proxy type:", *cmdBasic)
-		}
-
-		if *cmdAggClosing {
-			cc.Policy.Set(proxy.PolicyAggrClosing)
 		}
 	}
 
