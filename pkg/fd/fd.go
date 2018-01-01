@@ -1,28 +1,23 @@
-//+build !windows
-
 package fd
 
 import (
 	"net"
+	"reflect"
 	"syscall"
 )
 
-func ConnFD(conn net.Conn) (fd uintptr) {
-	switch conn.(type) {
-	case *net.TCPConn:
-		if f, err := conn.(*net.TCPConn).File(); err == nil {
-			fd = f.Fd()
-		}
-	case *net.UDPConn:
-		if f, err := conn.(*net.UDPConn).File(); err == nil {
-			fd = f.Fd()
-		}
-	}
-
-	syscall.SetNonblock(int(fd), true)
-	return
+func getNetFD(conn net.Conn) reflect.Value {
+	return reflect.ValueOf(conn).Elem().Field(0).Field(0).Elem()
 }
 
-func CloseFD(fd int) {
-	syscall.Close(fd)
+func toSockaddr(addr *net.TCPAddr) syscall.Sockaddr {
+	if len(addr.IP) == net.IPv4len {
+		sa := &syscall.SockaddrInet4{Port: addr.Port}
+		copy(sa.Addr[:], addr.IP.To4())
+		return sa
+	}
+
+	sa := &syscall.SockaddrInet6{Port: addr.Port}
+	copy(sa.Addr[:], addr.IP.To16())
+	return sa
 }

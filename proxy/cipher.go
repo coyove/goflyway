@@ -55,9 +55,6 @@ type io_t struct {
 	sync.Mutex
 	iid      uint64
 	started  bool
-	aggr     chan bool
-	maxfd    uintptr
-	count24  int
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
 	Ob       tcpmux.Survey

@@ -598,7 +598,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
-	if config.Policy.IsSet(PolicyAggrClosing) && config.Policy.IsSet(PolicyManInTheMiddle) {
+	if config.Policy.IsSet(PolicyManInTheMiddle) {
 		// plus other fds, we should have a number smaller than 100
 		proxy.tp.MaxIdleConns = 20
 		proxy.tpd.MaxIdleConns = 20
@@ -626,6 +626,16 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	proxy.Listener = &listenerWrapper{mux, proxy}
 	proxy.Localaddr = localaddr
+
+	if proxy.Policy.IsSet(PolicyVPN) {
+		proxy.pool.OnDial = vpnDial
+		// proxy.tp.MaxIdleConns = 2
+		// proxy.tpd.MaxIdleConns = 2
+		// proxy.tpq.MaxIdleConns = 2
+		// proxy.tpd.Dial = func(network, address string) (net.Conn, error) { return vpnDial(address) }
+
+		proxy.pool.DialTimeout(time.Second)
+	}
 
 	return proxy
 }

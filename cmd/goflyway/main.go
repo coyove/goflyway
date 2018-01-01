@@ -49,6 +49,7 @@ var (
 	cmdWebConPort = flag.Int64("web-port", 8101, "[C] web console listening port, 0 to disable")
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
+	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -85,6 +86,9 @@ func loadConfig() {
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
 		*cmdMux = 10
+		*cmdLogLevel = "dbg"
+		*cmdVPN = true
+		*cmdBasic = "global"
 		return
 	}
 
@@ -221,6 +225,10 @@ func main() {
 			// do nothing, default policy
 		default:
 			fmt.Println("* invalid proxy type:", *cmdBasic)
+		}
+
+		if *cmdVPN {
+			cc.Policy.Set(proxy.PolicyVPN)
 		}
 	}
 

@@ -45,7 +45,7 @@ const (
 	PolicyManInTheMiddle
 	PolicyGlobal
 	PolicyTrustClientDNS
-	PolicyAggrClosing
+	PolicyVPN
 	PolicyWebSocket
 )
 

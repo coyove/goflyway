@@ -3,11 +3,8 @@ package proxy
 import (
 	"crypto/tls"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
-	"runtime"
-	"sort"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -15,7 +12,6 @@ import (
 
 	"github.com/coyove/tcpmux"
 
-	"github.com/coyove/goflyway/pkg/fd"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/rand"
 )
@@ -87,7 +83,6 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 
 type conn_state_t struct {
 	conn net.Conn
-	fd   uintptr
 	last int64
 	iid  uintptr
 }
@@ -132,7 +127,7 @@ REPEAT:
 	id := uintptr((*[2]unsafe.Pointer)(unsafe.Pointer(&src))[1])
 
 	if iot.mconns[id] == nil {
-		iot.mconns[id] = &conn_state_t{srcConn, fd.ConnFD(srcConn), time.Now().UnixNano(), id}
+		iot.mconns[id] = &conn_state_t{srcConn, time.Now().UnixNano(), id}
 	} else {
 		iot.mconns[id].last = time.Now().UnixNano()
 	}
@@ -147,7 +142,6 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
-	iot.aggr = make(chan bool)
 	iot.idleTime = int64(maxIdleTime)
 
 	go func() {
@@ -156,68 +150,23 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			iot.Lock()
 			ns := time.Now().UnixNano()
 
-			select {
-			case <-iot.aggr:
-				if iot.count24++; iot.count24%4 == 0 && logg.GetLevel() == logg.LvDebug && runtime.GOOS == "darwin" {
-					// if had too many errno 24, we forcefully close fds larger than 100
-					// this is a very dangerous action, which is just a workaround under macOS
-					// and cannot guarantee that everything works after closing
-					fmt.Print("\a")
-					logg.W("goflyway is now trying to close down all file descriptors larger than 100")
-					for i := 100; i <= int(iot.maxfd); i++ {
-						fd.CloseFD(i)
-					}
-					iot.aggr <- true
-					break
+			for id, state := range iot.mconns {
+				if (ns - state.last) > int64(maxIdleTime)*1e9 {
+					//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
+					state.conn.Close()
+					delete(iot.mconns, id)
+				}
+			}
+
+			if count++; count == 60 {
+				count = 0
+				if len(iot.mconns) > 0 {
+					logg.D("active connections: ", len(iot.mconns))
 				}
 
-				if len(iot.mconns) <= keepConnectionsUnder {
-					logg.W("total connections is under ", keepConnectionsUnder, ", nothing to do")
-					iot.aggr <- true
-					break
-				}
-
-				arr := conns_state_t{}
-				for _, state := range iot.mconns {
-					arr = append(arr, state)
-				}
-				sort.Sort(arr)
-				for i := 0; i < len(arr)-keepConnectionsUnder; i++ {
-					ms := (ns - arr[i].last) / 1e6
-					logg.L("closing ", arr[i].iid, ": ", arr[i].conn.RemoteAddr(), ", last active: ", ms, "ms ago")
-					arr[i].conn.Close()
-					delete(iot.mconns, arr[i].iid)
-				}
-
-				if logg.GetLevel() == logg.LvDebug {
-					fmt.Print("\a")
-				}
-				iot.aggr <- true
-			default:
-				iot.maxfd = 0
-				for id, state := range iot.mconns {
-					if state.fd > iot.maxfd {
-						// quite meaningless to compare handles under Windows
-						iot.maxfd = state.fd
-					}
-
-					if (ns - state.last) > int64(maxIdleTime)*1e9 {
-						//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
-						state.conn.Close()
-						delete(iot.mconns, id)
-					}
-				}
-
-				if count++; count == 60 {
-					count = 0
-					if len(iot.mconns) > 0 {
-						logg.D("active connections: ", len(iot.mconns), ", max fd: ", iot.maxfd)
-					}
-
-					if iot.Ob != nil {
-						c, s := iot.Ob.Count()
-						logg.D("multiplexer state: ", c, "/", s)
-					}
+				if iot.Ob != nil {
+					c, s := iot.Ob.Count()
+					logg.D("multiplexer state: ", c, "/", s)
 				}
 			}
 

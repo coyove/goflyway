@@ -5,21 +5,10 @@ import (
 	"syscall"
 )
 
-func ConnFD(conn net.Conn) (fd uintptr) {
-	switch conn.(type) {
-	case *net.TCPConn:
-		if f, err := conn.(*net.TCPConn).File(); err == nil {
-			fd = f.Fd()
-		}
-	case *net.UDPConn:
-		if f, err := conn.(*net.UDPConn).File(); err == nil {
-			fd = f.Fd()
-		}
-	}
-
-	return
+func Socket(family int) (syscall.Handle, error) {
+	return syscall.Handle(0), nil
 }
 
-func CloseFD(fd int) {
-	syscall.Close(syscall.Handle(fd))
+func DialWithFD(sock syscall.Handle, address string) (net.Conn, error) {
+	return net.Dial("tcp", address)
 }
