@@ -70,7 +70,8 @@ func sendFD(sock int, fd int) error {
 		Type:  syscall.SCM_RIGHTS,
 	}
 
-	ln := byte(syscall.SizeofCmsghdr + strconv.IntSize/8)
+	const hdrsize = syscall.SizeofCmsghdr
+	ln := byte(hdrsize + strconv.IntSize/8)
 	h := (*[8]byte)(unsafe.Pointer(&cmsg.Len))
 
 	if _little_endian {
@@ -81,8 +82,8 @@ func sendFD(sock int, fd int) error {
 
 	buffer := make([]byte, cmsg.Len)
 
-	copy(buffer, (*[syscall.SizeofCmsghdr]byte)(unsafe.Pointer(cmsg))[:])
-	*(*int)(unsafe.Pointer(&buffer[syscall.SizeofCmsghdr])) = fd
+	copy(buffer, (*[hdrsize]byte)(unsafe.Pointer(cmsg))[:])
+	*(*int)(unsafe.Pointer(&buffer[hdrsize])) = fd
 
 	return syscall.Sendmsg(sock, []byte{'!'}, buffer, nil, 0)
 }
