@@ -14,4 +14,4 @@ For more info, please refer to the following links.
 
 ## Android Client
 
-I modified [an Android client of shadowsocks](https://github.com/shadowsocks/shadowsocks-android/) by replacing its native libss-local.so with goflyway's executable. It works basicly, along with numerous bugs and broken features. Check this [wiki](https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF) for details.
+[shadowsocks-android](https://github.com/shadowsocks/shadowsocks-android/) is an Android client for shadowsocks. By replacing the native libss-local.so in /lib with goflyway's executable, we borrow its frontend to run our proxy on Android. Check this [wiki](https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF) for details.
