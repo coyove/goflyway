@@ -10,12 +10,12 @@ import (
 )
 
 func (proxy *ProxyClient) PACFile(w http.ResponseWriter, r *http.Request) {
-	if lookup.ChinaList == nil || len(lookup.ChinaList) == 0 {
+	if lookup.White.DomainFastMatch == nil || len(lookup.White.DomainFastMatch) == 0 {
 		w.Write([]byte("the list is empty"))
 		return
 	}
 
-	table, _ := json.Marshal(lookup.ChinaList)
+	table, _ := json.Marshal(lookup.White.DomainFastMatch)
 
 	t := "SOCKS5"
 	if proxy.Policy.IsSet(PolicyManInTheMiddle) {

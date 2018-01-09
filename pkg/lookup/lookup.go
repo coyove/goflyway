@@ -4,65 +4,95 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/coyove/goflyway/pkg/config"
 )
 
-var IPv4LookupTable [][]uint32
-var IPv4PrivateLookupTable [][]uint32
+type matchTree map[string]interface{}
 
-type China_list_t map[string]interface{}
+type ipRange struct{ start, end uint32 }
 
-var ChinaList China_list_t
-var listLoaded bool
-
-func init() {
-	IPv4LookupTable, IPv4PrivateLookupTable = make([][]uint32, 0), make([][]uint32, 0)
-
-	fill := func(table *[][]uint32, iplist string) {
-		lastIPStart, lastIPEnd := -1, -1
-
-		for _, iprange := range strings.Split(iplist, "\n") {
-			p := strings.Split(iprange, " ")
-			ipstart, ipend := IPAddressToInteger(p[0]), IPAddressToInteger(p[1])
-
-			if lastIPStart == -1 {
-				lastIPStart, lastIPEnd = ipstart, ipend
-				continue
-			}
-
-			if ipstart != lastIPEnd+1 {
-				*table = append(*table, []uint32{uint32(lastIPStart), uint32(lastIPEnd)})
-				lastIPStart = ipstart
-			}
-
-			lastIPEnd = ipend
-		}
-
-		if lastIPStart > -1 && lastIPEnd >= lastIPStart {
-			*table = append(*table, []uint32{uint32(lastIPStart), uint32(lastIPEnd)})
-		}
-	}
-
-	fill(&IPv4LookupTable, CHN_IP)
-	fill(&IPv4PrivateLookupTable, PRIVATE_IP)
+type lookupi interface {
+	isDomainMatched(domain string) bool
 }
 
-func LoadOrCreateChinaList(raw string) bool {
-	if listLoaded {
-		return false
+type lookup struct {
+	DomainFastMatch matchTree
+	DomainSlowMatch []*regexp.Regexp
+
+	IPv4Table []ipRange
+}
+
+var (
+	// White are those which should be accessed directly
+	White struct {
+		lookup
+		PrivateIPv4Table []ipRange
 	}
 
-	if raw == "" {
-		buf, err := ioutil.ReadFile("./chinalist.txt")
-		if err != nil {
-			return false
-		}
+	// Black are those which should be banned
+	// Note that non-White doesn't necessarily mean Black
+	Black struct {
+		lookup
+	}
+)
 
-		raw = string(buf)
+func init() {
+	White.IPv4Table, White.PrivateIPv4Table = make([]ipRange, 0), make([]ipRange, 0)
+	White.DomainSlowMatch, Black.DomainSlowMatch = make([]*regexp.Regexp, 0), make([]*regexp.Regexp, 0)
+	Black.IPv4Table = make([]ipRange, 0)
+
+	fill := func(table *[]ipRange, iplist string) {
+		list := linesToRange(iplist)
+		fillLookupTable(table, list)
 	}
 
-	ChinaList = make(China_list_t)
+	fill(&White.IPv4Table, ChinaIP)
+	fill(&White.PrivateIPv4Table, PrivateIP)
+}
+
+// LoadACL loads ACL config, if empty, it loads chinalist.txt
+func LoadACL(acl string) error {
+	if acl == "" {
+		return loadChinaList()
+	}
+
+	buf, err := ioutil.ReadFile(acl)
+	if err != nil {
+		return err
+	}
+
+	cf, err := config.ParseConf(string(buf))
+	if err != nil {
+		return err
+	}
+
+	cf.Iterate("bypass_list", func(key string) {
+		fmt.Println(key)
+	})
+
+	// cf.Iterate("proxy_list", func(key string) {
+	// 	fmt.Println(key)
+	// })
+
+	// cf.Iterate("outbound_block_list", func(key string) {
+	// 	fmt.Println(key)
+	// })
+	fmt.Println(IsPrivateIP("127.0.0.1"), IsPrivateIP("127.0.0.255"))
+	return nil
+}
+
+func loadChinaList() error {
+	buf, err := ioutil.ReadFile("./chinalist.txt")
+	if err != nil {
+		return err
+	}
+
+	raw := string(buf)
+	White.DomainFastMatch = make(matchTree)
 
 	for _, domain := range strings.Split(raw, "\n") {
 		subs := strings.Split(strings.Trim(domain, "\r "), ".")
@@ -70,43 +100,42 @@ func LoadOrCreateChinaList(raw string) bool {
 			continue
 		}
 
-		top := ChinaList
+		top := White.DomainFastMatch
 		for i := len(subs) - 1; i >= 0; i-- {
 			if top[subs[i]] == nil {
-				top[subs[i]] = make(China_list_t)
+				top[subs[i]] = make(matchTree)
 			}
 
 			if i == 0 {
 				// end
 				top[subs[0]] = 0
 			} else {
-				top = top[subs[i]].(China_list_t)
+				top = top[subs[i]].(matchTree)
 			}
 		}
 	}
 
-	listLoaded = true
-	return true
+	return nil
 }
 
-func IPInLookupTable(ip string, table [][]uint32) bool {
-	m := uint32(IPAddressToInteger(ip))
+func isIPInLookupTable(ip string, table []ipRange) bool {
+	m := uint32(IPv4ToInt(ip))
 	if m == 0 {
 		return false
 	}
 
-	var rec func([][]uint32) bool
-	rec = func(r [][]uint32) bool {
+	var rec func([]ipRange) bool
+	rec = func(r []ipRange) bool {
 		if len(r) == 0 {
 			return false
 		}
 
 		mid := len(r) / 2
-		if m >= r[mid][0] && m < r[mid][1] {
+		if m >= r[mid].start && m <= r[mid].end {
 			return true
 		}
 
-		if m < r[mid][0] {
+		if m < r[mid].start {
 			return rec(r[:mid])
 		}
 
@@ -116,47 +145,23 @@ func IPInLookupTable(ip string, table [][]uint32) bool {
 	return rec(table)
 }
 
-// Exceptions are those Chinese websites who have oversea servers or CDNs,
-// if you lookup their IPs outside China, you get foreign IPs based on your VPS's geolocation, which are of course undesired results.
-// Using white list to filter these exceptions
-func IsChineseWebsite(host string) bool {
-	top := ChinaList
-	if top == nil {
-		return false
-	}
-
-	subs := strings.Split(host, ".")
-	if len(subs) <= 1 {
-		return false
-	}
-
-	for i := len(subs) - 1; i >= 0; i-- {
-		sub := subs[i]
-		if top[sub] == nil {
-			return false
-		}
-
-		switch top[sub].(type) {
-		case China_list_t:
-			top = top[sub].(China_list_t)
-		case int:
-			return top[sub].(int) == 0
-		default:
-			return false
-		}
-	}
-
-	return true
+func IsHost(master lookupi, host string) bool {
+	return master.isDomainMatched(host)
 }
 
-func IsChineseIP(ip string) bool {
-	return IPInLookupTable(ip, IPv4LookupTable)
+func IsWhiteIP(ip string) bool {
+	return isIPInLookupTable(ip, White.IPv4Table) || isIPInLookupTable(ip, White.PrivateIPv4Table)
+}
+
+func IsBlackIP(ip string) bool {
+	return isIPInLookupTable(ip, Black.IPv4Table)
 }
 
 func IsPrivateIP(ip string) bool {
-	return IPInLookupTable(ip, IPv4PrivateLookupTable)
+	return isIPInLookupTable(ip, White.PrivateIPv4Table)
 }
 
+// LookupIPv4 returns the IP address of host
 func LookupIPv4(host string) (string, error) {
 	if host[0] == '[' && host[len(host)-1] == ']' {
 		// ipv6, we return empty, but also no error
@@ -171,13 +176,14 @@ func LookupIPv4(host string) (string, error) {
 	return ip.String(), nil
 }
 
-func IPAddressToInteger(ip string) int {
+// IPv4ToInt converts an IP string to its integer representation
+func IPv4ToInt(ip string) uint32 {
 	p := strings.Split(ip, ".")
 	if len(p) != 4 {
 		return 0
 	}
 
-	np := 0
+	np := uint32(0)
 	for i := 0; i < 4; i++ {
 		n, err := strconv.Atoi(p[i])
 		// exception: 68.media.tumblr.com
@@ -185,39 +191,8 @@ func IPAddressToInteger(ip string) int {
 			return 0
 		}
 
-		for j := 3; j > i; j-- {
-			n *= 256
-		}
-		np += n
+		np += uint32(n) << uint32((3-i)*8)
 	}
 
 	return np
-}
-
-func BytesToIPv4(buf []byte) string {
-	if len(buf) != net.IPv4len {
-		return ""
-	}
-
-	return fmt.Sprintf("%d.%d.%d.%d", buf[0], buf[1], buf[2], buf[3])
-}
-
-func BytesToIPv6(buf []byte) string {
-	if len(buf) != net.IPv6len {
-		return ""
-	}
-
-	hex := func(b byte) string {
-		h := strconv.FormatInt(int64(b), 16)
-		if len(h) == 1 {
-			h = "0" + h
-		}
-		return h
-	}
-
-	return fmt.Sprintf("[%s%s:%s%s:%s%s:%s%s:%s%s:%s%s:%s%s:%s%s]",
-		hex(buf[0]), hex(buf[1]), hex(buf[2]), hex(buf[3]),
-		hex(buf[4]), hex(buf[5]), hex(buf[6]), hex(buf[7]),
-		hex(buf[8]), hex(buf[9]), hex(buf[10]), hex(buf[11]),
-		hex(buf[12]), hex(buf[13]), hex(buf[14]), hex(buf[15]))
 }

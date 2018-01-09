@@ -50,12 +50,12 @@ var (
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
+	cmdACL        = flag.String("acl", "", "[C] load ACL file")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
 
 	_ = flag.Bool("u", true, "placeholder")
-	_ = flag.String("acl", "", "placeholder")
 	_ = flag.String("m", "", "placeholder")
 	_ = flag.String("b", "", "placeholder")
 	_ = flag.Bool("V", true, "placeholder")
@@ -105,6 +105,7 @@ func loadConfig() {
 	*cmdDiableUDP = cf.GetBool("default", "disableudp", *cmdDiableUDP)
 	*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
 	*cmdBasic = cf.GetString("default", "type", *cmdBasic)
+	*cmdACL = cf.GetString("default", "acl", *cmdACL)
 	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
 
 	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
@@ -162,13 +163,13 @@ func main() {
 	var sc *proxy.ServerConfig
 
 	if *cmdMux > 0 {
-		fmt.Println("* TCP multiplexer enabled, limit:", *cmdMux)
-		fmt.Println("* when using the multiplexer, you must directly connect to the upstream")
+		fmt.Println("* TCP multiplexer enabled, limit:", *cmdMux, ", note that you must directly connect to the upstream")
 	}
 
 	if *cmdUpstream != "" || *cmdDebug {
-		if !lookup.LoadOrCreateChinaList("") {
-			fmt.Println("* cannot read chinalist.txt (but it's fine, you can ignore this message)")
+		if err := lookup.LoadACL(*cmdACL); err != nil {
+			fmt.Println("* failed to read ACL config (but it's fine, you can ignore this message)")
+			fmt.Println("*   err:", err)
 		}
 
 		cc = &proxy.ClientConfig{
@@ -298,10 +299,10 @@ func main() {
 		logg.F(client.Start())
 	} else {
 		// save some space because server doesn't need lookup
-		lookup.ChinaList = nil
-		lookup.IPv4LookupTable = nil
-		lookup.IPv4PrivateLookupTable = nil
-		lookup.CHN_IP = ""
+		lookup.White.DomainFastMatch = nil
+		lookup.White.IPv4Table = nil
+		lookup.White.PrivateIPv4Table = nil
+		lookup.ChinaIP = ""
 
 		// global variables are pain in the ass
 		runtime.GC()

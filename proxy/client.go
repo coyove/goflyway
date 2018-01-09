@@ -393,10 +393,10 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 			return false
 		}
 
-		return lookup.IsChineseIP(ip)
+		return lookup.IsWhiteIP(ip)
 	}
 
-	if lookup.IsChineseWebsite(host) {
+	if lookup.IsHost(&lookup.White, host) {
 		return !proxy.Policy.IsSet(PolicyGlobal)
 	}
 
