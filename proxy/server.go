@@ -90,18 +90,14 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	replySomething := func() {
 		if proxy.rp == nil {
-			round := proxy.Rand.Intn(32) + 32
-			buf := make([]byte, 2048)
-			for r := 0; r < round; r++ {
-				ln := proxy.Rand.Intn(1024) + 1024
-
-				for i := 0; i < ln; i++ {
-					buf[i] = byte(proxy.Rand.Intn(256))
-				}
-
-				w.Write(buf[:ln])
-				time.Sleep(time.Duration(proxy.Rand.Intn(100)) * time.Millisecond)
-			}
+			w.WriteHeader(404)
+			w.Write([]byte(`<html>
+<head><title>404 Not Found</title></head>
+<body bgcolor="white">
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>`))
 		} else {
 			proxy.rp.ServeHTTP(w, r)
 		}
