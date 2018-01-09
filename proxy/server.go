@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/tcpmux"
 
@@ -155,14 +154,17 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if (options & doDNS) > 0 {
 		host := string(rkeybuf)
-		ip, err := lookup.LookupIPv4(host)
+		ip, err := net.ResolveIPAddr("ip4", host)
+		var ans string
 		if err != nil {
 			logg.W(err)
-			ip = "127.0.0.1"
+			ans = "127.0.0.1"
+		} else {
+			ans = ip.String()
 		}
 
-		logg.D("dns: ", host, " ", ip)
-		w.Header().Add(dnsRespHeader, ip)
+		logg.D("dns: ", host, " ", ans)
+		w.Header().Add(dnsRespHeader, ans)
 		w.WriteHeader(200)
 
 	} else if options.IsSet(doConnect) {

@@ -1,103 +1,124 @@
 package lookup
 
 import (
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
+
+var validDomain = regexp.MustCompile(`^[a-zA-Z0-9.-_]+$`)
 
 func linesToRange(lines string) []ipRange {
 	l := strings.Split(lines, "\n")
 	ret := make([]ipRange, 0, len(l))
 
 	for _, iprange := range l {
-		s, e := tryParseIPRange(iprange)
-		ret = append(ret, ipRange{s, e})
+		ret = append(ret, tryParseIPRange(iprange))
 	}
 
 	return ret
 }
 
-func fillLookupTable(table *[]ipRange, iplist []ipRange) {
-	init := true
-	lastIPStart, lastIPEnd := uint32(0), uint32(0)
+func sortLookupTable(iplist []ipRange) []ipRange {
+	sort.Slice(iplist, func(i, j int) bool {
+		return iplist[i].start < iplist[j].start
+	})
 
-	for _, iprange := range iplist {
-		ipstart, ipend := iprange.start, iprange.end
-
-		if init {
-			init = false
-			lastIPStart, lastIPEnd = ipstart, ipend
+	for i := 1; i < len(iplist); {
+		if iplist[i-1].end+1 == iplist[i].start {
+			// merge
+			iplist[i-1].end = iplist[i].end
+			iplist = append(iplist[:i], iplist[i+1:]...)
 			continue
 		}
-
-		if ipstart != lastIPEnd+1 {
-			*table = append(*table, ipRange{lastIPStart, lastIPEnd})
-			lastIPStart = ipstart
-		}
-
-		lastIPEnd = ipend
+		i++
 	}
 
-	if lastIPStart > 0 && lastIPEnd >= lastIPStart {
-		*table = append(*table, ipRange{lastIPStart, lastIPEnd})
-	}
+	return iplist
 }
 
-func tryParseIPRange(iprange string) (uint32, uint32) {
+func tryParseIPRange(iprange string) ipRange {
 	p := strings.Split(iprange, " ")
 	if len(p) >= 2 {
 		// form: "0.0.0.0 1.2.3.4"
 		ipstart, ipend := IPv4ToInt(p[0]), IPv4ToInt(p[1])
 		if ipstart > 0 && ipend > 0 {
-			return ipstart, ipend
+			return ipRange{ipstart, ipend}
 		}
 	}
 
 	p = strings.Split(iprange, "/")
 	if len(p) >= 2 {
-		// form: "1.2.3.4/12"
+		// form: "1.2.3.4/12", ipv4 only
 		ipstart := IPv4ToInt(p[0])
+		if ipstart == 0 {
+			return ipRange{}
+		}
+
 		mask, _ := strconv.Atoi(p[1])
 
-		if mask >= 0 && mask < 32 { // could be 32
+		if mask >= 0 && mask <= 32 {
 			ipend := ipstart + (1<<(32-uint(mask)) - 1)
-			return ipstart, ipend
+			return ipRange{ipstart, ipend}
 		}
 	}
 
-	return 0, 0
+	panic(iprange)
+}
+
+func (lk *lookup) sortLookupTable() {
+	lk.IPv4Table = sortLookupTable(lk.IPv4Table)
 }
 
 func (lk *lookup) tryAddACLSingleRule(r string) {
 	r = strings.Replace(r, "\\.", ".", -1)
 	if strings.HasPrefix(r, "(^|.)") && strings.HasSuffix(r, "$") {
-		subs := strings.Split(strings.Trim(r[5:len(r)-1], "\r "), ".")
+		r = r[5 : len(r)-1]
+		if validDomain.MatchString(r) {
+			subs := strings.Split(strings.Trim(r, "\r "), ".")
+			fast := lk.DomainFastMatch
+			for i := len(subs) - 1; i >= 0; i-- {
+				if fast[subs[i]] == nil {
+					fast[subs[i]] = make(matchTree)
+				}
 
-		fast := lk.DomainFastMatch
-		for i := len(subs) - 1; i >= 0; i-- {
-			if fast[subs[i]] == nil {
-				fast[subs[i]] = make(matchTree)
+				if i == 0 {
+					// end
+					fast[subs[0]] = 0
+				} else {
+					it := fast[subs[i]]
+					switch it.(type) {
+					case int:
+						fast[subs[i]] = make(matchTree)
+						fast = fast[subs[i]].(matchTree)
+					case matchTree:
+						fast = it.(matchTree)
+					}
+				}
 			}
 
-			if i == 0 {
-				// end
-				fast[subs[0]] = 0
-			} else {
-				fast = fast[subs[i]].(matchTree)
-			}
+			return
 		}
-
-		return
 	}
 
 	if idx := strings.Index(r, "/"); idx > -1 {
 		if _, err := strconv.Atoi(r[idx+1:]); err == nil {
-
+			lk.IPv4Table = append(lk.IPv4Table, tryParseIPRange(r))
+			return
 		}
 	}
+
+	re, err := regexp.Compile(r)
+	if err == nil {
+		lk.DomainSlowMatch = append(lk.DomainSlowMatch, re)
+		return
+	}
+
+	panic(err)
 }
 
-func (lk *lookup) isDomainMatched(domain string) bool {
+func (lk *lookup) Match(domain string) bool {
 	slowMatch := func() bool {
 		for _, r := range lk.DomainSlowMatch {
 			if r.MatchString(domain) {
@@ -108,13 +129,17 @@ func (lk *lookup) isDomainMatched(domain string) bool {
 		return false
 	}
 
-	top := lk.DomainFastMatch
-	if top == nil {
-		return slowMatch()
+	if iip := IPv4ToInt(domain); iip > 0 {
+		return isIPInLookupTableI(iip, lk.IPv4Table)
 	}
 
 	subs := strings.Split(domain, ".")
 	if len(subs) <= 1 {
+		return slowMatch()
+	}
+
+	top := lk.DomainFastMatch
+	if top == nil {
 		return slowMatch()
 	}
 
@@ -134,5 +159,5 @@ func (lk *lookup) isDomainMatched(domain string) bool {
 		}
 	}
 
-	return true
+	return slowMatch()
 }

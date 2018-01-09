@@ -5,17 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-
-	"github.com/coyove/goflyway/pkg/lookup"
 )
 
 func (proxy *ProxyClient) PACFile(w http.ResponseWriter, r *http.Request) {
-	if lookup.White.DomainFastMatch == nil || len(lookup.White.DomainFastMatch) == 0 {
-		w.Write([]byte("the list is empty"))
-		return
-	}
-
-	table, _ := json.Marshal(lookup.White.DomainFastMatch)
+	table, _ := json.Marshal(proxy.ACL.White.DomainFastMatch)
 
 	t := "SOCKS5"
 	if proxy.Policy.IsSet(PolicyManInTheMiddle) {

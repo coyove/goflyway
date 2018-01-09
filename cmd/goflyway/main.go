@@ -16,7 +16,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"runtime"
 	"strings"
 )
 
@@ -50,7 +49,7 @@ var (
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
-	cmdACL        = flag.String("acl", "", "[C] load ACL file")
+	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -167,7 +166,8 @@ func main() {
 	}
 
 	if *cmdUpstream != "" || *cmdDebug {
-		if err := lookup.LoadACL(*cmdACL); err != nil {
+		acl, err := lookup.LoadACL(*cmdACL)
+		if err != nil {
 			fmt.Println("* failed to read ACL config (but it's fine, you can ignore this message)")
 			fmt.Println("*   err:", err)
 		}
@@ -180,6 +180,7 @@ func main() {
 			DNSCache:       lru.NewCache(int(*cmdDNSCache)),
 			CACache:        lru.NewCache(256),
 			CA:             lib.TryLoadCert(),
+			ACL:            acl,
 			Mux:            int(*cmdMux),
 		}
 
@@ -298,14 +299,6 @@ func main() {
 		fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
 		logg.F(client.Start())
 	} else {
-		// save some space because server doesn't need lookup
-		lookup.White.DomainFastMatch = nil
-		lookup.White.IPv4Table = nil
-		lookup.White.PrivateIPv4Table = nil
-		lookup.ChinaIP = ""
-
-		// global variables are pain in the ass
-		runtime.GC()
 		server := proxy.NewServer(localaddr, sc)
 		fmt.Println("* upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
 		if strings.HasPrefix(sc.ProxyPassAddr, "http") {

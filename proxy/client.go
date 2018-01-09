@@ -38,6 +38,7 @@ type ClientConfig struct {
 	DNSCache *lru.Cache
 	CA       tls.Certificate
 	CACache  *lru.Cache
+	ACL      *lookup.ACL
 
 	*Cipher
 }
@@ -322,16 +323,19 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			host += ":80"
 		}
 
-		if proxy.canDirectConnect(host) {
-			logg.D("CONNECT ", r.RequestURI)
+		if ans, ext := proxy.canDirectConnect(host); ans == lookup.Black {
+			logg.D("BLACKLIST ", host, ext)
+			proxyClient.Close()
+		} else if ans == lookup.White {
+			logg.D("CONNECT ", r.RequestURI, ext)
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyManInTheMiddle) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			logg.D("WS^ ", r.RequestURI)
+			logg.D("WS^ ", r.RequestURI, ext)
 			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP, 0)
 		} else {
-			logg.D("CONNECT^ ", r.RequestURI)
+			logg.D("CONNECT^ ", r.RequestURI, ext)
 			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP, 0)
 		}
 	} else {
@@ -353,11 +357,15 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var rkeybuf []byte
 
-		if proxy.canDirectConnect(r.Host) {
-			logg.D(r.Method, " ", rURL)
+		if ans, ext := proxy.canDirectConnect(r.Host); ans == lookup.Black {
+			logg.D("BLACKLIST ", r.Host, ext)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		} else if ans == lookup.White {
+			logg.D(r.Method, " ", r.Host, ext)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			logg.D(r.Method, "^ ", rURL)
+			logg.D(r.Method, "^ ", r.Host, ext)
 			resp, rkeybuf, err = proxy.encryptAndTransport(r)
 		}
 
@@ -382,45 +390,57 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (proxy *ProxyClient) canDirectConnect(host string) bool {
+func (proxy *ProxyClient) canDirectConnect(host string) (byte, string) {
 	if proxy.Policy.IsSet(PolicyDisabled) {
-		return true
+		return lookup.White, " (disable-pass)"
 	}
 
 	host, _ = splitHostPort(host)
-	isChineseIP := func(ip string) bool {
-		if proxy.Policy.IsSet(PolicyGlobal) {
-			return false
-		}
-
-		return lookup.IsWhiteIP(ip)
+	if proxy.ACL.Black.Match(host) {
+		return lookup.Black, " (block)"
 	}
 
-	if lookup.IsHost(&lookup.White, host) {
-		return !proxy.Policy.IsSet(PolicyGlobal)
+	check := func(ip string, trustPrivateIP bool) byte {
+		if proxy.ACL.IsPrivateIP(ip) && trustPrivateIP {
+			return lookup.White
+		} else if proxy.Policy.IsSet(PolicyGlobal) {
+			return lookup.Gray
+		} else if proxy.ACL.White.Match(ip) {
+			return lookup.White
+		} else if proxy.ACL.Gray.Always {
+			return lookup.Gray
+		}
+		return lookup.White
+	}
+
+	if proxy.ACL.White.Match(host) {
+		if proxy.Policy.IsSet(PolicyGlobal) {
+			return lookup.Gray, " (global-proxy)"
+		}
+		return lookup.White, " (pass)"
 	}
 
 	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
-		return lookup.IsPrivateIP(ip.(string)) || isChineseIP(ip.(string))
+		return check(ip.(string), true), " (cache-" + ip.(string) + ")"
 	}
 
 	// lookup at local in case host points to a private ip
-	ip, err := lookup.LookupIPv4(host)
+	ip, err := proxy.ACL.LookupIPv4(host)
 	if err != nil {
 		logg.E(err)
 	}
 
-	if lookup.IsPrivateIP(ip) {
+	if proxy.ACL.IsPrivateIP(ip) {
 		proxy.DNSCache.Add(host, ip)
-		return true
+		return lookup.White, " (priv-" + ip + ")"
 	}
 
 	// if it is a foreign ip or we trust local dns repsonse, just return the answer
 	// but if it is a chinese ip, we withhold and query the upstream to double check
-	maybeChinese := isChineseIP(ip)
-	if !maybeChinese || proxy.Policy.IsSet(PolicyTrustClientDNS) {
+	maybeChinese := check(ip, true)
+	if !proxy.ACL.RemoteDNS || maybeChinese == lookup.Gray {
 		proxy.DNSCache.Add(host, ip)
-		return maybeChinese
+		return maybeChinese, " (quick-" + ip + ")"
 	}
 
 	dnsloc := "http://" + proxy.genHost()
@@ -433,7 +453,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 	req, err := http.NewRequest("GET", dnsloc, nil)
 	if err != nil {
 		logg.E(err)
-		return maybeChinese
+		return maybeChinese, " (err-" + ip + ")"
 	}
 
 	req.Header.Add(proxy.rkeyHeader, rkey)
@@ -448,16 +468,16 @@ func (proxy *ProxyClient) canDirectConnect(host string) bool {
 		} else {
 			logg.E(err)
 		}
-		return maybeChinese
+		return maybeChinese, " (network-err-" + ip + ")"
 	}
 	tryClose(resp.Body)
 	ip2 := net.ParseIP(resp.Header.Get(dnsRespHeader)).To4()
 	if ip2 == nil {
-		return maybeChinese
+		return maybeChinese, " (format-err-" + ip + ")"
 	}
 
 	proxy.DNSCache.Add(host, ip2.String())
-	return isChineseIP(ip2.String())
+	return check(ip2.String(), true), " (first-" + ip + ")"
 }
 
 func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
@@ -530,14 +550,17 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	host := addr.String()
 	switch method {
 	case 1:
-		if proxy.canDirectConnect(host) {
-			logg.D("SOCKS ", host)
+		if ans, ext := proxy.canDirectConnect(host); ans == lookup.Black {
+			logg.D("BLACKLIST ", host, ext)
+			conn.Close()
+		} else if ans == lookup.White {
+			logg.D("SOCKS ", host, ext)
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			logg.D("WS^ ", host)
+			logg.D("WS^ ", host, ext)
 			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS, 0)
 		} else {
-			logg.D("SOCKS^ ", host)
+			logg.D("SOCKS^ ", host, ext)
 			proxy.dialUpstreamAndBridge(conn, host, okSOCKS, 0)
 		}
 	case 3:
@@ -637,5 +660,6 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.pool.DialTimeout(time.Second)
 	}
 
+	logg.D(proxy.canDirectConnect("youtube.com"))
 	return proxy
 }

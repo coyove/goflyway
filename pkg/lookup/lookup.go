@@ -1,7 +1,7 @@
 package lookup
 
 import (
-	"fmt"
+	"errors"
 	"io/ioutil"
 	"net"
 	"regexp"
@@ -15,92 +15,101 @@ type matchTree map[string]interface{}
 
 type ipRange struct{ start, end uint32 }
 
-type lookupi interface {
-	isDomainMatched(domain string) bool
-}
-
 type lookup struct {
+	Always          bool
 	DomainFastMatch matchTree
 	DomainSlowMatch []*regexp.Regexp
-
-	IPv4Table []ipRange
+	IPv4Table       []ipRange
 }
 
-var (
-	// White are those which should be accessed directly
-	White struct {
-		lookup
-		PrivateIPv4Table []ipRange
-	}
+func (lk *lookup) init() {
+	lk.IPv4Table = make([]ipRange, 0)
+	lk.DomainSlowMatch = make([]*regexp.Regexp, 0)
+	lk.DomainFastMatch = make(matchTree)
+}
 
-	// Black are those which should be banned
-	// Note that non-White doesn't necessarily mean Black
-	Black struct {
-		lookup
-	}
+const (
+	Black = iota
+	White
+	Gray
 )
 
-func init() {
-	White.IPv4Table, White.PrivateIPv4Table = make([]ipRange, 0), make([]ipRange, 0)
-	White.DomainSlowMatch, Black.DomainSlowMatch = make([]*regexp.Regexp, 0), make([]*regexp.Regexp, 0)
-	Black.IPv4Table = make([]ipRange, 0)
+// ACL stands for Access Control List
+type ACL struct {
+	Black lookup // Black are those which should be banned, first to check
+	White lookup // White are those which should be accessed directly
+	Gray  lookup // Gray are those which should be proxied
 
-	fill := func(table *[]ipRange, iplist string) {
-		list := linesToRange(iplist)
-		fillLookupTable(table, list)
-	}
-
-	fill(&White.IPv4Table, ChinaIP)
-	fill(&White.PrivateIPv4Table, PrivateIP)
+	PrivateIPv4Table []ipRange
+	RemoteDNS        bool
+	Legacy           bool
 }
 
-// LoadACL loads ACL config, if empty, it loads chinalist.txt
-func LoadACL(acl string) error {
-	if acl == "" {
-		return loadChinaList()
+func (acl *ACL) init() {
+	acl.White.init()
+	acl.Gray.init()
+	acl.Black.init()
+	acl.PrivateIPv4Table = sortLookupTable(linesToRange(PrivateIP))
+	acl.RemoteDNS = true
+}
+
+// LoadACL loads ACL config, which can be chinalist.txt or SS ACL
+// note that it will always return a valid ACL struct, but may be empty
+func LoadACL(path string) (*ACL, error) {
+	acl := &ACL{}
+	acl.init()
+
+	buf, err := ioutil.ReadFile(path)
+	if err != nil {
+		return acl, err
 	}
 
-	buf, err := ioutil.ReadFile(acl)
-	if err != nil {
-		return err
+	if strings.HasSuffix(path, "chinalist.txt") {
+		return loadChinaList(buf)
 	}
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		return err
+		return acl, err
 	}
 
-	cf.Iterate("bypass_list", func(key string) {
-		fmt.Println(key)
-	})
+	acl.Gray.Always = cf.HasSection("proxy_all")
+	acl.White.Always = cf.HasSection("bypass_all")
+	acl.RemoteDNS = !cf.HasSection("local_dns")
 
-	// cf.Iterate("proxy_list", func(key string) {
-	// 	fmt.Println(key)
-	// })
+	if acl.Gray.Always && acl.White.Always {
+		return acl, errors.New("proxy_all and bypass_all collide")
+	}
 
-	// cf.Iterate("outbound_block_list", func(key string) {
-	// 	fmt.Println(key)
-	// })
-	fmt.Println(IsPrivateIP("127.0.0.1"), IsPrivateIP("127.0.0.255"))
-	return nil
+	cf.Iterate("bypass_list", func(key string) { acl.White.tryAddACLSingleRule(key) })
+	acl.White.sortLookupTable()
+
+	cf.Iterate("proxy_list", func(key string) { acl.Gray.tryAddACLSingleRule(key) })
+	acl.Gray.sortLookupTable()
+
+	cf.Iterate("outbound_block_list", func(key string) { acl.Black.tryAddACLSingleRule(key) })
+	acl.Black.sortLookupTable()
+
+	// fmt.Println(IPv4ToInt("47.97.161.219"))
+	// fmt.Println(acl.White.IPv4Table)
+	return acl, nil
 }
 
-func loadChinaList() error {
-	buf, err := ioutil.ReadFile("./chinalist.txt")
-	if err != nil {
-		return err
-	}
+func loadChinaList(buf []byte) (*ACL, error) {
+	acl := &ACL{}
+	acl.init()
+	acl.White.IPv4Table = sortLookupTable(linesToRange(ChinaIP))
+	acl.Gray.Always = true
+	acl.Legacy = true
 
 	raw := string(buf)
-	White.DomainFastMatch = make(matchTree)
-
 	for _, domain := range strings.Split(raw, "\n") {
 		subs := strings.Split(strings.Trim(domain, "\r "), ".")
 		if len(subs) == 0 || len(domain) == 0 || domain[0] == '#' {
 			continue
 		}
 
-		top := White.DomainFastMatch
+		top := acl.White.DomainFastMatch
 		for i := len(subs) - 1; i >= 0; i-- {
 			if top[subs[i]] == nil {
 				top[subs[i]] = make(matchTree)
@@ -115,7 +124,7 @@ func loadChinaList() error {
 		}
 	}
 
-	return nil
+	return acl, nil
 }
 
 func isIPInLookupTable(ip string, table []ipRange) bool {
@@ -124,6 +133,10 @@ func isIPInLookupTable(ip string, table []ipRange) bool {
 		return false
 	}
 
+	return isIPInLookupTableI(m, table)
+}
+
+func isIPInLookupTableI(ip uint32, table []ipRange) bool {
 	var rec func([]ipRange) bool
 	rec = func(r []ipRange) bool {
 		if len(r) == 0 {
@@ -131,11 +144,11 @@ func isIPInLookupTable(ip string, table []ipRange) bool {
 		}
 
 		mid := len(r) / 2
-		if m >= r[mid].start && m <= r[mid].end {
+		if ip >= r[mid].start && ip <= r[mid].end {
 			return true
 		}
 
-		if m < r[mid].start {
+		if ip < r[mid].start {
 			return rec(r[:mid])
 		}
 
@@ -145,24 +158,12 @@ func isIPInLookupTable(ip string, table []ipRange) bool {
 	return rec(table)
 }
 
-func IsHost(master lookupi, host string) bool {
-	return master.isDomainMatched(host)
-}
-
-func IsWhiteIP(ip string) bool {
-	return isIPInLookupTable(ip, White.IPv4Table) || isIPInLookupTable(ip, White.PrivateIPv4Table)
-}
-
-func IsBlackIP(ip string) bool {
-	return isIPInLookupTable(ip, Black.IPv4Table)
-}
-
-func IsPrivateIP(ip string) bool {
-	return isIPInLookupTable(ip, White.PrivateIPv4Table)
+func (acl *ACL) IsPrivateIP(ip string) bool {
+	return isIPInLookupTable(ip, acl.PrivateIPv4Table)
 }
 
 // LookupIPv4 returns the IP address of host
-func LookupIPv4(host string) (string, error) {
+func (acl *ACL) LookupIPv4(host string) (string, error) {
 	if host[0] == '[' && host[len(host)-1] == ']' {
 		// ipv6, we return empty, but also no error
 		return "", nil
@@ -176,7 +177,7 @@ func LookupIPv4(host string) (string, error) {
 	return ip.String(), nil
 }
 
-// IPv4ToInt converts an IP string to its integer representation
+// IPv4ToInt converts an IPv4 string to its integer representation
 func IPv4ToInt(ip string) uint32 {
 	p := strings.Split(ip, ".")
 	if len(p) != 4 {

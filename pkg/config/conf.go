@@ -30,8 +30,13 @@ func (c *conf_t) getSection(section string) map[string]interface{} {
 	}
 }
 
+func (c *conf_t) HasSection(section string) bool {
+	_, ok := (*c)[section]
+	return ok
+}
+
 func (c *conf_t) Iterate(section string, callback func(key string)) {
-	for k, _ := range c.getSection(section) {
+	for k := range c.getSection(section) {
 		callback(k)
 	}
 }
@@ -39,41 +44,36 @@ func (c *conf_t) Iterate(section string, callback func(key string)) {
 func (c *conf_t) GetString(section, key string, defaultvalue string) string {
 	if s, ok := c.getSection(section)[key].(string); ok {
 		return s
-	} else {
-		return defaultvalue
 	}
+	return defaultvalue
 }
 
 func (c *conf_t) GetInt(section, key string, defaultvalue int64) int64 {
 	if s, ok := c.getSection(section)[key].(float64); ok {
 		return int64(s)
-	} else {
-		return defaultvalue
 	}
+	return defaultvalue
 }
 
 func (c *conf_t) GetFloat(section, key string, defaultvalue float64) float64 {
 	if s, ok := c.getSection(section)[key].(float64); ok {
 		return s
-	} else {
-		return defaultvalue
 	}
+	return defaultvalue
 }
 
 func (c *conf_t) GetBool(section, key string, defaultvalue bool) bool {
 	if s, ok := c.getSection(section)[key].(bool); ok {
 		return s
-	} else {
-		return defaultvalue
 	}
+	return defaultvalue
 }
 
 func (c *conf_t) GetArray(section, key string) []interface{} {
 	if s, ok := c.getSection(section)[key].([]interface{}); ok {
 		return s
-	} else {
-		return nil
 	}
+	return nil
 }
 
 func ParseConf(str string) (*conf_t, error) {
@@ -96,8 +96,12 @@ func ParseConf(str string) (*conf_t, error) {
 			case '[':
 				if quote == 0 {
 					if e := strings.Index(line, "]"); e > 0 {
-						curSection = make(map[string]interface{})
-						config[line[1:e]] = curSection
+						sec := line[1:e]
+						curSection = config[sec]
+						if curSection == nil {
+							curSection = make(map[string]interface{})
+							config[sec] = curSection
+						}
 						break L
 					} else {
 						return nil, &ConfError{ln, idx, string(c)}
