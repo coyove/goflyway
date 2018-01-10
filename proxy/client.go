@@ -300,7 +300,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.RequestURI == "/proxy.pac" {
-		proxy.PACFile(w, r)
+		proxy.servePACFile(w, r)
 		return
 	}
 
@@ -660,6 +660,5 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.pool.DialTimeout(time.Second)
 	}
 
-	logg.D(proxy.canDirectConnect("youtube.com"))
 	return proxy
 }

@@ -7,28 +7,39 @@ import (
 	"net/http"
 )
 
-func (proxy *ProxyClient) PACFile(w http.ResponseWriter, r *http.Request) {
+func (proxy *ProxyClient) servePACFile(w http.ResponseWriter, r *http.Request) {
 	table, _ := json.Marshal(proxy.ACL.White.DomainFastMatch)
-
+	table2 := proxy.ACL.White.DomainSlowMatch
 	t := "SOCKS5"
 	if proxy.Policy.IsSet(PolicyManInTheMiddle) {
 		t = "PROXY"
 	}
 
 	pac := &bytes.Buffer{}
-	pac.WriteString("var table = ")
+	pac.WriteString("function slowMatch(host) { ")
+	if len(table2) > 0 {
+		pac.WriteString("return ")
+		for _, r := range table2 {
+			pac.WriteString("host.match(/" + r.String() + "/)||")
+		}
+		pac.Truncate(pac.Len() - 2)
+	} else {
+		pac.WriteString("return false")
+	}
+	pac.WriteString(` } 
+		var table = `)
 	pac.Write(table)
 	pac.WriteString(fmt.Sprintf(`;
 		function isInTable(host) {
 			var cands = host.split('.');
 			if (cands.length <= 1)
-				return false;
+				return slowMatch(host);
 		
 			var _table = table;
 			for (var i = cands.length - 1; i >= 0; i--) {
 				var cand = cands[i];
 				if (!(cand in _table))
-					return false;
+					return slowMatch(host);
 		
 				if (_table[cand] === 0)
 					return true;
@@ -36,7 +47,7 @@ func (proxy *ProxyClient) PACFile(w http.ResponseWriter, r *http.Request) {
 				_table = _table[cand];
 			}
 
-			return true;
+			return slowMatch(host);
 		}
 		
 		function FindProxyForURL(url, host) {

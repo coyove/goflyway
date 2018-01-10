@@ -53,15 +53,25 @@ func (acl *ACL) init() {
 	acl.RemoteDNS = true
 }
 
-// LoadACL loads ACL config, which can be chinalist.txt or SS ACL
-// note that it will always return a valid ACL struct, but may be empty
+func (acl *ACL) postInit() *ACL {
+	acl.White.IPv4Table = sortLookupTable(linesToRange(ChinaIP))
+	acl.Gray.Always = true
+	acl.White.Always = false
+	acl.RemoteDNS = true
+	acl.Legacy = true
+	return acl
+}
+
+// LoadACL loads ACL config, which can be chinalist.txt or SS ACL,
+// note that it will always return a valid ACL struct, but may be empty.
+// An empty ACL checks China IP only, if failed, it goes Gray as always.
 func LoadACL(path string) (*ACL, error) {
 	acl := &ACL{}
 	acl.init()
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		return acl, err
+		return acl.postInit(), err
 	}
 
 	if strings.HasSuffix(path, "chinalist.txt") {
@@ -70,7 +80,7 @@ func LoadACL(path string) (*ACL, error) {
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		return acl, err
+		return acl.postInit(), err
 	}
 
 	acl.Gray.Always = cf.HasSection("proxy_all")
@@ -78,7 +88,7 @@ func LoadACL(path string) (*ACL, error) {
 	acl.RemoteDNS = !cf.HasSection("local_dns")
 
 	if acl.Gray.Always && acl.White.Always {
-		return acl, errors.New("proxy_all and bypass_all collide")
+		return acl.postInit(), errors.New("proxy_all and bypass_all collide")
 	}
 
 	cf.Iterate("bypass_list", func(key string) { acl.White.tryAddACLSingleRule(key) })
@@ -98,9 +108,7 @@ func LoadACL(path string) (*ACL, error) {
 func loadChinaList(buf []byte) (*ACL, error) {
 	acl := &ACL{}
 	acl.init()
-	acl.White.IPv4Table = sortLookupTable(linesToRange(ChinaIP))
-	acl.Gray.Always = true
-	acl.Legacy = true
+	acl.postInit()
 
 	raw := string(buf)
 	for _, domain := range strings.Split(raw, "\n") {
@@ -158,6 +166,7 @@ func isIPInLookupTableI(ip uint32, table []ipRange) bool {
 	return rec(table)
 }
 
+// IsPrivateIP checks if the given IPv4 is private
 func (acl *ACL) IsPrivateIP(ip string) bool {
 	return isIPInLookupTable(ip, acl.PrivateIPv4Table)
 }

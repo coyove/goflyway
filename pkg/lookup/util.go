@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var validDomain = regexp.MustCompile(`^[a-zA-Z0-9.-_]+$`)
+var validDomain = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
 
 func linesToRange(lines string) []ipRange {
 	l := strings.Split(lines, "\n")
