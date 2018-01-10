@@ -398,6 +398,13 @@ func (proxy *ProxyClient) canDirectConnect(host string) (byte, string) {
 	host, _ = splitHostPort(host)
 	if proxy.ACL.Black.Match(host) {
 		return lookup.Black, " (block)"
+	} else if proxy.ACL.Gray.Match(host) {
+		return lookup.Gray, " (proxy)"
+	} else if proxy.ACL.White.Match(host) {
+		if proxy.Policy.IsSet(PolicyGlobal) {
+			return lookup.Gray, " (global-proxy)"
+		}
+		return lookup.White, " (pass)"
 	}
 
 	check := func(ip string, trustPrivateIP bool) byte {
@@ -407,17 +414,12 @@ func (proxy *ProxyClient) canDirectConnect(host string) (byte, string) {
 			return lookup.Gray
 		} else if proxy.ACL.White.Match(ip) {
 			return lookup.White
+		} else if proxy.ACL.Gray.Match(ip) {
+			return lookup.Gray
 		} else if proxy.ACL.Gray.Always {
 			return lookup.Gray
 		}
 		return lookup.White
-	}
-
-	if proxy.ACL.White.Match(host) {
-		if proxy.Policy.IsSet(PolicyGlobal) {
-			return lookup.Gray, " (global-proxy)"
-		}
-		return lookup.White, " (pass)"
 	}
 
 	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
