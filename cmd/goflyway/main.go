@@ -7,9 +7,9 @@ import (
 	"os"
 
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
+	"github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/goflyway/pkg/config"
 	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/goflyway/proxy"
 
@@ -41,7 +41,7 @@ var (
 	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
 
 	// Client flags
-	cmdBasic      = flag.String("y", "iplist", "[C] proxy type: {none, iplist, iplist_l, global}")
+	cmdGlobal     = flag.Bool("g", false, "[C] global proxy")
 	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
 	cmdPartial    = flag.Bool("partial", false, "[C] partially encrypt the tunnel traffic")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
@@ -87,7 +87,7 @@ func loadConfig() {
 		*cmdMux = 10
 		*cmdLogLevel = "dbg"
 		*cmdVPN = true
-		*cmdBasic = "global"
+		*cmdGlobal = true
 		return
 	}
 
@@ -103,7 +103,7 @@ func loadConfig() {
 	*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
 	*cmdDiableUDP = cf.GetBool("default", "disableudp", *cmdDiableUDP)
 	*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
-	*cmdBasic = cf.GetString("default", "type", *cmdBasic)
+	*cmdGlobal = cf.GetBool("default", "global", *cmdGlobal)
 	*cmdACL = cf.GetString("default", "acl", *cmdACL)
 	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
 
@@ -166,7 +166,7 @@ func main() {
 	}
 
 	if *cmdUpstream != "" || *cmdDebug {
-		acl, err := lookup.LoadACL(*cmdACL)
+		acl, err := aclrouter.LoadACL(*cmdACL)
 		if err != nil {
 			fmt.Println("* failed to read ACL config (but it's fine, you can ignore this message)")
 			fmt.Println("*   err:", err)
@@ -179,7 +179,6 @@ func main() {
 			Cipher:         cipher,
 			DNSCache:       lru.NewCache(int(*cmdDNSCache)),
 			CACache:        lru.NewCache(256),
-			CA:             lib.TryLoadCert(),
 			ACL:            acl,
 			Mux:            int(*cmdMux),
 		}
@@ -213,20 +212,13 @@ func main() {
 			case fwd, http:
 				cc.Policy.Set(proxy.PolicyManInTheMiddle)
 				fmt.Println("* use MITM to intercept HTTPS (HTTP proxy mode only)")
+				cc.CA = lib.TryLoadCert()
 			}
 		}
 
-		switch *cmdBasic {
-		case "none":
-			cc.Policy.Set(proxy.PolicyDisabled)
-		case "global":
+		if *cmdGlobal {
+			fmt.Println("* global proxy: goflyway will proxy everything except private IPs")
 			cc.Policy.Set(proxy.PolicyGlobal)
-		case "iplist_l":
-			cc.Policy.Set(proxy.PolicyTrustClientDNS)
-		case "iplist":
-			// do nothing, default policy
-		default:
-			fmt.Println("* invalid proxy type:", *cmdBasic)
 		}
 
 		if *cmdVPN {

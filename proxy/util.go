@@ -41,10 +41,8 @@ const (
 )
 
 const (
-	PolicyDisabled = 1 << iota
-	PolicyManInTheMiddle
+	PolicyManInTheMiddle = 1 << iota
 	PolicyGlobal
-	PolicyTrustClientDNS
 	PolicyVPN
 	PolicyWebSocket
 )

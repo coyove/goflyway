@@ -3,8 +3,8 @@ package proxy
 import (
 	"crypto/tls"
 
+	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lookup"
 	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/tcpmux"
 
@@ -38,7 +38,7 @@ type ClientConfig struct {
 	DNSCache *lru.Cache
 	CA       tls.Certificate
 	CACache  *lru.Cache
-	ACL      *lookup.ACL
+	ACL      *acr.ACL
 
 	*Cipher
 }
@@ -207,7 +207,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
 	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], okHTTP[:15]) {
 		if err != nil {
-			logg.E(err)
+			logg.E(host, ": ", err)
 		}
 
 		upstreamConn.Close()
@@ -259,7 +259,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
 		if err != nil {
-			logg.E(err)
+			logg.E(host, ": ", err)
 		}
 
 		upstreamConn.Close()
@@ -323,10 +323,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			host += ":80"
 		}
 
-		if ans, ext := proxy.canDirectConnect(host); ans == lookup.Black {
+		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
 			logg.D("BLACKLIST ", host, ext)
 			proxyClient.Close()
-		} else if ans == lookup.White {
+		} else if ans == rulePass {
 			logg.D("CONNECT ", r.RequestURI, ext)
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyManInTheMiddle) {
@@ -357,11 +357,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var rkeybuf []byte
 
-		if ans, ext := proxy.canDirectConnect(r.Host); ans == lookup.Black {
+		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
 			logg.D("BLACKLIST ", r.Host, ext)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
-		} else if ans == lookup.White {
+		} else if ans == rulePass {
 			logg.D(r.Method, " ", r.Host, ext)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
@@ -388,98 +388,6 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		tryClose(resp.Body)
 	}
-}
-
-func (proxy *ProxyClient) canDirectConnect(host string) (byte, string) {
-	if proxy.Policy.IsSet(PolicyDisabled) {
-		return lookup.White, " (disable-pass)"
-	}
-
-	host, _ = splitHostPort(host)
-	if proxy.ACL.Black.Match(host) {
-		return lookup.Black, " (block)"
-	} else if proxy.ACL.Gray.Match(host) {
-		return lookup.Gray, " (proxy)"
-	} else if proxy.ACL.White.Match(host) {
-		if proxy.Policy.IsSet(PolicyGlobal) {
-			return lookup.Gray, " (global-proxy)"
-		}
-		return lookup.White, " (pass)"
-	}
-
-	check := func(ip string, trustPrivateIP bool) byte {
-		if proxy.ACL.IsPrivateIP(ip) && trustPrivateIP {
-			return lookup.White
-		} else if proxy.Policy.IsSet(PolicyGlobal) {
-			return lookup.Gray
-		} else if proxy.ACL.White.Match(ip) {
-			return lookup.White
-		} else if proxy.ACL.Gray.Match(ip) {
-			return lookup.Gray
-		} else if proxy.ACL.Gray.Always {
-			return lookup.Gray
-		}
-		return lookup.White
-	}
-
-	if ip, ok := proxy.DNSCache.Get(host); ok && ip.(string) != "" { // we have cached the host
-		return check(ip.(string), true), " (cache-" + ip.(string) + ")"
-	}
-
-	// lookup at local in case host points to a private ip
-	ip, err := proxy.ACL.LookupIPv4(host)
-	if err != nil {
-		logg.E(err)
-	}
-
-	if proxy.ACL.IsPrivateIP(ip) {
-		proxy.DNSCache.Add(host, ip)
-		return lookup.White, " (priv-" + ip + ")"
-	}
-
-	// if it is a foreign ip or we trust local dns repsonse, just return the answer
-	// but if it is a chinese ip, we withhold and query the upstream to double check
-	maybeChinese := check(ip, true)
-	if !proxy.ACL.RemoteDNS || maybeChinese == lookup.Gray {
-		proxy.DNSCache.Add(host, ip)
-		return maybeChinese, " (quick-" + ip + ")"
-	}
-
-	dnsloc := "http://" + proxy.genHost()
-	rkey, _ := proxy.Cipher.NewIV(doDNS, []byte(host), proxy.UserAuth)
-
-	if proxy.URLHeader != "" {
-		dnsloc = "http://" + proxy.Upstream
-	}
-
-	req, err := http.NewRequest("GET", dnsloc, nil)
-	if err != nil {
-		logg.E(err)
-		return maybeChinese, " (err-" + ip + ")"
-	}
-
-	req.Header.Add(proxy.rkeyHeader, rkey)
-	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost())
-	}
-
-	resp, err := proxy.tpq.RoundTrip(req)
-	if err != nil {
-		if e, _ := err.(net.Error); e != nil && e.Timeout() {
-			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
-		} else {
-			logg.E(err)
-		}
-		return maybeChinese, " (network-err-" + ip + ")"
-	}
-	tryClose(resp.Body)
-	ip2 := net.ParseIP(resp.Header.Get(dnsRespHeader)).To4()
-	if ip2 == nil {
-		return maybeChinese, " (format-err-" + ip + ")"
-	}
-
-	proxy.DNSCache.Add(host, ip2.String())
-	return check(ip2.String(), true), " (first-" + ip + ")"
 }
 
 func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
@@ -552,10 +460,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	host := addr.String()
 	switch method {
 	case 1:
-		if ans, ext := proxy.canDirectConnect(host); ans == lookup.Black {
+		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
 			logg.D("BLACKLIST ", host, ext)
 			conn.Close()
-		} else if ans == lookup.White {
+		} else if ans == rulePass {
 			logg.D("SOCKS ", host, ext)
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {

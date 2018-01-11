@@ -21,60 +21,6 @@ var webConsoleHTML, _ = template.New("console").Parse(`
             font-size: 12px;
         }
 
-        table.dns {
-            font-size: 12px;
-            border-collapse: collapse;
-            width: 100%;
-			max-width: 100%;
-			display: none;
-			margin: 4px 0;
-        }
-
-        table.dns td, table.dns th {
-            border: solid 1px rgba(0, 0, 0, 0.1);
-            padding: 4px 8px;
-        }
-
-        table.dns td.ip {
-            font-family: "Lucida Console", Monaco, monospace;
-        }
-
-		table.dns tr:first-child {
-			cursor: pointer;
-		}
-
-        table.dns tr:nth-child(odd) {
-           background-color: #e3e4e5;
-        }
-
-        .i {
-            width: 100%;
-        }
-
-        #panel{
-            float: left;
-            margin-left: 8px;
-        }
-
-        span.r {
-            display: inline-block;
-            margin-right: 6px;
-            line-height: 20px;
-        }
-
-        span.r + input {
-            float: right;
-        }
-
-        h3 {
-            font-size: 14px;
-            margin: 0.25em 0;
-        }
-
-        hr {
-            border: dashed 1px #cacbcc;
-        }
-
         #logo {
             image-rendering: optimizeSpeed;
             image-rendering: -moz-crisp-edges;
@@ -85,73 +31,72 @@ var webConsoleHTML, _ = template.New("console").Parse(`
             -ms-interpolation-mode: nearest-neighbor;
             display: none;
             float: left;
-		}
-		
-		.folder {
-			width: 100%;
-			max-width: 100%;
-			clear: both;
-			margin: 4px 0;
-		}
+        }
+        
+        table.dns td.rule span {
+            display: block;
+            margin: -4px -8px;
+            height: 100%;
+            width: 100%;
+            padding: 4px 8px;
+            text-align: center;
+        }
 
-		.folder button[fold=false]::before {
-			content: '+ ';
-			font-family: monospace;
-		}
-
-		.folder button[fold=true]::before {
-			content: '- ';
-			font-family: monospace;
-		}
-	</style>
-	
-	<script>
-	function unfold(el) {
-		if (el.getAttribute("fold") === "false") {
-			el.setAttribute("fold", "true");
-			el.nextSibling.style.display = "block";
-		} else {
-			el.setAttribute("fold", "false");
-			el.nextSibling.style.display = "none";
-		}
-	}
-	</script>
-
+        table.dns                           { border-collapse: collapse; margin: 4px 0; }
+        table.dns td, table.dns th          { border: solid 1px rgba(0, 0, 0, 0.1); padding: 4px 8px; }
+        table.dns td.ip, table.dns td.rule 	{ font-family: "Lucida Console", Monaco, monospace; }
+        table.dns td.rule span.Block 		{ background: red; color:white; }
+        table.dns td.rule span.Private 		{ background: #5D4037; color:white; }
+        table.dns td.rule span.MatchedPass 	{ background: #00796B; color:white; }
+        table.dns td.rule span.Pass 		{ background: #00796B; color:white; }
+        table.dns td.rule span.MatchedProxy { background: #FBC02D; }
+        table.dns td.rule span.Proxy 		{ background: #FBC02D; }
+        table.dns td.rule span.IPv6 		{ background: #7B1FA2; color:white; }
+        table.dns td.rule span.Unknown 		{ background: #512DA8; color:white; }
+        table.dns tr:nth-child(odd) 		{ background-color: #e3e4e5; }
+        
+        #panel 			{ float: left; margin-left: 8px; }
+        span.r 			{ display: inline-block; margin-right: 6px; line-height: 20px; }
+        span.r + input 	{ float: right; }
+        
+        .folder { width: 100%; max-width: 100%; clear: both; margin: 4px 0; }
+        .folder button[fold=true]::before   { content: '+ '; font-family: monospace; }
+        .folder button[fold=true] + *       { display: none; }
+        .folder button[fold=false]::before  { content: '- '; font-family: monospace; }
+        .folder button[fold=false] + *      { display: block; }
+    </style>
+    
     <img id=logo src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABMAAAATBAMAAACAfiv/AAAAD1BMVEVjY2dmZXZnZndnZnZnZnd4CqQOAAAABHRSTlMC/vz7NKZ17gAAAEtJREFUeF5jcIEBBxSmo6AgGAOZAgxgDGYCRQREBMBMIAYyIKIGLgKKCihq8ZoLhDC1jhATFEVcBAQEIKIsMKYAUIuAAoyJ11wEEwAgDCYCrylKywAAAABJRU5ErkJggg==">
 
     <form id=panel method='POST'>
     <table>
-        <tr><td colspan=2><h3>{{.I18N.Basic}}</h3></td></tr>
-        <tr><td>{{.I18N.Key}}:</td><td><input class=i name='key' value='{{.Key}}'/></td></tr>
-        <tr><td>{{.I18N.Auth}}:</td><td><input class=i name='auth' value='{{.Auth}}' placeholder='<empty>'/></td></tr>
-        <tr><td colspan=2><input type='checkbox' name='gproxy' {{if .ProxyAll}}checked{{end}}/><label>{{.I18N.Global}}</label></td></tr>
-        <tr><td colspan=2><input type='checkbox' name='mitm' {{if .MITM}}checked{{end}}/><label>{{.I18N.MITM}}</label></td></tr>
-        <tr><td colspan=2><input type='submit' name='update' value='{{.I18N.Update}}'/></td></tr>
-        <tr><td colspan=2><hr></td></tr>
-        <tr><td colspan=2><h3>{{.I18N.Misc}}</h3></td></tr>
-        <tr><td colspan=2><span class=r>{{.I18N.ClearDNS}}:</span><input type='submit' name='cleardns' value='{{.I18N.Clear}}'/></td></tr>
-        <tr style='display:none'><td colspan=2><span class=r>{{.I18N.UnlockMeText}}:</span><input type='submit' name='unlock' value='{{.I18N.UnlockMe}}'></td></tr>
+        <tr><td><h3 style='font-size: 14px; margin: 0.25em 0'>{{.I18N.Basic}}</h3></td></tr>
+        <tr><td><span class=r>{{.I18N.EnableGlobal}}:</span>
+        <input type='submit' name='proxy' value='{{if .ProxyAll}}{{.I18N.GlobalOff}}{{else}}{{.I18N.GlobalOn}}{{end}}'/></td></tr>
+        <tr><td><span class=r>{{.I18N.ClearDNS}}:</span>
+        <input type='submit' name='cleardns' value='{{.I18N.Clear}}'/></td></tr>
     </table>
     </form>
 
     <script>
-    var width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-    if (width > 600) {
-        var el = document.getElementById("logo");
-        el.style.display = "block";
-        el.style.width = el.style.height = document.getElementById("panel").clientHeight + "px";
-    }
+        var width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+        if (width > 600) {
+            var el = document.getElementById("logo");
+            el.style.display = "block";
+            el.style.width = el.style.height = document.getElementById("panel").clientHeight + "px";
+        }
+        function unfold(el) { el.setAttribute("fold", el.getAttribute("fold") === "false" ? "true" : "false"); }
     </script>
 
-	<div class=folder><button onclick=unfold(this) fold=false>{{.I18N.DNSCache}}</button><table class=dns>
-		<tr onclick=fold(this)><th>{{.I18N.Host}}</th><th>IP</th><th>{{.I18N.Hits}}</th></tr>
-		{{.DNS}}
-	</table></div>
+    <div class=folder><button onclick=unfold(this) fold=false>{{.I18N.DNSCache}}</button><table class=dns>
+        <tr><th>{{.I18N.Host}}</th><th>IP</th><th>{{.I18N.Hits}}</th><th>{{.I18N.Rule}}</th></tr>
+        {{.DNS}}
+    </table></div>
 
-	<div class=folder><button onclick=unfold(this) fold=false>{{.I18N.CertCache}}</button><table class=dns>
-		<tr><th>{{.I18N.HostCert}}</th><th>{{.I18N.Hits}}</th></tr>
-		{{.Cert}}
-	</table></div>
+    <div class=folder><button onclick=unfold(this) fold=true>{{.I18N.CertCache}}</button><table class=dns>
+        <tr><th>{{.I18N.HostCert}}</th><th>{{.I18N.Hits}}</th></tr>
+        {{.Cert}}
+    </table></div>
 `)
 
 var _i18n = map[string]map[string]string{
@@ -164,18 +109,20 @@ var _i18n = map[string]map[string]string{
 		"MITM":         "Man-in-the-middle proxy (HTTP only)",
 		"Update":       "Update",
 		"Misc":         "Misc",
-		"ClearDNS":     "Clear goflyway's local DNS cache",
-		"UnlockMeText": "If you got blacklisted by the server, try",
+		"ClearDNS":     "Clear local DNS cache",
+		"EnableGlobal": "Enable/Disable global proxy",
 		"Host":         "Host",
 		"HostCert":     "Certificate",
 		"Hits":         "Hits",
 		"Clear":        "Clear",
-		"UnlockMe":     "UnlockMe",
+		"GlobalOn":     "Turn On",
+		"GlobalOff":    "Turn Off",
 		"Age":          "Age",
 		"UDPRelay":     "UDP Relay",
 		"DNSCache":     "DNS Cache",
 		"CertCache":    "Certificates Cache",
 		"UDPCache":     "UDP-TCP Cache",
+		"Rule":         "Rule",
 	},
 	"zh": {
 		"Title":        "goflyway 控制台",
@@ -186,19 +133,32 @@ var _i18n = map[string]map[string]string{
 		"MITM":         "中间人代理模式（仅限HTTP）",
 		"Update":       "确定",
 		"Misc":         "杂项",
-		"ClearDNS":     "清除goflyway本地DNS缓存",
-		"UnlockMeText": "如果您被服务器ban了，可以尝试",
+		"ClearDNS":     "清除本地DNS缓存",
+		"EnableGlobal": "切换全局代理模式",
 		"Host":         "域名",
 		"HostCert":     "证书",
 		"Hits":         "访问次数",
 		"Clear":        "清除",
-		"UnlockMe":     "解锁",
+		"GlobalOn":     "开启全局",
+		"GlobalOff":    "关闭全局",
 		"Age":          "生存时间",
 		"UDPRelay":     "UDP Relay",
 		"DNSCache":     "DNS缓存",
 		"CertCache":    "证书缓存",
 		"UDPCache":     "UDP-TCP缓存",
+		"Rule":         "规则",
 	},
+}
+
+var ruleMapping = []string{
+	"<span class=Block>Block</span>",
+	"<span class=Private>Private</span>",
+	"<span class=MatchedPass>M-Pass</span>",
+	"<span class=Pass>Pass</span>",
+	"<span class=MatchedProxy>M-Proxy</span>",
+	"<span class=Proxy>Proxy</span>",
+	"<span class=IPv6>IPv6</span>",
+	"<span class=Unknown>Unknown</span>",
 }
 
 func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r *http.Request) {
@@ -206,11 +166,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 		if r.Method == "GET" {
 			payload := struct {
 				ProxyAll bool
-				MITM     bool
-				Key      string
-				Auth     string
 				DNS      string
-				UDP      string
 				Cert     string
 				I18N     map[string]string
 			}{}
@@ -219,10 +175,11 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 
 			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
 				flag = true
-				buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td></tr>", k, v, h))
+				buf.WriteString(fmt.Sprintf("<tr><td>%v</td><td class=ip>%v</td><td align=right>%d</td><td class=rule>%s</td></tr>",
+					k, v.(*pp.Rule).IP, h, ruleMapping[v.(*pp.Rule).R]))
 			})
 			if !flag {
-				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
+				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td>n/a</td><td align=right>n/a</td></tr>")
 			}
 			payload.DNS = buf.String()
 
@@ -238,9 +195,6 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			payload.Cert = buf.String()
 
 			payload.ProxyAll = proxy.Policy.IsSet(pp.PolicyGlobal)
-			payload.MITM = proxy.Policy.IsSet(pp.PolicyManInTheMiddle)
-			payload.Key = proxy.Cipher.KeyString
-			payload.Auth = proxy.UserAuth
 
 			// use lang=en to force english display
 			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
@@ -255,27 +209,12 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 				proxy.DNSCache.Clear()
 			}
 
-			if r.FormValue("update") != "" {
-				if r.FormValue("gproxy") == "on" {
-					proxy.Policy.Set(pp.PolicyGlobal)
-				} else {
+			if r.FormValue("proxy") != "" {
+				if proxy.Policy.IsSet(pp.PolicyGlobal) {
 					proxy.Policy.UnSet(pp.PolicyGlobal)
-				}
-
-				if r.FormValue("mitm") == "on" {
-					proxy.Policy.Set(pp.PolicyManInTheMiddle)
 				} else {
-					proxy.Policy.UnSet(pp.PolicyManInTheMiddle)
+					proxy.Policy.Set(pp.PolicyGlobal)
 				}
-
-				proxy.UserAuth = r.FormValue("auth")
-				proxy.UpdateKey(r.FormValue("key"))
-			}
-
-			if r.FormValue("ping") != "" {
-				w.WriteHeader(200)
-				w.Write([]byte("pong"))
-				return
 			}
 
 			http.Redirect(w, r, "/", 301)

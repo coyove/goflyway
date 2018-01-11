@@ -1,4 +1,4 @@
-package lookup
+package aclrouter
 
 import (
 	"regexp"
@@ -72,11 +72,11 @@ func (lk *lookup) sortLookupTable() {
 }
 
 func (lk *lookup) tryAddACLSingleRule(r string) {
-	r = strings.Replace(r, "\\.", ".", -1)
-	if strings.HasPrefix(r, "(^|.)") && strings.HasSuffix(r, "$") {
-		r = r[5 : len(r)-1]
-		if validDomain.MatchString(r) {
-			subs := strings.Split(strings.Trim(r, "\r "), ".")
+	rx := strings.Replace(r, "\\.", ".", -1)
+	if strings.HasPrefix(rx, "(^|.)") && strings.HasSuffix(rx, "$") {
+		rx = rx[5 : len(rx)-1]
+		if validDomain.MatchString(rx) {
+			subs := strings.Split(strings.Trim(rx, "\r "), ".")
 			fast := lk.DomainFastMatch
 			for i := len(subs) - 1; i >= 0; i-- {
 				if fast[subs[i]] == nil {
@@ -118,7 +118,7 @@ func (lk *lookup) tryAddACLSingleRule(r string) {
 	panic(err)
 }
 
-func (lk *lookup) Match(domain string) bool {
+func (lk *lookup) Match(domain string, testIP bool) bool {
 	slowMatch := func() bool {
 		for _, r := range lk.DomainSlowMatch {
 			if r.MatchString(domain) {
@@ -130,7 +130,11 @@ func (lk *lookup) Match(domain string) bool {
 	}
 
 	if iip := IPv4ToInt(domain); iip > 0 {
-		return isIPInLookupTableI(iip, lk.IPv4Table)
+		if testIP {
+			return isIPInLookupTableI(iip, lk.IPv4Table)
+		}
+
+		return false
 	}
 
 	subs := strings.Split(domain, ".")

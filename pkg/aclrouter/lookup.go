@@ -1,11 +1,10 @@
-package lookup
+package aclrouter
 
 import (
 	"errors"
 	"io/ioutil"
 	"net"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/coyove/goflyway/pkg/config"
@@ -29,9 +28,14 @@ func (lk *lookup) init() {
 }
 
 const (
-	Black = iota
-	White
-	Gray
+	RuleBlock = iota
+	RulePrivate
+	RuleMatchedPass
+	RulePass
+	RuleMatchedProxy
+	RuleProxy
+	RuleIPv6
+	RuleUnknown
 )
 
 // ACL stands for Access Control List
@@ -136,7 +140,7 @@ func loadChinaList(buf []byte) (*ACL, error) {
 }
 
 func isIPInLookupTable(ip string, table []ipRange) bool {
-	m := uint32(IPv4ToInt(ip))
+	m := IPv4ToInt(ip)
 	if m == 0 {
 		return false
 	}
@@ -171,38 +175,89 @@ func (acl *ACL) IsPrivateIP(ip string) bool {
 	return isIPInLookupTable(ip, acl.PrivateIPv4Table)
 }
 
-// LookupIPv4 returns the IP address of host
-func (acl *ACL) LookupIPv4(host string) (string, error) {
-	if host[0] == '[' && host[len(host)-1] == ']' {
-		// ipv6, we return empty, but also no error
-		return "", nil
+// Check returns a route rule for the given host
+func (acl *ACL) Check(host string, shouldTestWhiteIP bool) (rule byte, ip string, err error) {
+	return acl.check(host, shouldTestWhiteIP, false)
+}
+
+// firstMatch for domain strings, secondMatch for IPs
+func (acl *ACL) check(host string, shouldTestWhiteIP bool, secondMatch bool) (byte, string, error) {
+	if IPv4ToInt(host) > 0 {
+		secondMatch = true
 	}
 
+	if acl.IsPrivateIP(host) {
+		return RulePrivate, host, nil
+	} else if acl.Black.Match(host, true) {
+		return RuleBlock, host, nil
+	} else if acl.Gray.Match(host, true) {
+		return RuleMatchedProxy, host, nil
+	} else if acl.White.Match(host, shouldTestWhiteIP) {
+		return RuleMatchedPass, host, nil
+	} else if secondMatch {
+		if acl.Gray.Always {
+			return RuleProxy, host, nil
+		}
+
+		return RulePass, host, nil
+	}
+
+	if host[0] == '[' && host[len(host)-1] == ']' {
+		// Naive match: host is IPv6
+		// We assume that local don't have the ability to resolve IPv6,
+		// so return RuleIPv6 and let the caller deal with it
+		return RuleIPv6, host, nil
+	}
+
+	// Resolve at local in case host points to a private ip
 	ip, err := net.ResolveIPAddr("ip4", host)
 	if err != nil {
-		return "", err
+		return RuleUnknown, "unknown", err
 	}
 
-	return ip.String(), nil
+	if isIPInLookupTableI(NetIPv4ToInt(ip.IP), acl.PrivateIPv4Table) {
+		return RulePrivate, ip.String(), nil
+	}
+
+	a, h, _ := acl.check(ip.String(), shouldTestWhiteIP, true)
+	return a, h, err
 }
 
 // IPv4ToInt converts an IPv4 string to its integer representation
 func IPv4ToInt(ip string) uint32 {
-	p := strings.Split(ip, ".")
-	if len(p) != 4 {
+	buf, idx, last := [4]uint32{}, 0, rune(0)
+	for _, r := range ip {
+		if r == '.' {
+			if idx++; idx > 3 || last == r {
+				return 0
+			}
+			last = r
+			continue
+		}
+
+		if r >= '0' && r <= '9' {
+			buf[idx] = buf[idx]*10 + uint32(r-'0')
+			last = r
+			continue
+		}
+
 		return 0
 	}
 
-	np := uint32(0)
-	for i := 0; i < 4; i++ {
-		n, err := strconv.Atoi(p[i])
-		// exception: 68.media.tumblr.com
-		if err != nil {
-			return 0
-		}
-
-		np += uint32(n) << uint32((3-i)*8)
+	if idx != 3 {
+		return 0
 	}
 
-	return np
+	return buf[0]<<24 + buf[1]<<16 + buf[2]<<8 + buf[3]
+}
+
+// NetIPv4ToInt converts net.IP(v4) to its integer representation
+func NetIPv4ToInt(ip net.IP) uint32 {
+	v4 := ip.To4()
+	if v4 == nil {
+		return 0
+	}
+
+	buf := []byte(v4)
+	return uint32(buf[0])<<24 + uint32(buf[1])<<16 + uint32(buf[2])<<8 + uint32(buf[3])
 }

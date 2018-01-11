@@ -1,7 +1,7 @@
-package lookup
+package aclrouter
 
 var (
-// PrivateIP 127.x.x.x is reserved IP, but for simplicity, we put them in private IP block
+	// PrivateIP 127.x.x.x is reserved IP, but for simplicity, we put them in private IP block
 	PrivateIP = `10.0.0.0 10.255.255.255
 127.0.0.0/8
 172.16.0.0 172.31.255.255
