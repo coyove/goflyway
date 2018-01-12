@@ -17,23 +17,12 @@ var webConsoleHTML, _ = template.New("console").Parse(`
     <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABMAAAATAQMAAABInqSPAAAABlBMVEVjY2dnZnfjOvMHAAAAAXRSTlMCrui5SgAAACxJREFUCNdj+P//ARw/ePCA4f27BwwvgPjdOzAfVf4dUP7VA4aHryD0e1R5ANSVNLhGFgwkAAAAAElFTkSuQmCC'>
 
     <style>
-        #logo {
-            image-rendering: optimizeSpeed;
-            image-rendering: -moz-crisp-edges;
-            image-rendering: -o-crisp-edges;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: pixelated;
-            image-rendering: optimize-contrast;
-            -ms-interpolation-mode: nearest-neighbor;
-            height: 80px;
-            width: 80px;
-        }
-
         *                                   { font-family: Arial, Helvetica, sans-serif; font-size: 12px; }
+        svg                                 { height: 80px; width: 80px; background: #676677; fill: #fff; }
         table#panel                         { border-collapse: collapse; height: 80px; }
         table#panel td                      { padding-right: 4px; }
         table#dns                           { border-collapse: collapse; margin: 4px 0; }
-        table#dns td, table#dns th          { border: solid 1px rgba(0, 0, 0, 0.1); padding: 4px 8px; }
+        table#dns td, table#dns th          { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; white-space: nowrap; width: 1px; }
         table#dns td.ip 	                { font-family: "Lucida Console", Monaco, monospace; }
         table#dns td.rule                   { text-align: center; }
         table#dns td.rule.Block 		    { background: red; color:white; }
@@ -49,7 +38,9 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 
     <form method='POST'><table id=panel>
     <tr>
-        <td rowspan=3><img id=logo src onerror="this.setAttribute('src',document.querySelector('link[rel=icon]').href)"></td>
+        <td rowspan=3>
+        <svg viewBox="0 0 19 19"><path d="M3 3h13v13h-13v-5h5v1h-4v1h3v1h-3v2h7v-5h1v4h1v-3h1v3h1v-4h1v-3h-5v-4h1v3h3v-3h-4v-1h-3v1h-4v3h3v-1h-2v-1h3v3h-5v-5"/></svg>
+        </td>
         <td colspan=2><h3 style='font-size: 14px; margin: 0.25em 0'>{{.I18N.Basic}}</h3></td>
     </tr>
     <tr>
@@ -78,7 +69,8 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 
     <input onkeyup="search(this)" style="min-width: 100px" placeholder="{{.I18N.Filter}}"/>
     <table id=dns>
-        <tr><th>{{.I18N.Host}} ({{.MaxEntries}})</th><th>IP</th><th>{{.I18N.Hits}}</th><th>{{.I18N.CertCache}}</th><th>{{.I18N.Rule}}</th></tr>
+        <tr><th>{{.I18N.Host}} ({{.Entries}}, {{.EntriesRatio}}%)</th><th>IP</th>
+        <th>{{.I18N.Hits}}</th><th>{{.I18N.CertCache}}</th><th>{{.I18N.Rule}}</th></tr>
         {{.DNS}}
     </table>
 `)
@@ -147,16 +139,17 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			payload := struct {
-				Global     bool
-				MaxEntries int
-				DNS        string
-				I18N       map[string]string
+				Global       bool
+				Entries      int
+				EntriesRatio int
+				DNS          string
+				I18N         map[string]string
 			}{}
-			flag := false
-			buf := &bytes.Buffer{}
+
+			buf, count := &bytes.Buffer{}, 0
 
 			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
-				flag = true
+				count++
 				cert := "-"
 				if _, ok := proxy.CACache.Get(k); ok {
 					hits, _ := proxy.CACache.GetHits(k)
@@ -167,13 +160,14 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 					k, v.(*pp.Rule).IP, h, cert, ruleMapping[v.(*pp.Rule).R]))
 			})
 
-			if !flag {
-				buf.WriteString("<tr><td>n/a</td><td>n/a</td><td align=right>n/a</td><td align=right>n/a</td><td>n/a</td></tr>")
+			if count == 0 {
+				buf.WriteString("<tr><td>-</td><td>-</td><td align=right>-</td><td align=right>-</td><td>-</td></tr>")
 			}
 
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
-			payload.MaxEntries = proxy.DNSCache.MaxEntries
+			payload.Entries = count
+			payload.EntriesRatio = count * 100 / proxy.DNSCache.MaxEntries
 
 			// use lang=en to force english display
 			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
