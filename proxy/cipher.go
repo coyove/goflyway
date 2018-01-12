@@ -343,7 +343,7 @@ func (gc *Cipher) ReverseIV(key string) (o Options, iv []byte, auth []byte) {
 	b, b2, b3, b4 := buf[len(buf)-4], buf[len(buf)-3], buf[len(buf)-2], buf[len(buf)-1]
 	buf = xor(gc.Block, gc.genIV(b, b2, b3, b4), buf[:len(buf)-4])
 
-	if len(buf) < ivLen+2 {
+	if len(buf) < 3 {
 		return
 	}
 
@@ -352,6 +352,10 @@ func (gc *Cipher) ReverseIV(key string) (o Options, iv []byte, auth []byte) {
 	}
 
 	if (buf[0] & doDNS) == 0 {
+		if len(buf) < ivLen+2 {
+			return
+		}
+
 		return Options(buf[0]), buf[2 : 2+ivLen], buf[2+ivLen:]
 	}
 

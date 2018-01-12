@@ -176,30 +176,26 @@ func (acl *ACL) IsPrivateIP(ip string) bool {
 }
 
 // Check returns a route rule for the given host
-func (acl *ACL) Check(host string, shouldTestWhiteIP bool) (rule byte, ip string, err error) {
-	return acl.check(host, shouldTestWhiteIP, false)
-}
+func (acl *ACL) Check(host string, trustIP bool) (rule byte, strIP string, err error) {
+	var ip *net.IPAddr
+	iip := IPv4ToInt(host)
 
-// firstMatch for domain strings, secondMatch for IPs
-func (acl *ACL) check(host string, shouldTestWhiteIP bool, secondMatch bool) (byte, string, error) {
-	if IPv4ToInt(host) > 0 {
-		secondMatch = true
-	}
-
-	if acl.IsPrivateIP(host) {
-		return RulePrivate, host, nil
-	} else if acl.Black.Match(host, true) {
-		return RuleBlock, host, nil
-	} else if acl.Gray.Match(host, true) {
-		return RuleMatchedProxy, host, nil
-	} else if acl.White.Match(host, shouldTestWhiteIP) {
-		return RuleMatchedPass, host, nil
-	} else if secondMatch {
-		if acl.Gray.Always {
-			return RuleProxy, host, nil
+	if iip > 0 {
+		if isIPInLookupTableI(iip, acl.PrivateIPv4Table) {
+			return RulePrivate, host, nil
 		}
 
-		return RulePass, host, nil
+		trustIP = true
+		strIP = host
+		goto IP_CHECK
+	}
+
+	if acl.Black.Match(host) {
+		return RuleBlock, host, nil
+	} else if acl.Gray.Match(host) {
+		return RuleMatchedProxy, host, nil
+	} else if acl.White.Match(host) {
+		return RuleMatchedPass, host, nil
 	}
 
 	if host[0] == '[' && host[len(host)-1] == ']' {
@@ -210,17 +206,37 @@ func (acl *ACL) check(host string, shouldTestWhiteIP bool, secondMatch bool) (by
 	}
 
 	// Resolve at local in case host points to a private ip
-	ip, err := net.ResolveIPAddr("ip4", host)
+	ip, err = net.ResolveIPAddr("ip4", host)
 	if err != nil {
 		return RuleUnknown, "unknown", err
 	}
 
-	if isIPInLookupTableI(NetIPv4ToInt(ip.IP), acl.PrivateIPv4Table) {
+	iip = NetIPv4ToInt(ip.IP)
+	if isIPInLookupTableI(iip, acl.PrivateIPv4Table) {
 		return RulePrivate, ip.String(), nil
 	}
 
-	a, h, _ := acl.check(ip.String(), shouldTestWhiteIP, true)
-	return a, h, err
+	strIP = ip.String()
+IP_CHECK:
+	if isIPInLookupTableI(iip, acl.Black.IPv4Table) {
+		return RuleBlock, strIP, nil
+	} else if isIPInLookupTableI(iip, acl.Gray.IPv4Table) {
+		return RuleMatchedProxy, strIP, nil
+	}
+
+	if trustIP {
+		if isIPInLookupTableI(iip, acl.White.IPv4Table) {
+			return RuleMatchedPass, strIP, nil
+		} else if acl.Gray.Always {
+			return RuleProxy, strIP, nil
+		}
+		return RulePass, strIP, nil
+	}
+
+	if isIPInLookupTableI(iip, acl.White.IPv4Table) {
+		return RulePass, strIP, nil
+	}
+	return RuleUnknown, strIP, nil
 }
 
 // IPv4ToInt converts an IPv4 string to its integer representation

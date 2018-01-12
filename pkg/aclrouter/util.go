@@ -118,20 +118,12 @@ func (lk *lookup) tryAddACLSingleRule(r string) {
 	panic(err)
 }
 
-func (lk *lookup) Match(domain string, testIP bool) bool {
+func (lk *lookup) Match(domain string) bool {
 	slowMatch := func() bool {
 		for _, r := range lk.DomainSlowMatch {
 			if r.MatchString(domain) {
 				return true
 			}
-		}
-
-		return false
-	}
-
-	if iip := IPv4ToInt(domain); iip > 0 {
-		if testIP {
-			return isIPInLookupTableI(iip, lk.IPv4Table)
 		}
 
 		return false

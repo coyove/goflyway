@@ -1,10 +1,11 @@
 package proxy
 
 import (
-	acr "github.com/coyove/goflyway/pkg/aclrouter"
-	"github.com/coyove/goflyway/pkg/logg"
 	"net"
 	"net/http"
+
+	acr "github.com/coyove/goflyway/pkg/aclrouter"
+	"github.com/coyove/goflyway/pkg/logg"
 )
 
 const (
