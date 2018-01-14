@@ -15,9 +15,10 @@ const (
 )
 
 type Rule struct {
-	IP  string
-	Ans byte
-	R   byte
+	IP     string
+	Ans    byte
+	OldAns byte
+	R      byte
 }
 
 func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
@@ -38,7 +39,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 			r = ruleProxy
 			ext += " (global)"
 		} else {
-			proxy.DNSCache.Add(host, &Rule{ipstr, r, rule})
+			proxy.DNSCache.Add(host, &Rule{ipstr, r, r, rule})
 		}
 	}()
 
@@ -96,7 +97,8 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 		return r, " (remote-err)"
 	}
 
-	switch rule, _, _ = proxy.ACL.Check(ip.String(), true); rule {
+	ipstr = ip.String()
+	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
 		return rulePass, " (remote-pass)"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
