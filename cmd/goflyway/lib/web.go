@@ -1,9 +1,12 @@
 package lib
 
 import (
+	"strconv"
+
+	"github.com/coyove/goflyway/pkg/aclrouter"
+
 	"github.com/coyove/goflyway/pkg/lru"
 	pp "github.com/coyove/goflyway/proxy"
-	"strconv"
 
 	"bytes"
 	"fmt"
@@ -23,7 +26,9 @@ var webConsoleHTML, _ = template.New("console").Parse(`
         table#panel td                      { padding-right: 4px; }
         table#dns                           { border-collapse: collapse; margin: 4px 0; }
         table#dns td, table#dns th          { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; white-space: nowrap; width: 1px; }
-        table#dns td.ip 	                { font-family: "Lucida Console", Monaco, monospace; }
+		table#dns td.ip, table#dns td.ip *  { font-family: "Lucida Console", Monaco, monospace; }
+		table#dns td.ip a 	                { text-decoration: none; color: black; }
+		table#dns td.ip a:hover             { text-decoration: underline; }
         table#dns td.rule                   { text-align: center; }
         table#dns td.rule.Block 		    { background: red; color:white; }
         table#dns td.rule.Private 		    { background: #5D4037; color:white; }
@@ -151,13 +156,24 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
 				count++
 				cert := "-"
+				ip := v.(*pp.Rule).IP
+				if aclrouter.IPv4ToInt(ip) > 0 {
+					ip = fmt.Sprintf("<a href='http://freeapi.ipip.net/%v' target=_blank>%v</a>", ip, ip)
+				}
+
 				if _, ok := proxy.CACache.Get(k); ok {
 					hits, _ := proxy.CACache.GetHits(k)
 					cert = strconv.Itoa(int(hits))
 				}
 
-				buf.WriteString(fmt.Sprintf("<tr class=item><td>%v</td><td class=ip>%v</td><td align=right>%d</td><td align=right>%s</td>%s</tr>",
-					k, v.(*pp.Rule).IP, h, cert, ruleMapping[v.(*pp.Rule).R]))
+				buf.WriteString(fmt.Sprintf(`<tr class=item>
+					<td>%v</td>
+					<td class=ip>%s</td>
+					<td align=right>%d</td>
+					<td align=right>%s</td>
+					%s
+					</tr>`,
+					k, ip, h, cert, ruleMapping[v.(*pp.Rule).R]))
 			})
 
 			if count == 0 {
