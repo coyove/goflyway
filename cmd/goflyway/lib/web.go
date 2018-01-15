@@ -46,7 +46,9 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		table#dns td.side-rule.Pass:hover   { background: #00796B; }
 		table#dns td.side-rule.Proxy:hover  { background: #FBC02D; }
 		table#dns td.side-rule.Block:hover  { background: #F44336; }
-        table#dns tr:nth-child(odd) 		{ background-color: #e3e4e5; }
+		table#dns tr:nth-child(odd) 		{ background-color: #e3e4e5; }
+		table#dns tr.last-tr                { visibility: hidden; }
+		table#dns tr.last-tr td             { border: 0; }
     </style>
 
     <form method='POST'><table id=panel>
@@ -247,7 +249,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			if count == 0 {
 				buf.WriteString("<tr><td>-</td><td>-</td><td align=right>-</td><td align=right>-</td><td colspan=13>-</td></tr>")
 			}
-			buf.WriteString(fmt.Sprintf("<tr style=visibility:hidden><td></td><td></td><td></td><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
+			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td><td></td><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
 
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
