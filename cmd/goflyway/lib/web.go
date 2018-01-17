@@ -17,11 +17,10 @@ import (
 
 var webConsoleHTML, _ = template.New("console").Parse(`
     <html><title>{{.I18N.Title}}</title>
-    <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABMAAAATAQMAAABInqSPAAAABlBMVEVjY2dnZnfjOvMHAAAAAXRSTlMCrui5SgAAACxJREFUCNdj+P//ARw/ePCA4f27BwwvgPjdOzAfVf4dUP7VA4aHryD0e1R5ANSVNLhGFgwkAAAAAElFTkSuQmCC'>
+    <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFoAAABaAQMAAAACZtNBAAAABlBMVEVycYL///9g0YTYAAAANUlEQVQ4y2MYBMD+/x8Q8f//wHE+MP8HEQPFgbgERAwQZ1AAoEvgAUJ/zmBJiQwDwxk06QAA91Y8PCo+T/8AAAAASUVORK5CYII='>
 
     <style>
         *                                   { font-family: Arial, Helvetica, sans-serif; font-size: 12px; box-sizing: border-box; }
-        svg                                 { height: 80px; width: 80px; background: #676677; fill: #fff; }
         table#panel                         { border-collapse: collapse; height: 80px; }
         table#panel td                      { padding-right: 4px; }
         table#dns                           { border-collapse: collapse; margin: 4px 0; }
@@ -54,7 +53,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
     <form method='POST'><table id=panel>
     <tr>
         <td rowspan=3>
-        <svg viewBox="0 0 19 19"><path d="M3 3h13v13h-13v-5h5v1h-4v1h3v1h-3v2h7v-5h1v4h1v-3h1v3h1v-4h1v-3h-5v-4h1v3h3v-3h-4v-1h-3v1h-4v3h3v-1h-2v-1h3v3h-5v-5"/></svg>
+        <svg viewBox="0 0 9 9" width=80 height=80><path fill="#667" d="M0 5h4v1H3v1H2v1H1V5h5v1h1V5h1v3H5V2h1v1h1V2H2v1h1V2h1v2H1V1h2v1h2V1h3v3H5v1H0v4h9V0H0"/></svg>
         </td>
         <td colspan=2><h3 style='font-size: 14px; margin: 0.25em 0'>{{.I18N.Basic}}</h3></td>
     </tr>
