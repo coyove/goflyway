@@ -9,6 +9,7 @@ goflyway is an end-to-end encrypted HTTP/SOCKS5 proxy client/server written in g
 3. Multiplex connections
 4. Man-in-the-middle
 5. UDP over TCP (SOCKS5)
+6. SS compatible ACL rules
 
 For more info, please refer to the following links.
 

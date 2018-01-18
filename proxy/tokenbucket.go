@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 )
@@ -93,8 +92,6 @@ func (iot *io_t) SVG(id string, w, h int) *bytes.Buffer {
 	wTick := float64(w) / float64(len(iot.TrSent.data)-1)
 	smin, smax := iot.TrSent.Range()
 	rmin, rmax := iot.TrRecved.Range()
-	min, max := math.Min(smin, rmin), math.Max(smax, rmax)
-	delta := max - min
 
 	tick := 60 / trafficSurveyinterval
 	minutes, m := len(iot.TrSent.data)/tick, -1
@@ -110,30 +107,39 @@ func (iot *io_t) SVG(id string, w, h int) *bytes.Buffer {
 		}
 	}
 
-	ret.WriteString(fmt.Sprintf("<polyline stroke-width=\"1px\" stroke=\"#d1d2d3\" fill=\"none\" points=\"0,0 %d,%d %d,%d %d,%d 0,0\"/>",
-		w, 0, w, h, 0, h))
+	if delta := smax - smin; delta > 0 {
+		hScale := float64(h-1) / delta
+		ret.WriteString("<polyline fill-opacity=\"0.5\" stroke=\"#F44336\" fill=\"#F44336\" stroke-width=\"0.5px\" points=\"")
 
-	if delta > 0 {
-		hScale := float64(h) / delta
-
-		out := func(data []float64, color string) {
-			ret.WriteString(fmt.Sprintf("<polyline fill-opacity=\"0.5\" stroke=\"%s\" fill=\"%s\" stroke-width=\"0.5px\" points=\"",
-				color, color))
-
-			x := 0.0
-			for i := len(data) - 1; i >= 0; i-- {
-				f := int((data[i] - min) * hScale)
-				ret.WriteString(fmt.Sprintf("%f,%d ", x, h-f))
-				x += wTick
-			}
-			ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -10,%d -10,%d\"/>", w, h, w+10, h, w+10, h+10, h+10, h))
+		x := 0.0
+		for i := len(iot.TrSent.data) - 1; i >= 0; i-- {
+			f := int((iot.TrSent.data[i] - smin) * hScale)
+			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, f-1, x+wTick/2, f-1))
+			x += wTick
 		}
 
-		out(iot.TrSent.data, "#F44336")
-		out(iot.TrRecved.data, "#00796B")
+		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -10,-10 -10,0\"/>", w, 0, w+10, 0, w+10, -10))
 	}
 
-	ret.WriteString("<text font-size=\"0.4em\">")
+	if delta := rmax - rmin; delta > 0 {
+		hScale := float64(h-1) / delta
+		ret.WriteString("<polyline fill-opacity=\"0.5\" stroke=\"#00796B\" fill=\"#00796B\" stroke-width=\"0.5px\" points=\"")
+
+		x := 0.0
+		for i := len(iot.TrRecved.data) - 1; i >= 0; i-- {
+			f := int((iot.TrRecved.data[i] - rmin) * hScale)
+			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, h-f+1, x+wTick/2, h-f+1))
+			x += wTick
+		}
+
+		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -10,%d -10,%d\"/>", w, h, w+10, h, w+10, h+10, h+10, h))
+	}
+
+	ret.WriteString("<defs><linearGradient id=\"" + id + "-i\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"0\"><stop offset=\"0%\" stop-color=\"white\" stop-opacity=\"0.75\"/><stop offset=\"100%\" stop-color=\"white\" stop-opacity=\"0\"/></linearGradient></defs>")
+
+	ret.WriteString("<rect width=\"50%\" height=\"100%\" fill=\"url(#" + id + "-i)\"/>")
+
+	ret.WriteString("<text font-size=\"0.4em\" style='text-shadow: 0 0 1px #ccc'>")
 
 	ret.WriteString(fmt.Sprintf("<tspan fill=\"#F44336\" x=\".4em\" dy=\"1.2em\">&uarr; %.2fKiB/s (%.2fKiB/s, %.2fMiB)</tspan>",
 		iot.TrSent.data[0]/1024, smax/1024, float64(iot.sent)/1024/1024))
@@ -141,6 +147,11 @@ func (iot *io_t) SVG(id string, w, h int) *bytes.Buffer {
 	ret.WriteString(fmt.Sprintf("<tspan fill=\"#00796B\" x=\".4em\" dy=\"1.2em\">&darr; %.2fKiB/s (%.2fKiB/s, %.2fMiB)</tspan>",
 		iot.TrRecved.data[0]/1024, rmax/1024, float64(iot.recved)/1024/1024))
 
-	ret.WriteString("</text></svg>")
+	ret.WriteString("</text>")
+
+	ret.WriteString(fmt.Sprintf("<polyline stroke-width=\"1px\" stroke=\"#d1d2d3\" fill=\"none\" points=\"0,0 %d,%d %d,%d %d,%d 0,0\"/>",
+		w, 0, w, h, 0, h))
+
+	ret.WriteString("</svg>")
 	return ret
 }
