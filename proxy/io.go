@@ -6,14 +6,14 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/coyove/tcpmux"
-
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/rand"
+	"github.com/coyove/tcpmux"
 )
 
 const (
@@ -23,12 +23,15 @@ const (
 	wsServer
 	wsServerDstIsDownstream
 	wsServerSrcIsDownstream
+	roleSend
+	roleRecv
 )
 
 type IOConfig struct {
 	Bucket  *TokenBucket
 	Chunked bool
 	Partial bool
+	Role    byte
 	WSCtrl  byte
 }
 
@@ -41,6 +44,9 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 	case wsClient:
 		o.WSCtrl = wsClientSrcIsUpstream
 	}
+
+	// Roles are all relative to the "source"
+	o.Role = roleRecv
 
 	if s, _ := target.(*tcpmux.Stream); s != nil {
 		s.SetTimeout(iot.idleTime)
@@ -68,6 +74,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 		o.WSCtrl = wsClientDstIsUpstream
 	}
 
+	o.Role = roleSend
 	ts := time.Now()
 	if _, err := iot.Copy(source, target, key, o); err != nil {
 		logg.E("bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
@@ -81,19 +88,25 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 	source.Close()
 }
 
+type io_t struct {
+	sync.Mutex
+	iid      uint64
+	sent     uint64
+	recved   uint64
+	started  bool
+	mconns   map[uintptr]*conn_state_t
+	idleTime int64
+
+	Ob       tcpmux.Survey
+	TrSent   trafficData
+	TrRecved trafficData
+}
+
 type conn_state_t struct {
 	conn net.Conn
 	last int64
 	iid  uintptr
 }
-
-type conns_state_t []*conn_state_t
-
-func (cs conns_state_t) Len() int { return len(cs) }
-
-func (cs conns_state_t) Swap(i, j int) { cs[i], cs[j] = cs[j], cs[i] }
-
-func (cs conns_state_t) Less(i, j int) bool { return cs[i].last < cs[j].last }
 
 func (iot *io_t) markActive(src interface{}, iid uint64) {
 	if !iot.started {
@@ -134,6 +147,8 @@ REPEAT:
 	iot.Unlock()
 }
 
+const trafficSurveyinterval = 5
+
 func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	const keepConnectionsUnder = 200
 	if iot.started {
@@ -143,9 +158,13 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.idleTime = int64(maxIdleTime)
+	iot.TrSent.data = make([]float64, 20*60/trafficSurveyinterval)   // 20 mins
+	iot.TrRecved.data = make([]float64, 20*60/trafficSurveyinterval) // 20 mins
 
 	go func() {
 		count := 0
+		lastSent, lastRecved := uint64(0), uint64(0)
+
 		for {
 			iot.Lock()
 			ns := time.Now().UnixNano()
@@ -158,7 +177,17 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				}
 			}
 
-			if count++; count == 60 {
+			count++
+
+			if count%trafficSurveyinterval == 0 {
+				sent, recv := iot.sent-lastSent, iot.recved-lastRecved
+				lastSent, lastRecved = iot.sent, iot.recved
+
+				iot.TrSent.Append(float64(sent) / trafficSurveyinterval)
+				iot.TrRecved.Append(float64(recv) / trafficSurveyinterval)
+			}
+
+			if count == 60 {
 				count = 0
 				if len(iot.mconns) > 0 {
 					logg.D("active connections: ", len(iot.mconns))
@@ -302,6 +331,11 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 
 		if nr > 0 {
 			xbuf := buf[0:nr]
+			if config.Role == roleSend {
+				atomic.AddUint64(&iot.sent, uint64(nr))
+			} else if config.Role == roleRecv {
+				atomic.AddUint64(&iot.recved, uint64(nr))
+			}
 
 			if config.Partial && encrypted == sslRecordLen {
 				// goto direct_transmission

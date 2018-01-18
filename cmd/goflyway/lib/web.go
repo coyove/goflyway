@@ -15,17 +15,19 @@ import (
 	"text/template"
 )
 
-var webConsoleHTML, _ = template.New("console").Parse(`
+var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     <html><title>{{.I18N.Title}}</title>
     <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFoAAABaAQMAAAACZtNBAAAABlBMVEVycYL///9g0YTYAAAANUlEQVQ4y2MYBMD+/x8Q8f//wHE+MP8HEQPFgbgERAwQZ1AAoEvgAUJ/zmBJiQwDwxk06QAA91Y8PCo+T/8AAAAASUVORK5CYII='>
 
     <style>
-        *                                   { font-family: Arial, Helvetica, sans-serif; font-size: 12px; box-sizing: border-box; }
+		*                                   { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; }
+		#sent                               { max-width: 600px; width: 100%; margin: 4px 0; overflow: hidden; height: auto; }
+		.container *                        { font-size: 12px; }
         table#panel                         { border-collapse: collapse; height: 80px; }
         table#panel td                      { padding-right: 4px; }
         table#dns                           { border-collapse: collapse; margin: 4px 0; }
 		table#dns td, table#dns th          { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
-		table#dns td.fit, table#dns th.fit  { white-space: nowrap; width: 1px; }
+		table#dns td.fit, table#dns th.fit  { white-space: nowrap; }
 		table#dns td.ip, table#dns td.ip *  { font-family: "Lucida Console", Monaco, monospace; }
 		table#dns td.ip a 	                { text-decoration: none; color: black; }
 		table#dns td.ip a:hover             { text-decoration: underline; }
@@ -50,6 +52,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		table#dns tr.last-tr td             { border: 0; }
     </style>
 
+	<div class=container>
     <form method='POST'><table id=panel>
     <tr>
         <td rowspan=3>
@@ -100,7 +103,11 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 		http.send("target=" + el.parentNode.childNodes[0].innerHTML + "&update=" + rule);
 	}
     </script>
+	</div>
 
+	{{.TrSent}}
+
+	<div class=container>
     <input onkeyup="search(this)" style="min-width: 100px" placeholder="{{.I18N.Filter}}"/>
     <table id=dns>
 		<tr>
@@ -112,7 +119,8 @@ var webConsoleHTML, _ = template.New("console").Parse(`
 			<th colspan=13 class=fit>{{.I18N.Rule}}</th>
 		</tr>
         {{.DNS}}
-    </table>
+	</table>
+	</div>
 `)
 
 var _i18n = map[string]map[string]string{
@@ -207,6 +215,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			payload := struct {
+				TrSent       string
 				Global       bool
 				Entries      int
 				EntriesRatio int
@@ -246,10 +255,11 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			})
 
 			if count == 0 {
-				buf.WriteString("<tr><td>-</td><td>-</td><td align=right>-</td><td align=right>-</td><td colspan=13>-</td></tr>")
+				buf.WriteString("<tr><td>-</td><td>-</td><td>-</td><td align=right>-</td><td align=right>-</td><td colspan=13>-</td></tr>")
 			}
 			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td><td></td><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
 
+			payload.TrSent = proxy.IO.SVG("sent", 300, 40).String()
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
 			payload.Entries = count

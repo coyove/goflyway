@@ -1,12 +1,9 @@
 package proxy
 
 import (
-	"sync"
-
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/goflyway/pkg/rand"
-	"github.com/coyove/tcpmux"
 
 	"crypto/aes"
 	"crypto/cipher"
@@ -49,15 +46,6 @@ type Cipher struct {
 	Rand      *rand.ConcurrentRand
 	Partial   bool
 	Alias     string
-}
-
-type io_t struct {
-	sync.Mutex
-	iid      uint64
-	started  bool
-	mconns   map[uintptr]*conn_state_t
-	idleTime int64
-	Ob       tcpmux.Survey
 }
 
 type inplace_ctr_t struct {
