@@ -274,6 +274,10 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 
 	var retB, ret []byte
 
+	if auth == "" {
+		auth = gc.Alias
+	}
+
 	if payload == nil {
 		ret = make([]byte, ln)
 		retB = make([]byte, 1+1+ln+len(auth))
@@ -300,9 +304,7 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 		ln = len(payload) + 1
 	}
 
-	if auth != "" {
-		copy(retB[2+ln:], []byte(auth))
-	}
+	copy(retB[2+ln:], auth)
 
 	retB[0], retB[1] = o.Val(), checksum1b(retB[2:])
 	s1, s2, s3, s4 := byte(gc.Rand.Intn(256)), byte(gc.Rand.Intn(256)),

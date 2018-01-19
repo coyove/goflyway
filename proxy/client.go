@@ -58,12 +58,14 @@ type ProxyClient struct {
 }
 
 func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
+	lat := time.Now().UnixNano()
 	if proxy.Connect2 == "" {
 		upstreamConn, err := proxy.pool.DialTimeout(timeoutDial)
 		if err != nil {
 			return nil, err
 		}
 
+		proxy.IO.Tr.AddLatency(time.Now().UnixNano() - lat)
 		return upstreamConn, nil
 	}
 
@@ -171,6 +173,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return nil, errors.New("connect2: cannot connect to the HTTPS proxy (" + x + ")")
 	}
 
+	proxy.IO.Tr.AddLatency(time.Now().UnixNano() - lat)
 	return connectConn, nil
 }
 
@@ -525,9 +528,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
-		proxy.tpq.Dial = func(network, address string) (net.Conn, error) {
-			return proxy.dialUpstream()
-		}
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream() }
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 

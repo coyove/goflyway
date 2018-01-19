@@ -6,7 +6,9 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 /*
@@ -79,11 +81,12 @@ func (d *trafficData) Append(f float64) {
 	d.data[0] = f
 }
 
-func (d *trafficData) Range() (min float64, max float64) {
+func (d *trafficData) Range() (min float64, avg float64, max float64) {
 	min, max = 1e100, 0.0
 
 	for i := len(d.data) - 1; i >= 0; i-- {
 		f := d.data[i]
+		avg += f
 
 		if f > max {
 			max = f
@@ -93,6 +96,7 @@ func (d *trafficData) Range() (min float64, max float64) {
 	}
 
 	d.min, d.max = min, max
+	avg /= float64(len(d.data))
 	return
 }
 
@@ -105,20 +109,57 @@ func (d *trafficData) Get(index int) float64 {
 	return f - d.min
 }
 
-func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
+type trafficSurvey struct {
+	totalSent   uint64
+	totalRecved uint64
+	latency     float64
+	latencyMin  int64
+	latencyMax  int64
+	sent        trafficData
+	recved      trafficData
+}
+
+func (s *trafficSurvey) Init(ln int) {
+	s.sent.data = make([]float64, ln)
+	s.recved.data = make([]float64, ln)
+	s.latencyMin = -1
+}
+
+func (s *trafficSurvey) AddLatency(nsec int64) {
+	const N = 2
+	for {
+		o := s.latency
+		n := o - o/N + float64(nsec)/N
+
+		oi, ni := *(*uint64)(unsafe.Pointer(&o)), *(*uint64)(unsafe.Pointer(&n))
+		if atomic.CompareAndSwapUint64((*uint64)(unsafe.Pointer(&s.latency)), oi, ni) {
+			break
+		}
+	}
+
+	if nsec > s.latencyMax {
+		s.latencyMax = nsec
+	}
+
+	if nsec < s.latencyMin || s.latencyMin == -1 {
+		s.latencyMin = nsec
+	}
+}
+
+func (s *trafficSurvey) SVG(w, h int, logarithm bool) *bytes.Buffer {
 	ret := &bytes.Buffer{}
 	ret.WriteString(fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 %d %d\">", w, h))
 	ret.WriteString("<style>*{ font-family: \"Courier New\", Courier, monospace; box-sizing: border-box; }</style>")
 
-	wTick := float64(w) / float64(len(iot.TrSent.data)-1)
-	iot.TrSent.logarithm, iot.TrRecved.logarithm = logarithm, logarithm
-	smin, smax := iot.TrSent.Range()
-	rmin, rmax := iot.TrRecved.Range()
+	wTick := float64(w) / float64(len(s.sent.data)-1)
+	s.sent.logarithm, s.recved.logarithm = logarithm, logarithm
+	smin, savg, smax := s.sent.Range()
+	rmin, ravg, rmax := s.recved.Range()
 	margin := h / 10
 	tick := 60 / trafficSurveyinterval
-	minutes, m := len(iot.TrSent.data)/tick, -1
+	minutes, m := len(s.sent.data)/tick, -1
 
-	for i := 0; i < len(iot.TrSent.data); i += tick {
+	for i := 0; i < len(s.sent.data); i += tick {
 		x := float64(i) * wTick
 		m++
 		if m%2 == 1 {
@@ -138,7 +179,7 @@ func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 
 	if delta := smax - smin; delta > 0 {
 		if logarithm {
-			delta = iot.TrSent.Log(smax) - iot.TrSent.Log(smin)
+			delta = s.sent.Log(smax) - s.sent.Log(smin)
 			margin = h/2 + 1
 		}
 
@@ -146,8 +187,8 @@ func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 		polybegin("#F44336")
 
 		x := 0.0
-		for i := len(iot.TrSent.data) - 1; i >= 0; i-- {
-			f := int(iot.TrSent.Get(i) * hScale)
+		for i := len(s.sent.data) - 1; i >= 0; i-- {
+			f := int(s.sent.Get(i) * hScale)
 
 			if x1, x2 := x-wTick/2, x+wTick/2; logarithm {
 				ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x1, h/2-f, x2, h/2-f))
@@ -166,7 +207,7 @@ func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 
 	if delta := rmax - rmin; delta > 0 {
 		if logarithm {
-			delta = iot.TrSent.Log(rmax) - iot.TrSent.Log(rmin)
+			delta = s.sent.Log(rmax) - s.sent.Log(rmin)
 			margin = h/2 + 1
 		}
 
@@ -174,8 +215,8 @@ func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 		polybegin("#00796B")
 
 		x := 0.0
-		for i := len(iot.TrRecved.data) - 1; i >= 0; i-- {
-			f := int(iot.TrRecved.Get(i) * hScale)
+		for i := len(s.recved.data) - 1; i >= 0; i-- {
+			f := int(s.recved.Get(i) * hScale)
 			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, h-f, x+wTick/2, h-f))
 			x += wTick
 		}
@@ -189,15 +230,25 @@ func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 
 	ret.WriteString("<text font-size=\"0.33em\" style='text-shadow: 0 0 1px #ccc'>")
 
-	sText := "<tspan fill=\"#F44336\" x=\".4em\" dy=\"1.2em\">Tx %.2f KB/s %.2f KB/s %.2f MB</tspan>"
-	rText := "<tspan fill=\"#00796B\" x=\".4em\" dy=\"1.2em\">Rx %.2f KB/s %.2f KB/s %.2f MB</tspan>"
+	format := func(f float64) string {
+		if f < 10 {
+			return strconv.FormatFloat(f, 'f', 3, 64)
+		} else if f < 100 {
+			return strconv.FormatFloat(f, 'f', 2, 64)
+		}
+		return strconv.FormatFloat(f, 'f', 1, 64)
+	}
+
+	sText := "<tspan fill=\"#303F9F\" x=\".4em\" dy=\"1.2em\">Lt %d ms %d ms %d ms</tspan><tspan fill=\"#F44336\" x=\".4em\" dy=\"1.2em\">Tx %s KB/s %s KB/s %s KB/s %.2f MB</tspan>"
+	rText := "<tspan fill=\"#00796B\" x=\".4em\" dy=\"1.2em\">Rx %s KB/s %s KB/s %s KB/s %.2f MB</tspan>"
 	if logarithm {
 		rText = "<tspan y=\"50%%\" style=\"visibility:hidden\">a</tspan>" + rText
 	}
 
-	ret.WriteString(fmt.Sprintf(sText, iot.TrSent.data[0]/1024, smax/1024, float64(iot.sent)/1024/1024))
+	ret.WriteString(fmt.Sprintf(sText, s.latencyMin/1e6, int(s.latency/1e6), s.latencyMax/1e6,
+		format(s.sent.data[0]/1024), format(savg/1024), format(smax/1024), float64(s.totalSent)/1024/1024))
 
-	ret.WriteString(fmt.Sprintf(rText, iot.TrRecved.data[0]/1024, rmax/1024, float64(iot.recved)/1024/1024))
+	ret.WriteString(fmt.Sprintf(rText, format(s.recved.data[0]/1024), format(ravg/1024), format(rmax/1024), float64(s.totalRecved)/1024/1024))
 
 	ret.WriteString("</text>")
 

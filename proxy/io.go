@@ -90,16 +90,14 @@ func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
 
 type io_t struct {
 	sync.Mutex
-	iid      uint64
-	sent     uint64
-	recved   uint64
+	iid uint64
+	Tr  trafficSurvey // note 64bit align
+
 	started  bool
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
 
-	Ob       tcpmux.Survey
-	TrSent   trafficData
-	TrRecved trafficData
+	Ob tcpmux.Survey
 }
 
 type conn_state_t struct {
@@ -158,8 +156,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.idleTime = int64(maxIdleTime)
-	iot.TrSent.data = make([]float64, 20*60/trafficSurveyinterval)   // 20 mins
-	iot.TrRecved.data = make([]float64, 20*60/trafficSurveyinterval) // 20 mins
+	iot.Tr.Init(20 * 60 / trafficSurveyinterval) // 20 mins
 
 	go func() {
 		count := 0
@@ -180,11 +177,11 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			count++
 
 			if count%trafficSurveyinterval == 0 {
-				sent, recv := iot.sent-lastSent, iot.recved-lastRecved
-				lastSent, lastRecved = iot.sent, iot.recved
+				sent, recv := iot.Tr.totalSent-lastSent, iot.Tr.totalRecved-lastRecved
+				lastSent, lastRecved = iot.Tr.totalSent, iot.Tr.totalRecved
 
-				iot.TrSent.Append(float64(sent) / trafficSurveyinterval)
-				iot.TrRecved.Append(float64(recv) / trafficSurveyinterval)
+				iot.Tr.sent.Append(float64(sent) / trafficSurveyinterval)
+				iot.Tr.recved.Append(float64(recv) / trafficSurveyinterval)
 			}
 
 			if count == 60 {
@@ -332,9 +329,9 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 		if nr > 0 {
 			xbuf := buf[0:nr]
 			if config.Role == roleSend {
-				atomic.AddUint64(&iot.sent, uint64(nr))
+				atomic.AddUint64(&iot.Tr.totalSent, uint64(nr))
 			} else if config.Role == roleRecv {
-				atomic.AddUint64(&iot.recved, uint64(nr))
+				atomic.AddUint64(&iot.Tr.totalRecved, uint64(nr))
 			}
 
 			if config.Partial && encrypted == sslRecordLen {

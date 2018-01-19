@@ -115,7 +115,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
 		document.cookie = "log=" + (log ? "1" : "0") + "; expires=Sat, 1 Jan 2050 00:00:00 GMT; path=/";
 	}
 
-	document.getElementById('traffic').setAttribute("log", /log[^;]+/.exec(document.cookie).toString() == "log=1" ? 1 : 0);
+	document.getElementById('traffic').setAttribute("log", (/log[^;]+/.exec(document.cookie)||"").toString() == "log=1" ? 1 : 0);
 	switchSVG();
 	setInterval(switchSVG, 5000);
 	</script>
@@ -230,7 +230,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 
 			if strings.HasPrefix(r.RequestURI, "/traffic.svg") {
 				w.Header().Add("Content-Type", "image/svg+xml")
-				w.Write(proxy.IO.SVG(300, 50, r.FormValue("log") == "1").Bytes())
+				w.Write(proxy.IO.Tr.SVG(300, 50, r.FormValue("log") == "1").Bytes())
 				return
 			}
 
