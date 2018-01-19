@@ -3,6 +3,8 @@ package proxy
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -63,7 +65,13 @@ func (tb *TokenBucket) Consume(n int64) {
 }
 
 type trafficData struct {
-	data []float64
+	logarithm bool
+	min, max  float64
+	data      []float64
+}
+
+func (d *trafficData) Log(n float64) float64 {
+	return math.Log(n + 1)
 }
 
 func (d *trafficData) Append(f float64) {
@@ -75,26 +83,41 @@ func (d *trafficData) Range() (min float64, max float64) {
 	min, max = 1e100, 0.0
 
 	for i := len(d.data) - 1; i >= 0; i-- {
-		if f := d.data[i]; f > max {
+		f := d.data[i]
+
+		if f > max {
 			max = f
 		} else if f < min {
 			min = f
 		}
 	}
 
+	d.min, d.max = min, max
 	return
 }
 
-func (iot *io_t) SVG(id string, w, h int) *bytes.Buffer {
+func (d *trafficData) Get(index int) float64 {
+	f := d.data[index]
+	if d.logarithm {
+		f = d.Log(f)
+		return f - d.Log(d.min)
+	}
+	return f - d.min
+}
+
+func (iot *io_t) SVG(w, h int, logarithm bool) *bytes.Buffer {
 	ret := &bytes.Buffer{}
-	ret.WriteString(fmt.Sprintf("<svg id=\"%s\" viewBox=\"0 0 %d %d\">", id, w, h))
+	ret.WriteString(fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 %d %d\">", w, h))
+	ret.WriteString("<style>*{ font-family: \"Courier New\", Courier, monospace; box-sizing: border-box; }</style>")
 
 	wTick := float64(w) / float64(len(iot.TrSent.data)-1)
+	iot.TrSent.logarithm, iot.TrRecved.logarithm = logarithm, logarithm
 	smin, smax := iot.TrSent.Range()
 	rmin, rmax := iot.TrRecved.Range()
-
+	margin := h / 10
 	tick := 60 / trafficSurveyinterval
 	minutes, m := len(iot.TrSent.data)/tick, -1
+
 	for i := 0; i < len(iot.TrSent.data); i += tick {
 		x := float64(i) * wTick
 		m++
@@ -107,50 +130,83 @@ func (iot *io_t) SVG(id string, w, h int) *bytes.Buffer {
 		}
 	}
 
+	polybegin := func(c string) {
+		ret.WriteString("<polyline stroke=\"" + c + "\" fill=\"" + c + "\" ")
+		ret.WriteString("fill-opacity=\"0.5\" stroke-width=\"0.5px\" ")
+		ret.WriteString("points=\"")
+	}
+
 	if delta := smax - smin; delta > 0 {
-		hScale := float64(h-1) / delta
-		ret.WriteString("<polyline fill-opacity=\"0.5\" stroke=\"#F44336\" fill=\"#F44336\" stroke-width=\"0.5px\" points=\"")
+		if logarithm {
+			delta = iot.TrSent.Log(smax) - iot.TrSent.Log(smin)
+			margin = h/2 + 1
+		}
+
+		hScale := float64(h-margin) / delta
+		polybegin("#F44336")
 
 		x := 0.0
 		for i := len(iot.TrSent.data) - 1; i >= 0; i-- {
-			f := int((iot.TrSent.data[i] - smin) * hScale)
-			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, f-1, x+wTick/2, f-1))
+			f := int(iot.TrSent.Get(i) * hScale)
+
+			if x1, x2 := x-wTick/2, x+wTick/2; logarithm {
+				ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x1, h/2-f, x2, h/2-f))
+			} else {
+				ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x1, f, x2, f))
+			}
 			x += wTick
 		}
 
-		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -10,-10 -10,0\"/>", w, 0, w+10, 0, w+10, -10))
+		if logarithm {
+			ret.WriteString(fmt.Sprintf(" %d,%d 0,%d\"/>", w, h/2, h/2))
+		} else {
+			ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -1,-1 -1,0\"/>", w, 0, w+1, 0, w+1, -1))
+		}
 	}
 
 	if delta := rmax - rmin; delta > 0 {
-		hScale := float64(h-1) / delta
-		ret.WriteString("<polyline fill-opacity=\"0.5\" stroke=\"#00796B\" fill=\"#00796B\" stroke-width=\"0.5px\" points=\"")
+		if logarithm {
+			delta = iot.TrSent.Log(rmax) - iot.TrSent.Log(rmin)
+			margin = h/2 + 1
+		}
+
+		hScale := float64(h-margin) / delta
+		polybegin("#00796B")
 
 		x := 0.0
 		for i := len(iot.TrRecved.data) - 1; i >= 0; i-- {
-			f := int((iot.TrRecved.data[i] - rmin) * hScale)
-			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, h-f+1, x+wTick/2, h-f+1))
+			f := int(iot.TrRecved.Get(i) * hScale)
+			ret.WriteString(fmt.Sprintf("%f,%d %f,%d ", x-wTick/2, h-f, x+wTick/2, h-f))
 			x += wTick
 		}
 
-		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -10,%d -10,%d\"/>", w, h, w+10, h, w+10, h+10, h+10, h))
+		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -1,%d -1,%d\"/>", w, h, w+1, h, w+1, h+1, h+1, h))
 	}
 
-	ret.WriteString("<defs><linearGradient id=\"" + id + "-i\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"0\"><stop offset=\"0%\" stop-color=\"white\" stop-opacity=\"0.75\"/><stop offset=\"100%\" stop-color=\"white\" stop-opacity=\"0\"/></linearGradient></defs>")
+	id := strconv.FormatInt(time.Now().Unix(), 16)
+	ret.WriteString("<defs><linearGradient id=\"traffic-" + id + "-i\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"0\"><stop offset=\"0%\" stop-color=\"white\" stop-opacity=\"0.7\"/><stop offset=\"100%\" stop-color=\"white\" stop-opacity=\"0\"/></linearGradient></defs>")
+	ret.WriteString("<rect width=\"100%\" height=\"100%\" fill=\"url(#traffic-" + id + "-i)\"/>")
 
-	ret.WriteString("<rect width=\"50%\" height=\"100%\" fill=\"url(#" + id + "-i)\"/>")
+	ret.WriteString("<text font-size=\"0.33em\" style='text-shadow: 0 0 1px #ccc'>")
 
-	ret.WriteString("<text font-size=\"0.4em\" style='text-shadow: 0 0 1px #ccc'>")
+	sText := "<tspan fill=\"#F44336\" x=\".4em\" dy=\"1.2em\">Tx %.2f KB/s %.2f KB/s %.2f MB</tspan>"
+	rText := "<tspan fill=\"#00796B\" x=\".4em\" dy=\"1.2em\">Rx %.2f KB/s %.2f KB/s %.2f MB</tspan>"
+	if logarithm {
+		rText = "<tspan y=\"50%%\" style=\"visibility:hidden\">a</tspan>" + rText
+	}
 
-	ret.WriteString(fmt.Sprintf("<tspan fill=\"#F44336\" x=\".4em\" dy=\"1.2em\">&uarr; %.2fKiB/s (%.2fKiB/s, %.2fMiB)</tspan>",
-		iot.TrSent.data[0]/1024, smax/1024, float64(iot.sent)/1024/1024))
+	ret.WriteString(fmt.Sprintf(sText, iot.TrSent.data[0]/1024, smax/1024, float64(iot.sent)/1024/1024))
 
-	ret.WriteString(fmt.Sprintf("<tspan fill=\"#00796B\" x=\".4em\" dy=\"1.2em\">&darr; %.2fKiB/s (%.2fKiB/s, %.2fMiB)</tspan>",
-		iot.TrRecved.data[0]/1024, rmax/1024, float64(iot.recved)/1024/1024))
+	ret.WriteString(fmt.Sprintf(rText, iot.TrRecved.data[0]/1024, rmax/1024, float64(iot.recved)/1024/1024))
 
 	ret.WriteString("</text>")
 
 	ret.WriteString(fmt.Sprintf("<polyline stroke-width=\"1px\" stroke=\"#d1d2d3\" fill=\"none\" points=\"0,0 %d,%d %d,%d %d,%d 0,0\"/>",
 		w, 0, w, h, 0, h))
+
+	if logarithm {
+		ret.WriteString("<line x1=\"0\" y1=\"50%\" x2=\"100%\" y2=\"50%\" stroke-width=\"0.5px\" stroke=\"#d7d8d9\"/>")
+	}
 
 	ret.WriteString("</svg>")
 	return ret

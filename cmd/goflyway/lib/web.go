@@ -20,36 +20,35 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFoAAABaAQMAAAACZtNBAAAABlBMVEVycYL///9g0YTYAAAANUlEQVQ4y2MYBMD+/x8Q8f//wHE+MP8HEQPFgbgERAwQZ1AAoEvgAUJ/zmBJiQwDwxk06QAA91Y8PCo+T/8AAAAASUVORK5CYII='>
 
     <style>
-		*                                   { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; }
-		#sent                               { max-width: 600px; width: 100%; margin: 4px 0; overflow: hidden; height: auto; }
-		.container *                        { font-size: 12px; }
-        table#panel                         { border-collapse: collapse; height: 80px; }
-        table#panel td                      { padding-right: 4px; }
-        table#dns                           { border-collapse: collapse; margin: 4px 0; }
-		table#dns td, table#dns th          { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
-		table#dns td.fit, table#dns th.fit  { white-space: nowrap; }
-		table#dns td.ip, table#dns td.ip *  { font-family: "Lucida Console", Monaco, monospace; }
-		table#dns td.ip a 	                { text-decoration: none; color: black; }
-		table#dns td.ip a:hover             { text-decoration: underline; }
-        table#dns td.rule                   { text-align: center; padding: 0; }
-        table#dns td.rule.Block 		    { background: #F44336; color:white; }
-        table#dns td.rule.Private 		    { background: #5D4037; color:white; }
-        table#dns td.rule.MatchedPass 	    { background: #00796B; color:white; }
-        table#dns td.rule.Pass 		        { background: #00796B; color:white; }
-        table#dns td.rule.MatchedProxy      { background: #FBC02D; }
-        table#dns td.rule.Proxy 		    { background: #FBC02D; }
-        table#dns td.rule.IPv6 		        { background: #7B1FA2; color:white; }
-		table#dns td.rule.Unknown 		    { background: #512DA8; color:white; }
-		table#dns td.side-rule     		    { width: 5px; min-width: 5px; max-width: 5px; padding: 0; cursor: pointer }
-		table#dns td.side-rule.Pass		    { background: #0EAB99; }
-		table#dns td.side-rule.Proxy	    { background: #FDD97F; }
-		table#dns td.side-rule.Block	    { background: #EB918A; }
-		table#dns td.side-rule.Pass:hover   { background: #00796B; }
-		table#dns td.side-rule.Proxy:hover  { background: #FBC02D; }
-		table#dns td.side-rule.Block:hover  { background: #F44336; }
-		table#dns tr:nth-child(odd) 		{ background-color: #e3e4e5; }
-		table#dns tr.last-tr                { visibility: hidden; }
-		table#dns tr.last-tr td             { border: 0; }
+		*                                  { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; font-size: 12px; }
+		#traffic                           { max-width: 600px; width: 100%; margin: 4px 0; overflow: hidden; height: auto; cursor: pointer; }
+        table#panel                        { border-collapse: collapse; height: 80px; }
+        table#panel td                     { padding-right: 4px; }
+        table#dns                          { border-collapse: collapse; margin: 4px 0; }
+		table#dns td, table#dns th         { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
+		table#dns td.fit, table#dns th.fit { white-space: nowrap; }
+		table#dns td.ip, table#dns td.ip * { font-family: "Lucida Console", Monaco, monospace; }
+		table#dns td.ip a 	               { text-decoration: none; color: black; }
+		table#dns td.ip a:hover            { text-decoration: underline; }
+        table#dns td.rule                  { text-align: center; padding: 0; }
+        table#dns td.rule.Block 		   { background: #F44336; color:white; }
+        table#dns td.rule.Private 		   { background: #5D4037; color:white; }
+        table#dns td.rule.MatchedPass 	   { background: #00796B; color:white; }
+        table#dns td.rule.Pass 		       { background: #00796B; color:white; }
+        table#dns td.rule.MatchedProxy     { background: #FBC02D; }
+        table#dns td.rule.Proxy 		   { background: #FBC02D; }
+        table#dns td.rule.IPv6 		       { background: #7B1FA2; color:white; }
+		table#dns td.rule.Unknown 		   { background: #512DA8; color:white; }
+		table#dns td.side-rule     		   { width: 5px; min-width: 5px; max-width: 5px; padding: 0; cursor: pointer }
+		table#dns td.side-rule.Pass		   { background: #0EAB99; }
+		table#dns td.side-rule.Proxy	   { background: #FDD97F; }
+		table#dns td.side-rule.Block	   { background: #EB918A; }
+		table#dns td.side-rule.Pass:hover  { background: #00796B; }
+		table#dns td.side-rule.Proxy:hover { background: #FBC02D; }
+		table#dns td.side-rule.Block:hover { background: #F44336; }
+		table#dns tr:nth-child(odd) 	   { background-color: #e3e4e5; }
+		table#dns tr.last-tr               { visibility: hidden; }
+		table#dns tr.last-tr td            { border: 0; }
     </style>
 
 	<div class=container>
@@ -105,7 +104,21 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     </script>
 	</div>
 
-	{{.TrSent}}
+	<img id="traffic" src="" log=0 onclick="switchSVG(this)"/>
+
+	<script>
+	function switchSVG(el) {
+		if (el) el.setAttribute("log", Math.abs(el.getAttribute("log") - 1));
+		
+		var log = document.getElementById('traffic').getAttribute("log") == 1;
+		document.getElementById('traffic').src = "/traffic.svg?" + (log ? "log=1&c=" : "c=") + (new Date().getTime());
+		document.cookie = "log=" + (log ? "1" : "0") + "; expires=Sat, 1 Jan 2050 00:00:00 GMT; path=/";
+	}
+
+	document.getElementById('traffic').setAttribute("log", /log[^;]+/.exec(document.cookie).toString() == "log=1" ? 1 : 0);
+	switchSVG();
+	setInterval(switchSVG, 5000);
+	</script>
 
 	<div class=container>
     <input onkeyup="search(this)" style="min-width: 100px" placeholder="{{.I18N.Filter}}"/>
@@ -214,8 +227,14 @@ func toString(ans byte) string {
 func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
+
+			if strings.HasPrefix(r.RequestURI, "/traffic.svg") {
+				w.Header().Add("Content-Type", "image/svg+xml")
+				w.Write(proxy.IO.SVG(300, 50, r.FormValue("log") == "1").Bytes())
+				return
+			}
+
 			payload := struct {
-				TrSent       string
 				Global       bool
 				Entries      int
 				EntriesRatio int
@@ -259,7 +278,6 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			}
 			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td><td></td><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
 
-			payload.TrSent = proxy.IO.SVG("sent", 300, 40).String()
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
 			payload.Entries = count
