@@ -92,12 +92,12 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	}
 
 	tryClose(resp.Body)
-	ip := net.ParseIP(resp.Header.Get(dnsRespHeader)).To4()
+	ip, _ := base32Decode(resp.Header.Get(dnsRespHeader), true)
 	if ip == nil {
 		return r, " (remote-err)"
 	}
 
-	ipstr = ip.String()
+	ipstr = net.IP(ip).String()
 	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
 		return rulePass, " (remote-pass)"

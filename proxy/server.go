@@ -155,16 +155,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if (options & doDNS) > 0 {
 		host := string(rkeybuf)
 		ip, err := net.ResolveIPAddr("ip4", host)
-		var ans string
 		if err != nil {
 			logg.W(err)
-			ans = "127.0.0.1"
-		} else {
-			ans = ip.String()
+			ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
 		}
 
-		logg.D("dns: ", host, " ", ans)
-		w.Header().Add(dnsRespHeader, ans)
+		logg.D("DNS: ", host, " ", ip.String())
+		w.Header().Add(dnsRespHeader, base32Encode([]byte(ip.IP.To4()), true))
 		w.WriteHeader(200)
 
 	} else if options.IsSet(doConnect) {
