@@ -73,7 +73,7 @@ type trafficData struct {
 }
 
 func (d *trafficData) Log(n float64) float64 {
-	return math.Log(n + 1)
+	return math.Log2(n + 1)
 }
 
 func (d *trafficData) Append(f float64) {
@@ -149,7 +149,12 @@ func (s *trafficSurvey) AddLatency(nsec int64) {
 func (s *trafficSurvey) SVG(w, h int, logarithm bool) *bytes.Buffer {
 	ret := &bytes.Buffer{}
 	ret.WriteString(fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 %d %d\">", w, h))
-	ret.WriteString("<style>*{ font-family: \"Courier New\", Courier, monospace; box-sizing: border-box; }</style>")
+	ret.WriteString("<style>*{ font-family: \"Lucida Console\", Monaco, monospace; box-sizing: border-box; }</style>")
+	ret.WriteString("<defs>")
+	id := strconv.FormatInt(time.Now().Unix(), 16)
+	ret.WriteString("<linearGradient id=\"traffic-" + id + "-i\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"0\"><stop offset=\"0%\" stop-color=\"white\" stop-opacity=\"0.7\"/><stop offset=\"100%\" stop-color=\"white\" stop-opacity=\"0\"/></linearGradient>")
+	ret.WriteString("<clipPath id=\"traffic-" + id + "-c\"><rect width=\"100%\" height=\"100%\" fill=\"none\" stroke=\"none\"/></clipPath>")
+	ret.WriteString("</defs><g clip-path=\"url(#traffic-" + id + "-c)\">")
 
 	wTick := float64(w) / float64(len(s.sent.data)-1)
 	s.sent.logarithm, s.recved.logarithm = logarithm, logarithm
@@ -224,8 +229,6 @@ func (s *trafficSurvey) SVG(w, h int, logarithm bool) *bytes.Buffer {
 		ret.WriteString(fmt.Sprintf(" %d,%d %d,%d %d,%d -1,%d -1,%d\"/>", w, h, w+1, h, w+1, h+1, h+1, h))
 	}
 
-	id := strconv.FormatInt(time.Now().Unix(), 16)
-	ret.WriteString("<defs><linearGradient id=\"traffic-" + id + "-i\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"0\"><stop offset=\"0%\" stop-color=\"white\" stop-opacity=\"0.7\"/><stop offset=\"100%\" stop-color=\"white\" stop-opacity=\"0\"/></linearGradient></defs>")
 	ret.WriteString("<rect width=\"100%\" height=\"100%\" fill=\"url(#traffic-" + id + "-i)\"/>")
 
 	ret.WriteString("<text font-size=\"0.33em\" style='text-shadow: 0 0 1px #ccc'>")
@@ -259,6 +262,6 @@ func (s *trafficSurvey) SVG(w, h int, logarithm bool) *bytes.Buffer {
 		ret.WriteString("<line x1=\"0\" y1=\"50%\" x2=\"100%\" y2=\"50%\" stroke-width=\"0.5px\" stroke=\"#d7d8d9\"/>")
 	}
 
-	ret.WriteString("</svg>")
+	ret.WriteString("</g></svg>")
 	return ret
 }

@@ -93,7 +93,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	tryClose(resp.Body)
 	ip, _ := base32Decode(resp.Header.Get(dnsRespHeader), true)
-	if ip == nil {
+	if ip == nil || len(ip) != net.IPv4len {
 		return r, " (remote-err)"
 	}
 
