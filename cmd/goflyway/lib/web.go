@@ -130,6 +130,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
 					<li><a href="#" class="sep">{{.I18N.Basic}}</a></li>
 					<li><a href="#" onclick="toggle('proxy')" class="item {{if .Global}}checked{{end}}">{{.I18N.GlobalOn}}</a></li>
 					<li><a href="#" onclick="toggle('cleardns')" class="item">{{.I18N.ClearDNS}}</a></li>
+					<li><a href="#" onclick="toggle('reset')" class="item">{{.I18N.Reset}}</a></li>
 					<li><a href="#" class="sep">{{.I18N.Show}}</a></li>
 					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Pass</a></li>
 					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Proxy</a></li>
@@ -176,6 +177,7 @@ var _i18n = map[string]map[string]string{
 		"Rule":      "Rule",
 		"OldRule":   "Old Rule",
 		"GlobalOn":  "Enable global proxy",
+		"Reset":     "Reset changed rules",
 	},
 	"zh": {
 		"Title":     "goflyway 控制台",
@@ -190,6 +192,7 @@ var _i18n = map[string]map[string]string{
 		"Rule":      "规则",
 		"OldRule":   "旧规则",
 		"GlobalOn":  "全局代理",
+		"Reset":     "重置规则",
 	},
 }
 
@@ -312,6 +315,25 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 				return
 			}
 
+			if r.FormValue("reset") != "" {
+				keys := []string{}
+				proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
+					if r := v.(*pp.Rule); r.OldAns != r.Ans {
+						keys = append(keys, k.(string))
+					}
+				})
+
+				for _, k := range keys {
+					if v, ok := proxy.DNSCache.Get(k); ok {
+						v.(*pp.Rule).Ans = v.(*pp.Rule).OldAns
+						proxy.DNSCache.Add(k, v)
+					}
+				}
+
+				w.WriteHeader(200)
+				return
+			}
+
 			if r.FormValue("proxy") != "" {
 				if proxy.Policy.IsSet(pp.PolicyGlobal) {
 					proxy.Policy.UnSet(pp.PolicyGlobal)
@@ -345,6 +367,8 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 				}
 				return
 			}
+
+			w.Write([]byte("error"))
 		}
 	}
 }
