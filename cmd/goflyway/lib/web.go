@@ -95,7 +95,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     function update(el) {
         var rule = el.getAttribute("rule"), tdr = el.parentNode.querySelectorAll("td.r"), rules = ["Proxy", "Pass", "Block"];
 
-        post("target=" + el.parentNode.childNodes[0].innerHTML + "&update=" + rule, function(http) {
+        post("target=" + el.parentNode.childNodes[0].getAttribute("host") + "&update=" + rule, function(http) {
             if (rules.indexOf(http.responseText) == -1) return;
             var setter = function(e,c,o,h) { e.setAttribute("colspan", c); e.setAttribute("onclick", o); e.innerHTML = h;}
             for (var i = 0 ; i < 3; i++) {
@@ -282,8 +282,8 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 					ip = "<a><span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span></a>"
 				}
 
-				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host">%v (%d)</td><td class="fit ip">%s</td>%s%s%s<!--%s--></tr>`,
-					k, h, ip, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r], toString(rule.OldAns)))
+				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host" host="%v">%v (%d)</td><td class="fit ip">%s</td>%s%s%s<!--%s--></tr>`,
+					k, k, h, ip, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r], toString(rule.OldAns)))
 			})
 
 			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
