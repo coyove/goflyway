@@ -126,6 +126,10 @@ type msg_t struct {
 var msgQueue = make(chan *msg_t)
 
 func print(l string, params ...interface{}) {
+	if !started {
+		return
+	}
+
 	_, fn, line, _ := runtime.Caller(2)
 	m := msg_t{lead: fmt.Sprintf("[%s%s:%s(%d)] ", l, timestamp(), trunc(fn), line), ts: time.Now().UnixNano()}
 

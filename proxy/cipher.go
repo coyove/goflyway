@@ -277,19 +277,20 @@ func (gc *Cipher) NewIV(o Options, payload []byte, auth string) (string, []byte)
 	if auth == "" {
 		auth = gc.Alias
 	}
+	if !o.IsSet(doDNS) {
+		if payload == nil {
+			ret = make([]byte, ln)
+			retB = make([]byte, 1+1+ln+len(auth))
 
-	if payload == nil {
-		ret = make([]byte, ln)
-		retB = make([]byte, 1+1+ln+len(auth))
-
-		for i := 2; i < ln+2; i++ {
-			retB[i] = byte(gc.Rand.Intn(255) + 1)
-			ret[i-2] = retB[i]
+			for i := 2; i < ln+2; i++ {
+				retB[i] = byte(gc.Rand.Intn(255) + 1)
+				ret[i-2] = retB[i]
+			}
+		} else {
+			ret = payload
+			retB = make([]byte, 1+1+ln+len(auth))
+			copy(retB[2:], payload)
 		}
-	} else if !o.IsSet(doDNS) {
-		ret = payload
-		retB = make([]byte, 1+1+ln+len(auth))
-		copy(retB[2:], payload)
 	} else {
 		// +-------+-------------+------------+------+-- -  -   -
 		// | doDNS | checksum 1b | hostlen 1b | host | auth data ...
@@ -350,7 +351,7 @@ func (gc *Cipher) ReverseIV(key string) (o Options, iv []byte, auth []byte) {
 	}
 
 	ln := buf[2]
-	if int(3+ln) > len(buf) {
+	if 3+int(ln) > len(buf) {
 		return
 	}
 

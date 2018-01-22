@@ -20,16 +20,16 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     <link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFoAAABaAQMAAAACZtNBAAAABlBMVEVycYL///9g0YTYAAAANUlEQVQ4y2MYBMD+/x8Q8f//wHE+MP8HEQPFgbgERAwQZ1AAoEvgAUJ/zmBJiQwDwxk06QAA91Y8PCo+T/8AAAAASUVORK5CYII='>
 
     <style>
-		*                                  { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; font-size: 12px; }
-		#traffic                           { width: 100%; overflow: hidden; height: auto; cursor: pointer; vertical-align: bottom; }
-		#search                            { width: 100%; border: none; padding: 4px; left: 8px; top: 4px; height: 100%; margin: -4px -8px; position: absolute; background: #fafafa; }
+        *                                  { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; font-size: 12px; }
+        #traffic                           { width: 100%; overflow: hidden; height: auto; cursor: pointer; vertical-align: bottom; }
+        #search                            { width: 100%; border: none; padding: 4px; left: 8px; top: 4px; height: 100%; margin: -4px -8px; position: absolute; background: #fafafa; min-height: 20px; }
         table#dns                          { border-collapse: collapse; margin: 4px auto; min-width: 500px; }
-		table#dns td, table#dns th         { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
-		table#dns td.fit, table#dns th.fit { white-space: nowrap; }
-		table#dns td.ip, table#dns td.ip * { font-family: "Lucida Console", Monaco, monospace; border-left: none; }
-		table#dns td.host                  { border-right: none; text-align: left; }
-		table#dns td.ip a 	               { text-decoration: none; color: black; }
-		table#dns td.ip a span:before, table#dns td.ip a span.p1:after { content: '\00a0'; }
+        table#dns td, table#dns th         { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
+        table#dns td.fit, table#dns th.fit { white-space: nowrap; }
+        table#dns td.ip, table#dns td.ip * { font-family: "Lucida Console", Monaco, monospace; border-left: none; }
+        table#dns td.host                  { border-right: none; text-align: left; }
+        table#dns td.ip a 	               { text-decoration: none; color: black; }
+        table#dns td.ip a span:before, table#dns td.ip a span.p1:after { content: '\00a0'; }
         table#dns td.rule                  { text-align: center; padding: 0; }
         table#dns td.rule.Block 		   { background: #F44336; color:white; }
         table#dns td.rule.Private 		   { background: #5D4037; color:white; }
@@ -38,34 +38,34 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
         table#dns td.rule.MatchedProxy     { background: #FBC02D; }
         table#dns td.rule.Proxy 		   { background: #FBC02D; }
         table#dns td.rule.IPv6 		       { background: #7B1FA2; color:white; }
-		table#dns td.rule.Unknown 		   { background: #512DA8; color:white; }
-		table#dns td.side-rule     		   { width: 5px; min-width: 5px; max-width: 5px; padding: 0; cursor: pointer }
-		table#dns td.side-rule.Pass		   { background: #0EAB99; }
-		table#dns td.side-rule.Proxy	   { background: #FDD97F; }
-		table#dns td.side-rule.Block	   { background: #EB918A; }
-		table#dns td.side-rule.Pass:hover  { background: #00796B; }
-		table#dns td.side-rule.Proxy:hover { background: #FBC02D; }
-		table#dns td.side-rule.Block:hover { background: #F44336; }
-		table#dns tr:nth-child(odd) 	   { background-color: #e3e4e5; }
-		table#dns tr.traffic td            { padding: 0 }
-		table#dns tr.last-tr               { visibility: hidden; }
-		table#dns tr.last-tr td            { border: 0; }
-		.dropdown                          { position: relative; }
-		.dropdown ul                       { padding: 0; margin: 0; list-style: none; display: none; position: absolute; right: 0; border: solid 1px #ccc; background: #f1f2f3; }
-		.dropdown:hover ul                 { display: inherit; box-shadow: 0 1px 2px #ccc; }
-		.dropdown ul li a                  { display: block; border-bottom: solid 1px #ccc; text-align: left; text-decoration: none; color: black }
-		.dropdown ul li:last-child a       { border: none; }
-		.dropdown ul li a.item             { padding: 4px 12px 4px 8px; background: #f1f2f3; }
-		.dropdown ul li a.sep              { background: #ddd; font-size: 0.8em; padding: 2px; }
-		.dropdown ul li a.item:before      { content: '\00a0'; display: inline-block; width: 16px; }
-		.dropdown ul li a.checked:before   { content: '\25cf'; }
-		.dropdown ul li a.item:hover       { background: #676677; color: white; }
+        table#dns td.rule.Unknown 		   { background: #512DA8; color:white; }
+        table#dns td.side-rule     		   { width: 5px; min-width: 5px; max-width: 5px; padding: 0; cursor: pointer }
+        table#dns td.side-rule.Pass		   { background: #0EAB99; }
+        table#dns td.side-rule.Proxy	   { background: #FDD97F; }
+        table#dns td.side-rule.Block	   { background: #EB918A; }
+        table#dns td.side-rule.Pass:hover  { background: #00796B; }
+        table#dns td.side-rule.Proxy:hover { background: #FBC02D; }
+        table#dns td.side-rule.Block:hover { background: #F44336; }
+        table#dns tr:nth-child(odd) 	   { background-color: #e3e4e5; }
+        table#dns tr.traffic td            { padding: 0 }
+        table#dns tr.last-tr               { visibility: hidden; }
+        table#dns tr.last-tr td            { border: 0; }
+        .dropdown                          { position: relative; }
+        .dropdown ul                       { padding: 0; margin: 0; list-style: none; display: none; position: absolute; right: 0; border: solid 1px #ccc; background: #f1f2f3; }
+        .dropdown:hover ul                 { display: inherit; box-shadow: 0 1px 2px #ccc; }
+        .dropdown ul li a                  { display: block; border-bottom: solid 1px #ccc; text-align: left; text-decoration: none; color: black }
+        .dropdown ul li:last-child a       { border: none; }
+        .dropdown ul li a.item             { padding: 4px 12px 4px 8px; background: #f1f2f3; }
+        .dropdown ul li a.sep              { background: #ddd; font-size: 0.8em; padding: 2px; }
+        .dropdown ul li a.item:before      { content: '\00a0'; display: inline-block; width: 16px; }
+        .dropdown ul li a.checked:before   { content: '\25cf'; }
+        .dropdown ul li a.item:hover       { background: #676677; color: white; }
     </style>
 
-	<body style='text-align: center'>
-	<a href="https://github.com/coyove/goflyway/wiki" target="_blank">
-	<svg viewBox="0 0 9 9" width=80 height=80><path fill="#667" d="M0 5h4v1H3v1H2v1H1V5h5v1h1V5h1v3H5V2h1v1h1V2H2v1h1V2h1v2H1V1h2v1h2V1h3v3H5v1H0v4h9V0H0"/></svg>
-	</a>
+    <body style='text-align: center'>
+    <a href="https://github.com/coyove/goflyway/wiki" target="_blank">
+    <svg viewBox="0 0 9 9" width=80 height=80><path fill="#667" d="M0 5h4v1H3v1H2v1H1V5h5v1h1V5h1v3H5V2h1v1h1V2H2v1h1V2h1v2H1V1h2v1h2V1h3v3H5v1H0v4h9V0H0"/></svg>
+    </a>
 
     <script>
     function search(e) {
@@ -75,92 +75,92 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
             for (var i = 0; i < items.length; i++)
                 items[i].style.display = items[i].childNodes[0].innerHTML.match(re) ? "" : "none";
         } catch (ex) {}
-	}
+    }
 
-	function post(data, callback) {
-		var http = new XMLHttpRequest();
-		http.open("POST", "", true);
-		http.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-		http.onreadystatechange = function () { callback(http) };
-		http.send(data);
-	}
-	
-	function update(el) {
-		var rule = el.className.replace("r side-rule ", ""), tdr = el.parentNode.querySelectorAll("td.r");
+    function post(data, callback) {
+        var http = new XMLHttpRequest();
+        http.open("POST", "", true);
+        http.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+        http.onreadystatechange = function () { callback(http) };
+        http.send(data);
+    }
+    
+    function update(el) {
+        var rule = el.className.replace("r side-rule ", ""), tdr = el.parentNode.querySelectorAll("td.r");
 
-		post("target=" + el.parentNode.childNodes[0].innerHTML + "&update=" + rule, function(http) {
-			if (["Proxy", "Pass", "Block"].indexOf(http.responseText) == -1) return;
-			var setter = function(e,c,o,h) { e.setAttribute("colspan", c); e.setAttribute("onclick", o); e.innerHTML = h;}
-			for (var i = 0 ; i < 3; i++) {
-				tdr[i].className = "r side-rule " + ["Proxy", "Pass", "Block"][i];
-				setter(tdr[i], "1", "update(this)", "");
-			}
-			el.className = el.className.replace("side-", "");
-			setter(el, "11", "", rule);
-			el.parentNode.querySelector(".old").innerHTML = http.responseText;
-		});
-	}
+        post("target=" + el.parentNode.childNodes[0].innerHTML + "&update=" + rule, function(http) {
+            if (["Proxy", "Pass", "Block"].indexOf(http.responseText) == -1) return;
+            var setter = function(e,c,o,h) { e.setAttribute("colspan", c); e.setAttribute("onclick", o); e.innerHTML = h;}
+            for (var i = 0 ; i < 3; i++) {
+                tdr[i].className = "r side-rule " + ["Proxy", "Pass", "Block"][i];
+                setter(tdr[i], "1", "update(this)", "");
+            }
+            el.className = el.className.replace("side-", "");
+            setter(el, "11", "", rule);
+            el.parentNode.querySelector(".old").innerHTML = http.responseText;
+        });
+    }
 
-	function updateRuleFilter(el) {
-		el.className = el.className.indexOf("checked") > -1 ? "item rule" : "item rule checked";
-		var items = document.getElementById("rule-menu").querySelectorAll(".rule"), rules = [];
-		for (var i = 0; i < items.length; i++)
-			if (items[i].className.indexOf("checked") > -1) { rules.push(items[i].innerHTML); rules.push("M-" + items[i].innerHTML); }
+    function updateRuleFilter(el) {
+        el.className = el.className.indexOf("checked") > -1 ? "item rule" : "item rule checked";
+        var items = document.getElementById("rule-menu").querySelectorAll(".rule"), rules = [];
+        for (var i = 0; i < items.length; i++)
+            if (items[i].className.indexOf("checked") > -1) { rules.push(items[i].innerHTML); rules.push("M-" + items[i].innerHTML); }
 
-		var rows = document.getElementById("dns").querySelectorAll(".citem");
-		for (var i = 0; i < rows.length; i++)
-			rows[i].style.display = rules.indexOf((rows[i].querySelector("td.rule") || {}).innerHTML) > -1 ? "" : "none";
-	}
+        var rows = document.getElementById("dns").querySelectorAll(".citem");
+        for (var i = 0; i < rows.length; i++)
+            rows[i].style.display = rules.indexOf((rows[i].querySelector("td.rule") || {}).innerHTML) > -1 ? "" : "none";
+    }
 
-	function toggle(t) {
-		post(t + "=" + t, function() { location.reload(); });
-	}
-	</script>
-	
+    function toggle(t) {
+        post(t + "=" + t, function() { location.reload(); });
+    }
+    </script>
+    
     <table id=dns>
-		<tr>
-			<th class=fit colspan=2 style="position:relative;min-width:100px;text-align:left">
-			<input onkeyup="search(this)" id="search" placeholder="{{.I18N.Filter}} ({{.Entries}} {{.I18N.Host}})"/>
-			</th>
-			<th class=fit>{{.I18N.OldRule}}</th>
-			<th class=fit>{{.I18N.Hits}}</th>
-			<th class=fit>{{.I18N.CertCache}}</th>
-			<th colspan=13 class=fit>
-				<div id=rule-menu class=dropdown>{{.I18N.Rule}} &#9662;<ul>
-					<li><a href="#" class="sep">{{.I18N.Basic}}</a></li>
-					<li><a href="#" onclick="toggle('proxy')" class="item {{if .Global}}checked{{end}}">{{.I18N.GlobalOn}}</a></li>
-					<li><a href="#" onclick="toggle('cleardns')" class="item">{{.I18N.ClearDNS}}</a></li>
-					<li><a href="#" onclick="toggle('reset')" class="item">{{.I18N.Reset}}</a></li>
-					<li><a href="#" class="sep">{{.I18N.Show}}</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Pass</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Proxy</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Block</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Private</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">IPv6</a></li>
-					<li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Unknown</a></li>
-				</ul></div>
-			</th>
-		</tr>
-		<tr class=traffic>
-			<td colspan=18><img id="traffic" src="" log=0 onclick="switchSVG(this)"/></td>
-		</tr>
+        <tr>
+            <th class=fit colspan=2 style="position:relative;min-width:100px;height:100%;overflow:hidden;text-align:left">
+            <input onkeyup="search(this)" id="search" placeholder="{{.I18N.Filter}} ({{.Entries}} {{.I18N.Host}})"/>
+            </th>
+            <th class=fit>{{.I18N.OldRule}}</th>
+            <th class=fit>{{.I18N.Hits}}</th>
+            <th class=fit>{{.I18N.CertCache}}</th>
+            <th colspan=13 class=fit>
+                <div id=rule-menu class=dropdown>{{.I18N.Rule}} &#9662;<ul>
+                    <li><a href="#" class="sep">{{.I18N.Basic}}</a></li>
+                    <li><a href="#" onclick="toggle('proxy')" class="item {{if .Global}}checked{{end}}">{{.I18N.GlobalOn}}</a></li>
+                    <li><a href="#" onclick="toggle('cleardns')" class="item">{{.I18N.ClearDNS}}</a></li>
+                    <li><a href="#" onclick="toggle('reset')" class="item">{{.I18N.Reset}}</a></li>
+                    <li><a href="#" class="sep">{{.I18N.Show}}</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Pass</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Proxy</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Block</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Private</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">IPv6</a></li>
+                    <li><a href="#" onclick="updateRuleFilter(this)" class="item checked rule">Unknown</a></li>
+                </ul></div>
+            </th>
+        </tr>
+        <tr class=traffic>
+            <td colspan=18><img id="traffic" src="" log=0 onclick="switchSVG(this)"/></td>
+        </tr>
         {{.DNS}}
-	</table>
+    </table>
 
-	<script>
-	function switchSVG(el) {
-		if (el) el.setAttribute("log", Math.abs(el.getAttribute("log") - 1));
-		
-		var log = document.getElementById('traffic').getAttribute("log") == 1;
-		document.getElementById('traffic').src = "/traffic.svg?" + (log ? "log=1&c=" : "c=") + (new Date().getTime());
-		document.cookie = "log=" + (log ? "1" : "0") + "; expires=Sat, 1 Jan 2050 00:00:00 GMT; path=/";
-	}
+    <script>
+    function switchSVG(el) {
+        if (el) el.setAttribute("log", Math.abs(el.getAttribute("log") - 1));
+        
+        var log = document.getElementById('traffic').getAttribute("log") == 1;
+        document.getElementById('traffic').src = "/traffic.svg?" + (log ? "log=1&c=" : "c=") + (new Date().getTime());
+        document.cookie = "log=" + (log ? "1" : "0") + "; expires=Sat, 1 Jan 2050 00:00:00 GMT; path=/";
+    }
 
-	document.getElementById('traffic').setAttribute("log", (/log[^;]+/.exec(document.cookie)||"").toString() == "log=1" ? 1 : 0);
-	switchSVG();
-	setInterval(switchSVG, 5000);
-	</script>
-	</body>
+    document.getElementById('traffic').setAttribute("log", (/log[^;]+/.exec(document.cookie)||"").toString() == "log=1" ? 1 : 0);
+    switchSVG();
+    setInterval(switchSVG, 5000);
+    </script>
+    </body>
 `)
 
 var _i18n = map[string]map[string]string{
@@ -281,12 +281,12 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 				}
 
 				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host">%v</td>
-					<td class="fit ip">%s</td>
-					<td class="fit old">%s</td>
-					<td class=fit align=right>%d</td>
-					<td class=fit align=right>%s</td>
-					%s%s%s
-					</tr>`,
+                    <td class="fit ip">%s</td>
+                    <td class="fit old">%s</td>
+                    <td class=fit align=right>%d</td>
+                    <td class=fit align=right>%s</td>
+                    %s%s%s
+                    </tr>`,
 					k, ip, old, h, cert, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r]))
 			})
 
