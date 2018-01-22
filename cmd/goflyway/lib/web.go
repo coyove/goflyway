@@ -23,29 +23,33 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
         *                                  { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; font-size: 12px; }
         #traffic                           { width: 100%; overflow: hidden; height: auto; cursor: pointer; vertical-align: bottom; }
         #search                            { width: 100%; border: none; padding: 4px; left: 8px; top: 4px; height: 100%; margin: -4px -8px; position: absolute; background: #fafafa; min-height: 20px; }
-        table#dns                          { border-collapse: collapse; margin: 4px auto; min-width: 500px; }
+        table#dns                          { border-collapse: collapse; margin: 4px auto; width: 100%; max-width: 600px }
         table#dns td, table#dns th         { border: solid 1px rgba(0,0,0,0.1); padding: 4px 8px; }
         table#dns td.fit, table#dns th.fit { white-space: nowrap; }
+        table#dns td.ip                    { width: 135px; text-align: right; }
         table#dns td.ip, table#dns td.ip * { font-family: "Lucida Console", Monaco, monospace; border-left: none; }
-        table#dns td.host                  { border-right: none; text-align: left; }
+        table#dns td.host                  { border-right: none; text-align: left; max-width: 380px; overflow: hidden; }
         table#dns td.ip a 	               { text-decoration: none; color: black; }
         table#dns td.ip a span:before, table#dns td.ip a span.p1:after { content: '\00a0'; }
-        table#dns td.rule                  { text-align: center; padding: 0; }
-        table#dns td.rule.Block 		   { background: #F44336; color:white; }
-        table#dns td.rule.Private 		   { background: #5D4037; color:white; }
-        table#dns td.rule.MatchedPass 	   { background: #00796B; color:white; }
-        table#dns td.rule.Pass 		       { background: #00796B; color:white; }
-        table#dns td.rule.MatchedProxy     { background: #FBC02D; }
-        table#dns td.rule.Proxy 		   { background: #FBC02D; }
-        table#dns td.rule.IPv6 		       { background: #7B1FA2; color:white; }
-        table#dns td.rule.Unknown 		   { background: #512DA8; color:white; }
-        table#dns td.side-rule     		   { width: 5px; min-width: 5px; max-width: 5px; padding: 0; cursor: pointer }
-        table#dns td.side-rule.Pass		   { background: #0EAB99; }
-        table#dns td.side-rule.Proxy	   { background: #FDD97F; }
-        table#dns td.side-rule.Block	   { background: #EB918A; }
-        table#dns td.side-rule.Pass:hover  { background: #00796B; }
-        table#dns td.side-rule.Proxy:hover { background: #FBC02D; }
-        table#dns td.side-rule.Block:hover { background: #F44336; }
+        table#dns td.rule                        { text-align: center; padding: 0; }
+        table#dns td.rule[rule=Block] 		     { background: #F44336; color:white; }
+        table#dns td.rule[rule=Private] 		 { background: #5D4037; color:white; }
+        table#dns td.rule[rule=MatchedPass] 	 { background: #00796B; color:white; }
+        table#dns td.rule[rule=Pass] 		     { background: #00796B; color:white; }
+        table#dns td.rule[rule=MatchedProxy]     { background: #FBC02D; }
+        table#dns td.rule[rule=Proxy] 		     { background: #FBC02D; }
+        table#dns td.rule[rule=IPv6] 		     { background: #7B1FA2; color:white; }
+        table#dns td.rule[rule=Unknown] 		 { background: #512DA8; color:white; }
+        table#dns td.side-rule     		         { width: 6px; min-width: 6px; max-width: 6px; padding: 0; cursor: pointer }
+        table#dns td.side-rule[rule=Pass]        { background: #0EAB99; }
+        table#dns td.side-rule[rule=Proxy]       { background: #FDD97F; }
+        table#dns td.side-rule[rule=Block]       { background: #EB918A; }
+        table#dns td.side-rule[rule=Pass]:hover  { background: #00796B; }
+        table#dns td.side-rule[rule=Proxy]:hover { background: #FBC02D; }
+        table#dns td.side-rule[rule=Block]:hover { background: #F44336; }
+        table#dns td.side-rule.old[rule=Pass]    { background: repeating-linear-gradient(45deg, #5d4037,#5d4037 2.5px,#0EAB99 2.5px,#0EAB99 4px); }
+        table#dns td.side-rule.old[rule=Proxy]   { background: repeating-linear-gradient(45deg, #5d4037,#5d4037 2.5px,#FDD97F 2.5px,#FDD97F 4px); }
+        table#dns td.side-rule.old[rule=Block]   { background: repeating-linear-gradient(45deg, #5d4037,#5d4037 2.5px,#EB918A 2.5px,#EB918A 4px); }
         table#dns tr:nth-child(odd) 	   { background-color: #e3e4e5; }
         table#dns tr.traffic td            { padding: 0 }
         table#dns tr.last-tr               { visibility: hidden; }
@@ -68,12 +72,15 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     </a>
 
     <script>
+    function iter(sel, callback) {
+        var items = document.querySelectorAll(sel);
+        for (var i = 0; i < items.length; i++) callback(items[i], i);
+    }
+
     function search(e) {
         try {
-            var v = e.value.toLowerCase();
-            var items = document.getElementById("dns").querySelectorAll(".citem"), re = new RegExp(v || ".*");
-            for (var i = 0; i < items.length; i++)
-                items[i].style.display = items[i].childNodes[0].innerHTML.match(re) ? "" : "none";
+            var re = new RegExp(e.value.toLowerCase() || ".*");
+            iter("#dns .citem", function (e) { e.style.display = e.childNodes[0].innerHTML.match(re) ? "" : "none"; });
         } catch (ex) {}
     }
 
@@ -86,30 +93,32 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     }
     
     function update(el) {
-        var rule = el.className.replace("r side-rule ", ""), tdr = el.parentNode.querySelectorAll("td.r");
+        var rule = el.getAttribute("rule"), tdr = el.parentNode.querySelectorAll("td.r"), rules = ["Proxy", "Pass", "Block"];
 
         post("target=" + el.parentNode.childNodes[0].innerHTML + "&update=" + rule, function(http) {
-            if (["Proxy", "Pass", "Block"].indexOf(http.responseText) == -1) return;
+            if (rules.indexOf(http.responseText) == -1) return;
             var setter = function(e,c,o,h) { e.setAttribute("colspan", c); e.setAttribute("onclick", o); e.innerHTML = h;}
             for (var i = 0 ; i < 3; i++) {
-                tdr[i].className = "r side-rule " + ["Proxy", "Pass", "Block"][i];
+                tdr[i].className = "r side-rule " + rules[i] + (rules[i] == http.responseText ? " old" : "");
+                tdr[i].setAttribute("rule", rules[i]);
                 setter(tdr[i], "1", "update(this)", "");
             }
             el.className = el.className.replace("side-", "");
             setter(el, "11", "", rule);
-            el.parentNode.querySelector(".old").innerHTML = http.responseText;
         });
     }
 
     function updateRuleFilter(el) {
         el.className = el.className.indexOf("checked") > -1 ? "item rule" : "item rule checked";
-        var items = document.getElementById("rule-menu").querySelectorAll(".rule"), rules = [];
-        for (var i = 0; i < items.length; i++)
-            if (items[i].className.indexOf("checked") > -1) { rules.push(items[i].innerHTML); rules.push("M-" + items[i].innerHTML); }
+        var rules = [];
+        iter("#rule-menu .rule", function (e) { 
+            if (e.className.indexOf("checked") > -1) { 
+                rules.push(e.innerHTML); 
+                rules.push("M-" + e.innerHTML); 
+            }
+        });
 
-        var rows = document.getElementById("dns").querySelectorAll(".citem");
-        for (var i = 0; i < rows.length; i++)
-            rows[i].style.display = rules.indexOf((rows[i].querySelector("td.rule") || {}).innerHTML) > -1 ? "" : "none";
+        iter("#dns .citem", function (e) { e.style.display = rules.indexOf((e.querySelector("td.rule") || {}).innerHTML) > -1 ? "" : "none"; });
     }
 
     function toggle(t) {
@@ -122,9 +131,6 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
             <th class=fit colspan=2 style="position:relative;min-width:100px;height:100%;overflow:hidden;text-align:left">
             <input onkeyup="search(this)" id="search" placeholder="{{.I18N.Filter}} ({{.Entries}} {{.I18N.Host}})"/>
             </th>
-            <th class=fit>{{.I18N.OldRule}}</th>
-            <th class=fit>{{.I18N.Hits}}</th>
-            <th class=fit>{{.I18N.CertCache}}</th>
             <th colspan=13 class=fit>
                 <div id=rule-menu class=dropdown>{{.I18N.Rule}} &#9662;<ul>
                     <li><a href="#" class="sep">{{.I18N.Basic}}</a></li>
@@ -142,7 +148,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
             </th>
         </tr>
         <tr class=traffic>
-            <td colspan=18><img id="traffic" src="" log=0 onclick="switchSVG(this)"/></td>
+            <td colspan=15><img id="traffic" src="" log=0 onclick="switchSVG(this)"/></td>
         </tr>
         {{.DNS}}
     </table>
@@ -159,6 +165,12 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
     document.getElementById('traffic').setAttribute("log", (/log[^;]+/.exec(document.cookie)||"").toString() == "log=1" ? 1 : 0);
     switchSVG();
     setInterval(switchSVG, 5000);
+
+    iter("#dns .citem", function (e) {
+        var o = e.childNodes[e.childNodes.length - 1].nodeValue;
+        if (e.querySelector(".rule").innerHTML == o) return;
+        (e.querySelector("[rule=" + o + "]") || {}).className += " old";
+    });
     </script>
     </body>
 `)
@@ -197,36 +209,36 @@ var _i18n = map[string]map[string]string{
 }
 
 var ruleMappingLeft = []string{
-	"<td onclick=update(this) class='r side-rule Proxy'></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Proxy ></td>",
 	"",
-	"<td onclick=update(this) class='r side-rule Proxy'></td>",
-	"<td onclick=update(this) class='r side-rule Proxy'></td>",
-	"<td colspan=11 class='r rule MatchedProxy'>M-Proxy</td>",
-	"<td colspan=11 class='r rule Proxy'>Proxy</td>",
-	"<td colspan=11 class='r rule IPv6'>IPv6</td>",
-	"<td colspan=11 class='r rule Unknown'>Unknown</td>",
+	"<td onclick=update(this) class='r side-rule' rule=Proxy ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Proxy ></td>",
+	"<td colspan=11 class='r rule' rule=MatchedProxy >M-Proxy</td>",
+	"<td colspan=11 class='r rule' rule=Proxy >Proxy</td>",
+	"<td colspan=11 class='r rule' rule=IPv6 >IPv6</td>",
+	"<td colspan=11 class='r rule' rule=Unknown >Unknown</td>",
 }
 
 var ruleMapping = []string{
-	"<td onclick=update(this) class='r side-rule Pass'></td>",
-	"<td colspan=13 class='r rule Private'>Private</td>",
-	"<td colspan=11 class='r rule MatchedPass'>M-Pass</td>",
-	"<td colspan=11 class='r rule Pass'>Pass</td>",
-	"<td onclick=update(this) class='r side-rule Pass'></td>",
-	"<td onclick=update(this) class='r side-rule Pass'></td>",
-	"<td onclick=update(this) class='r side-rule Pass'></td>",
-	"<td onclick=update(this) class='r side-rule Pass'></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Pass ></td>",
+	"<td colspan=13 class='r rule' rule=Private >Private</td>",
+	"<td colspan=11 class='r rule' rule=MatchedPass >M-Pass</td>",
+	"<td colspan=11 class='r rule' rule=Pass >Pass</td>",
+	"<td onclick=update(this) class='r side-rule' rule=Pass ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Pass ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Pass ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Pass ></td>",
 }
 
 var ruleMappingRight = []string{
-	"<td colspan=11 class='r rule Block'>Block</td>",
+	"<td colspan=11 class='r rule' rule=Block >Block</td>",
 	"",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
-	"<td onclick=update(this) class='r side-rule Block'></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
+	"<td onclick=update(this) class='r side-rule' rule=Block ></td>",
 }
 
 func toString(ans byte) string {
@@ -255,13 +267,8 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 
 			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
 				count++
-				cert, old := "-", "-"
 				rule := v.(*pp.Rule)
 				ip, r := rule.IP, rule.R
-
-				if rule.Ans != rule.OldAns {
-					old = toString(rule.OldAns)
-				}
 
 				if aclrouter.IPv4ToInt(ip) > 0 {
 					ips := make([]string, 4)
@@ -275,25 +282,11 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 					ip = "<a><span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span></a>"
 				}
 
-				if _, ok := proxy.CACache.Get(k); ok {
-					hits, _ := proxy.CACache.GetHits(k)
-					cert = strconv.Itoa(int(hits))
-				}
-
-				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host">%v</td>
-                    <td class="fit ip">%s</td>
-                    <td class="fit old">%s</td>
-                    <td class=fit align=right>%d</td>
-                    <td class=fit align=right>%s</td>
-                    %s%s%s
-                    </tr>`,
-					k, ip, old, h, cert, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r]))
+				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host">%v (%d)</td><td class="fit ip">%s</td>%s%s%s<!--%s--></tr>`,
+					k, h, ip, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r], toString(rule.OldAns)))
 			})
 
-			if count == 0 {
-				buf.WriteString("<tr><td>-</td><td>-</td><td>-</td><td align=right>-</td><td align=right>-</td><td colspan=13>-</td></tr>")
-			}
-			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td><td></td><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
+			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
 
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
