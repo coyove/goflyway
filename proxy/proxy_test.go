@@ -1,11 +1,10 @@
 package proxy
 
 import (
-	"strconv"
-	"time"
-	// "strings"
 	"bytes"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestCipher(t *testing.T) {
@@ -48,4 +47,22 @@ func BenchmarkGenWord(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		r.genWord(false)
 	}
+}
+
+func BenchmarkConvert(b *testing.B) {
+	a := "a"
+	var buf []byte
+	for i := 0; i < b.N; i++ {
+		buf = *unsafeStringBytes(&a)
+	}
+	_ = buf[0]
+}
+
+func BenchmarkConvert2(b *testing.B) {
+	a := "a"
+	var buf []byte
+	for i := 0; i < b.N; i++ {
+		buf = []byte(a)
+	}
+	_ = buf[0]
 }

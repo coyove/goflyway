@@ -172,6 +172,10 @@ func main() {
 			fmt.Println("*   err:", err)
 		}
 
+		for _, r := range acl.OmitRules {
+			fmt.Println("* ACL omit rule:", r)
+		}
+
 		cc = &proxy.ClientConfig{
 			UserAuth:       *cmdAuth,
 			Upstream:       *cmdUpstream,

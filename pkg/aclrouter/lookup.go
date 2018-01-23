@@ -47,6 +47,7 @@ type ACL struct {
 	PrivateIPv4Table []ipRange
 	RemoteDNS        bool
 	Legacy           bool
+	OmitRules        []string
 }
 
 func (acl *ACL) init() {
@@ -55,6 +56,7 @@ func (acl *ACL) init() {
 	acl.Black.init()
 	acl.PrivateIPv4Table = sortLookupTable(linesToRange(PrivateIP))
 	acl.RemoteDNS = true
+	acl.OmitRules = make([]string, 0)
 }
 
 func (acl *ACL) postInit() *ACL {
@@ -95,13 +97,21 @@ func LoadACL(path string) (*ACL, error) {
 		return acl.postInit(), errors.New("proxy_all and bypass_all collide")
 	}
 
-	cf.Iterate("bypass_list", func(key string) { acl.White.tryAddACLSingleRule(key) })
+	adder := func(src *lookup) func(string) {
+		return func(key string) {
+			if src.tryAddACLSingleRule(key) != nil {
+				acl.OmitRules = append(acl.OmitRules, key)
+			}
+		}
+	}
+
+	cf.Iterate("bypass_list", adder(&acl.White))
 	acl.White.sortLookupTable()
 
-	cf.Iterate("proxy_list", func(key string) { acl.Gray.tryAddACLSingleRule(key) })
+	cf.Iterate("proxy_list", adder(&acl.Gray))
 	acl.Gray.sortLookupTable()
 
-	cf.Iterate("outbound_block_list", func(key string) { acl.Black.tryAddACLSingleRule(key) })
+	cf.Iterate("outbound_block_list", adder(&acl.Black))
 	acl.Black.sortLookupTable()
 
 	// fmt.Println(IPv4ToInt("47.97.161.219"))
@@ -260,7 +270,7 @@ func IPv4ToInt(ip string) uint32 {
 		return 0
 	}
 
-	if idx != 3 {
+	if idx != 3 || buf[0] > 255 || buf[1] > 255 || buf[2] > 255 || buf[3] > 255 {
 		return 0
 	}
 

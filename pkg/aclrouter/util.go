@@ -1,6 +1,7 @@
 package aclrouter
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -71,7 +72,7 @@ func (lk *lookup) sortLookupTable() {
 	lk.IPv4Table = sortLookupTable(lk.IPv4Table)
 }
 
-func (lk *lookup) tryAddACLSingleRule(r string) {
+func (lk *lookup) tryAddACLSingleRule(r string) error {
 	rx := strings.Replace(r, "\\.", ".", -1)
 	if strings.HasPrefix(rx, "(^|.)") && strings.HasSuffix(rx, "$") {
 		rx = rx[5 : len(rx)-1]
@@ -98,24 +99,24 @@ func (lk *lookup) tryAddACLSingleRule(r string) {
 				}
 			}
 
-			return
+			return nil
 		}
 	}
 
 	if idx := strings.Index(r, "/"); idx > -1 {
 		if _, err := strconv.Atoi(r[idx+1:]); err == nil {
 			lk.IPv4Table = append(lk.IPv4Table, tryParseIPRange(r))
-			return
+			return nil
 		}
 	}
 
 	re, err := regexp.Compile(r)
 	if err == nil {
 		lk.DomainSlowMatch = append(lk.DomainSlowMatch, re)
-		return
+		return nil
 	}
 
-	panic(err)
+	return fmt.Errorf("invalid rule: %s", r)
 }
 
 func (lk *lookup) Match(domain string) bool {

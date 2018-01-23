@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -396,4 +397,8 @@ func isTimeoutErr(err error) bool {
 	}
 
 	return false
+}
+
+func unsafeStringBytes(in *string) *[]byte {
+	return (*[]byte)(unsafe.Pointer(in))
 }
