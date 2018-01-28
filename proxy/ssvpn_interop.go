@@ -63,6 +63,8 @@ func protectFD(fd int) error {
 }
 
 func sendTrafficStats(stat *trafficSurvey) error {
+	const errm = "sending traffic stats failed"
+
 	sock, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		return err
@@ -79,17 +81,23 @@ func sendTrafficStats(stat *trafficSurvey) error {
 	binary.LittleEndian.PutUint64(payload, stat.totalSent)
 	binary.LittleEndian.PutUint64(payload[8:], stat.totalRecved)
 
+	if n, err := syscall.Write(sock, payload); err != nil {
+		return err
+	} else if n != 16 {
+		return errors.New(errm)
+	}
+
 	ret := []byte{9}
 	if n, err := syscall.Read(sock, ret); err != nil {
 		return err
 	} else if n != 1 {
-		return errors.New("sending traffic stats failed")
+		return errors.New(errm)
 	}
 
 	syscall.Close(sock)
 
 	if ret[0] != 0 {
-		return errors.New("sending traffic stats failed")
+		return errors.New(errm)
 	}
 
 	return nil
