@@ -163,9 +163,9 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 		count := 0
 		lastSent, lastRecved := uint64(0), uint64(0)
 
-		for {
+		for tick := range time.Tick(time.Second) {
 			iot.Lock()
-			ns := time.Now().UnixNano()
+			ns := tick.UnixNano()
 
 			for id, state := range iot.mconns {
 				if (ns - state.last) > int64(maxIdleTime)*1e9 {
@@ -202,7 +202,6 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			if iot.sendStat {
 				sendTrafficStats(&iot.Tr)
 			}
-			time.Sleep(time.Second)
 		}
 	}()
 }
