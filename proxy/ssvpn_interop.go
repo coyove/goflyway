@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 	"strconv"
@@ -56,6 +57,39 @@ func protectFD(fd int) error {
 
 	if ret[0] != 0 {
 		return errors.New("protecting failed")
+	}
+
+	return nil
+}
+
+func sendTrafficStats(stat *trafficSurvey) error {
+	sock, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return err
+	}
+
+	var addr syscall.SockaddrUnix
+	addr.Name = "stat_path"
+
+	if err := (syscall.Connect(sock, &addr)); err != nil {
+		return err
+	}
+
+	payload := make([]byte, 16)
+	binary.LittleEndian.PutUint64(payload, stat.totalSent)
+	binary.LittleEndian.PutUint64(payload[8:], stat.totalRecved)
+
+	ret := []byte{9}
+	if n, err := syscall.Read(sock, ret); err != nil {
+		return err
+	} else if n != 1 {
+		return errors.New("sending traffic stats failed")
+	}
+
+	syscall.Close(sock)
+
+	if ret[0] != 0 {
+		return errors.New("sending traffic stats failed")
 	}
 
 	return nil

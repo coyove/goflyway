@@ -563,6 +563,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.Policy.IsSet(PolicyVPN) {
 		proxy.pool.OnDial = vpnDial
+		proxy.IO.sendStat = true
 		// proxy.tp.MaxIdleConns = 2
 		// proxy.tpd.MaxIdleConns = 2
 		// proxy.tpq.MaxIdleConns = 2

@@ -94,6 +94,7 @@ type io_t struct {
 	Tr  trafficSurvey // note 64bit align
 
 	started  bool
+	sendStat bool
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
 
@@ -197,6 +198,10 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			}
 
 			iot.Unlock()
+
+			if iot.sendStat {
+				sendTrafficStats(&iot.Tr)
+			}
 			time.Sleep(time.Second)
 		}
 	}()
