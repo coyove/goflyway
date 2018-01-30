@@ -110,10 +110,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rkey := r.Header.Get(proxy.rkeyHeader)
-	options, rkeybuf, authbuf := proxy.Cipher.ReverseIV(rkey)
+	url, cr := proxy.decryptHost(stripURI(r.RequestURI))
 
-	if rkeybuf == nil {
-		logg.D("cannot find header, check your client's key, from: ", addr)
+	if url == "" {
+		logg.D("invalid request from: ", addr)
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
@@ -127,23 +127,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		auth = string(authbuf)
-	}
-
-	if options == 0 {
-		r := isTrustedToken("unlock", rkeybuf)
-
-		if r == -1 {
-			logg.W("someone is using an old token: ", addr)
-			proxy.blacklist.Add(addr, nil)
-			replySomething()
-			return
-		}
-
-		if r == 1 {
-			proxy.blacklist.Remove(addr)
-			logg.L("unlock request accepted from: ", addr)
-			return
-		}
 	}
 
 	if h, _ := proxy.blacklist.GetHits(addr); h > invalidRequestRetry {

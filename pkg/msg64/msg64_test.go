@@ -21,34 +21,35 @@ func gen() string {
 	return ret
 }
 
-func TestEncodePayload(t *testing.T) {
-	var p struct {
-		A string
-		B int
+type bar struct {
+	A string
+	B int
+	C struct {
+		D []byte
 	}
+}
+
+func TestEncodePayload(t *testing.T) {
+	var p bar
 
 	len1, len2 := 0, 0
 
 	rand.Seed(time.Now().UnixNano())
 	test := func(str string) {
-		var p2 struct {
-			A string
-			B int
-		}
+		var p2 bar
 
-		p.A = "www.freeformatter.com"
+		p.A = str
 		p.B = rand.Intn(65536)
+		p.C.D = []byte{byte(p.B / 256)}
 
-		buf := Encode("", &p)
-
-		t.Error(Base41Encode(buf))
-
+		buf := Encode(str, &p)
 		str2 := Decode(buf, &p2)
+
 		if str2 != str {
 			t.Errorf("error: \n%s\n%s", str, str2)
 		}
 
-		if p.A != p2.A || p.B != p2.B {
+		if p.A != p2.A || p.B != p2.B || p.C.D[0] != p2.C.D[0] {
 			t.Errorf("error: \n%v\n%v", p, p2)
 		}
 

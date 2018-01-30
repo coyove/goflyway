@@ -185,26 +185,24 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		return nil
 	}
 
-	opt := Options(doConnect | extra)
+	r := proxy.Cipher.newRequest()
+	r.Opt = Options(doConnect | extra)
+	r.Auth = proxy.UserAuth
 	if proxy.Partial {
-		opt.Set(doPartial)
+		r.Opt.Set(doPartial)
 	}
 
-	rkey, rkeybuf := proxy.Cipher.NewIV(opt, nil, proxy.UserAuth)
-	pl := make([]string, 0, len(dummyHeaders)+3)
-	pl = append(pl,
-		"GET /"+proxy.Cipher.EncryptCompress(host, rkeybuf...)+" HTTP/1.1\r\n",
-		"Host: "+proxy.genHost()+"\r\n")
+	var pl builder
+	pl.Append("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 
-	for _, i := range proxy.Rand.Perm(len(dummyHeaders)) {
-		if h := dummyHeaders[i]; h == "ph" {
-			pl = append(pl, proxy.rkeyHeader+": "+rkey+"\r\n")
-		} else if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
-			pl = append(pl, h+": "+v.(string)+"\r\n")
+	for _, h := range dummyHeaders {
+		if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
+			pl.Append(h, ": ", v.(string), "\r\n")
 		}
 	}
 
-	upstreamConn.Write([]byte(strings.Join(pl, "") + "\r\n"))
+	pl.Append("\r\n")
+	upstreamConn.Write(*pl.UnsafeBytes())
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
@@ -222,7 +220,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{Partial: proxy.Partial})
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.iv[:], IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
@@ -235,29 +233,25 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		return nil
 	}
 
-	opt := Options(doConnect | doWebSocket | extra)
+	r := proxy.Cipher.newRequest()
+	r.Opt = Options(doConnect | doWebSocket | extra)
+	r.Auth = proxy.UserAuth
 	if proxy.Partial {
-		opt.Set(doPartial)
+		r.Opt.Set(doPartial)
 	}
 
-	rkey, rkeybuf := proxy.Cipher.NewIV(opt, nil, proxy.UserAuth)
-	var pl string
+	var pl builder
 	if proxy.URLHeader == "" {
-		pl = "GET /" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + " HTTP/1.1\r\n" +
-			"Host: " + proxy.genHost() + "\r\n"
+		pl.Append("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 	} else {
-		pl = "GET http://" + proxy.Upstream + "/ HTTP/1.1\r\n" +
-			"Host: " + proxy.Upstream + "\r\n" +
-			proxy.URLHeader + ": http://" + proxy.genHost() + "/" + proxy.Cipher.EncryptCompress(host, rkeybuf...) + "\r\n"
+		pl.Append("GET http://", proxy.Upstream, "/ HTTP/1.1\r\nHost: ", proxy.Upstream, "\r\n",
+			proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptHost(host, r), "\r\n")
 	}
 
-	pl += "Upgrade: websocket\r\n" +
-		"Connection: Upgrade\r\n" +
-		"Sec-WebSocket-Key: " + rkey[:24] + "\r\n" +
-		"Sec-WebSocket-Version: 13\r\n" +
-		proxy.rkeyHeader + ": " + rkey + "\r\n\r\n"
+	pl.Append("Upgrade: websocket\r\nConnection: Upgrade\r\n",
+		"Sec-WebSocket-Key: ", r.IV[:24], "\r\nSec-WebSocket-Version: 13\r\n\r\n")
 
-	upstreamConn.Write([]byte(pl))
+	upstreamConn.Write(*pl.UnsafeBytes())
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
@@ -274,7 +268,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, rkeybuf, IOConfig{
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.iv[:], IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
 	})

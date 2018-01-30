@@ -6,11 +6,11 @@ import (
 	"net"
 
 	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/msg64"
 
 	"crypto/tls"
 	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"io"
 	"net/http"
 	"net/url"
@@ -64,7 +64,7 @@ var (
 	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	socksHandshake  = []byte{socksVersion5, 1, 0}
-	dummyHeaders    = []string{"Accept-Language", "User-Agent", "Referer", "Cache-Control", "Accept-Encoding", "Connection", "ph"}
+	dummyHeaders    = []string{"Accept-Language", "Accept-Encoding", "Cache-Control", "Connection", "Referer", "User-Agent"}
 	tlsSkip         = &tls.Config{InsecureSkipVerify: true}
 	hasPort         = regexp.MustCompile(`:\d+$`)
 	isHTTPSSchema   = regexp.MustCompile(`^https:\/\/`)
@@ -82,11 +82,17 @@ func (o *Options) UnSet(option byte) { *o = Options((byte(*o) | option) - option
 
 func (o *Options) Val() byte { return byte(*o) }
 
+type builder string
+
+func (b *builder) Append(texts ...string) { *b = builder(string(*b) + strings.Join(texts, "")) }
+
+func (b *builder) String() string { return string(*b) }
+
+func (b *builder) UnsafeBytes() *[]byte { return (*[]byte)(unsafe.Pointer(b)) }
+
 func (proxy *ProxyClient) addToDummies(req *http.Request) {
 	for _, field := range dummyHeaders {
-		if field == "" {
-			proxy.dummies.Add("ph", "") // add a placeholder
-		} else if x := req.Header.Get(field); x != "" {
+		if x := req.Header.Get(field); x != "" {
 			proxy.dummies.Add(field, x)
 		}
 	}
@@ -297,62 +303,6 @@ func splitHostPort(host string) (string, string) {
 	return strings.ToLower(host), ""
 }
 
-func isTrustedToken(mark string, rkeybuf []byte) int {
-	logg.D("test token: ", rkeybuf)
-
-	if string(rkeybuf[:len(mark)]) != mark {
-		return 0
-	}
-
-	sent := int64(binary.BigEndian.Uint32(rkeybuf[12:]))
-	if time.Now().Unix()-sent >= 10 {
-		// token becomes invalid after 10 seconds
-		return -1
-	}
-
-	return 1
-}
-
-func genTrustedToken(mark, auth string, gc *Cipher) string {
-	buf := make([]byte, ivLen)
-
-	copy(buf, []byte(mark))
-	binary.BigEndian.PutUint32(buf[ivLen-4:], uint32(time.Now().Unix()))
-
-	k, _ := gc.NewIV(0, buf, auth)
-	return k
-}
-
-func base32Encode(buf []byte, alpha bool) string {
-	var str string
-	if alpha {
-		str = base32Encoding.EncodeToString(buf)
-	} else {
-		str = base32Encoding2.EncodeToString(buf)
-	}
-	idx := strings.Index(str, "=")
-
-	if idx == -1 {
-		return str
-	}
-
-	return str[:idx]
-}
-
-func base32Decode(text string, alpha bool) ([]byte, error) {
-	const paddings = "======"
-
-	if m := len(text) % 8; m > 1 {
-		text = text + paddings[:8-m]
-	}
-
-	if alpha {
-		return base32Encoding.DecodeString(text)
-	}
-
-	return base32Encoding2.DecodeString(text)
-}
-
 func readUntil(r io.Reader, eoh string) ([]byte, error) {
 	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
 	eidx, found := 0, false
@@ -401,4 +351,27 @@ func isTimeoutErr(err error) bool {
 
 func unsafeStringBytes(in *string) *[]byte {
 	return (*[]byte)(unsafe.Pointer(in))
+}
+
+func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
+	rd := proxy.Cipher.Rand
+	s1, s2, s3, s4 := byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256))
+	enc := proxy.Cipher.Encrypt(msg64.Encode(host, r), s1, s2, s3, s4)
+	return msg64.Base41Encode(enc)
+}
+
+func (proxy *ProxyUpstream) decryptHost(url string) (host string, r *clientRequest) {
+	buf, ok := msg64.Base41Decode(url)
+	if !ok || len(buf) < 4 {
+		return
+	}
+
+	ln := len(buf)
+	s1, s2, s3, s4 := buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]
+	buf = proxy.Cipher.Decrypt(buf[:ln-4], s1, s2, s3, s4)
+
+	r = new(clientRequest)
+	host = msg64.Decode(buf, r)
+
+	return
 }

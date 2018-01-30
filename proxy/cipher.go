@@ -191,6 +191,24 @@ func (gc *Cipher) genWord(random bool) string {
 	return string(ret[:ln])
 }
 
+type clientRequest struct {
+	Query string  `json:"q,omitempty"`
+	Auth  string  `json:"a,omitempty"`
+	IV    string  `json:"i"`
+	Opt   Options `json:"o"`
+
+	iv [ivLen]byte
+}
+
+func (gc *Cipher) newRequest() *clientRequest {
+	r := &clientRequest{}
+	for i := 0; i < ivLen; i++ {
+		r.iv[i] = byte(gc.Rand.Intn(256))
+	}
+	r.IV = msg64.Base41Encode(r.iv[:])
+	return r
+}
+
 func (gc *Cipher) genIV(ss ...byte) []byte {
 	if len(ss) == ivLen {
 		return ss
@@ -249,7 +267,7 @@ func (gc *Cipher) DecryptString(text string, rkey ...byte) string {
 }
 
 func (gc *Cipher) EncryptCompress(str string, rkey ...byte) string {
-	return base32Encode(gc.Encrypt(msg64.Compress(str), rkey...), false)
+	return msg64.Base41Encode(gc.Encrypt(msg64.Encode(str), rkey...))
 }
 
 func (gc *Cipher) DecryptDecompress(str string, rkey ...byte) string {
