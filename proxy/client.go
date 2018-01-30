@@ -76,9 +76,9 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 
 	up, auth := proxy.Upstream, ""
 	if proxy.Connect2Auth != "" {
-		// if proxy.Connect2Auth == "socks5" {
+		// if proxy.Connect2Auth == "socks5" || true {
 		// 	connectConn.SetWriteDeadline(time.Now().Add(timeoutOp))
-		// 	if _, err = connectConn.Write(SOCKS5_HANDSHAKE); err != nil {
+		// 	if _, err = connectConn.Write(socksHandshake); err != nil {
 		// 		connectConn.Close()
 		// 		return nil, err
 		// 	}
@@ -103,8 +103,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		// 	}
 
 		// 	payload := []byte{socksVersion5, 1, 0, socksAddrDomain, byte(len(host))}
-		// 	payload = append(payload, []byte(host)...)
-		// 	payload = append(payload, 0, 0)
+		// 	payload = append(payload, []byte(host+"00")...)
 		// 	binary.BigEndian.PutUint16(payload[len(payload)-2:], uint16(port))
 
 		// 	connectConn.SetWriteDeadline(time.Now().Add(timeoutOp))
@@ -114,7 +113,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		// 	}
 
 		// 	connectConn.SetReadDeadline(time.Now().Add(timeoutOp))
-		// 	if n, err := io.ReadAtLeast(connectConn, buf, 5); err != nil || n < 5 {
+		// 	if n, err := io.ReadAtLeast(connectConn, buf[:5], 5); err != nil || n < 5 {
 		// 		connectConn.Close()
 		// 		return nil, err
 		// 	}
@@ -138,12 +137,20 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		// 	}
 
 		// 	connectConn.SetReadDeadline(time.Now().Add(timeoutOp))
-		// 	if n, err := io.ReadAtLeast(connectConn, buf, ln); err != nil || n < ln {
+		// 	if n, err := io.ReadAtLeast(connectConn, buf[5:5+ln], ln); err != nil || n < ln {
 		// 		connectConn.Close()
 		// 		return nil, err
 		// 	}
 
 		// 	return connectConn, nil
+		// _, addr, err := parseUDPHeader(nil, buf, true)
+		// connectConn.Close()
+		// if err != nil {
+		// 	return nil, err
+		// }
+
+		// logg.D("dial ", addr.String())
+		// return net.DialTimeout("tcp", addr.String(), timeoutDial)
 		// }
 
 		x := base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))

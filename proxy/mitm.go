@@ -14,7 +14,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
@@ -173,9 +172,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 				break
 			}
-
-			// buf, _ := httputil.DumpResponse(resp, true)
-			_ = httputil.DumpResponse
 
 			hdr := http.Header{}
 			copyHeaders(hdr, resp.Header, proxy.Cipher, false, rkeybuf)

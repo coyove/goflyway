@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"encoding/base64"
+
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/tcpmux"
@@ -110,23 +112,29 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rkey := r.Header.Get(proxy.rkeyHeader)
-	url, cr := proxy.decryptHost(stripURI(r.RequestURI))
+	dst, cr := proxy.decryptHost(stripURI(r.RequestURI))
 
-	if url == "" {
+	if dst == "" || cr == nil {
 		logg.D("invalid request from: ", addr)
+		logg.D(stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
 	}
 
-	var auth string
+	rkeybuf, _ := base64.StdEncoding.DecodeString(cr.IV)
+	if len(rkeybuf) != ivLen {
+		logg.D("invalid key request from: ", addr)
+		proxy.blacklist.Add(addr, nil)
+		replySomething()
+		return
+	}
+
 	if proxy.Users != nil {
-		if authbuf == nil || string(authbuf) == "" || !proxy.auth(string(authbuf)) {
+		if !proxy.auth(cr.Auth) {
 			logg.W("user auth failed, from: ", addr)
 			return
 		}
-
-		auth = string(authbuf)
 	}
 
 	if h, _ := proxy.blacklist.GetHits(addr); h > invalidRequestRetry {
@@ -135,8 +143,8 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// return
 	}
 
-	if (options & doDNS) > 0 {
-		host := string(rkeybuf)
+	if cr.Opt.IsSet(doDNS) {
+		host := cr.Query
 		ip, err := net.ResolveIPAddr("ip4", host)
 		if err != nil {
 			logg.W(err)
@@ -144,11 +152,11 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logg.D("DNS: ", host, " ", ip.String())
-		w.Header().Add(dnsRespHeader, base32Encode([]byte(ip.IP.To4()), true))
+		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
 		w.WriteHeader(200)
 
-	} else if options.IsSet(doConnect) {
-		host := proxy.Cipher.DecryptDecompress(stripURI(r.RequestURI), rkeybuf...)
+	} else if cr.Opt.IsSet(doConnect) {
+		host := dst
 		if host == "" {
 			logg.W("we had a valid rkey, but invalid host, from: ", addr)
 			replySomething()
@@ -161,13 +169,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ioc := proxy.getIOConfig(auth)
-		ioc.Partial = options.IsSet(doPartial)
+		ioc := proxy.getIOConfig(cr.Auth)
+		ioc.Partial = cr.Opt.IsSet(doPartial)
 
 		var targetSiteConn net.Conn
 		var err error
 
-		if options.IsSet(doUDPRelay) {
+		if cr.Opt.IsSet(doUDPRelay) {
 			if proxy.DisableUDP {
 				logg.W("client is trying to send UDP data but we disabled it")
 				downstreamConn.Close()
@@ -194,7 +202,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var p string
-		if options.IsSet(doWebSocket) {
+		if cr.Opt.IsSet(doWebSocket) {
 			ioc.WSCtrl = wsServer
 			p = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: " + (rkey + rkey)[4:32] + "\r\n\r\n"
 		} else {
@@ -203,11 +211,16 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		downstreamConn.Write([]byte(p))
 		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
-	} else if options.IsSet(doForward) {
-		if !proxy.decryptRequest(r, rkeybuf) {
+	} else if cr.Opt.IsSet(doForward) {
+		var err error
+		r.URL, err = url.Parse(dst)
+		if err != nil {
 			replySomething()
 			return
 		}
+
+		r.Host = r.URL.Host
+		proxy.decryptRequest(r, rkeybuf)
 
 		logg.D(r.Method, " ", r.URL.String())
 
@@ -226,7 +239,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, rkeybuf)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, proxy.getIOConfig(auth)); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, proxy.getIOConfig(cr.Auth)); err != nil {
 			logg.E("copy ", nr, " bytes: ", err)
 		}
 

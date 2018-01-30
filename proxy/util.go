@@ -49,10 +49,10 @@ const (
 )
 
 const (
-	timeoutUDP          = time.Duration(30) * time.Second
-	timeoutTCP          = time.Duration(60) * time.Second
-	timeoutDial         = time.Duration(5) * time.Second
-	timeoutOp           = time.Duration(20) * time.Second
+	timeoutUDP          = 30 * time.Second
+	timeoutTCP          = 60 * time.Second
+	timeoutDial         = 5 * time.Second
+	timeoutOp           = 20 * time.Second
 	invalidRequestRetry = 10
 	dnsRespHeader       = "ETag"
 	errConnClosedMsg    = "use of closed network connection"
@@ -109,18 +109,19 @@ func (proxy *ProxyClient) genHost() string {
 }
 
 func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response, []byte, error) {
-	rkey, rkeybuf := proxy.Cipher.NewIV(doForward, nil, proxy.UserAuth)
-	req.Header.Add(proxy.rkeyHeader, rkey)
+	r := proxy.Cipher.newRequest()
+	r.Opt.Set(doForward)
+	r.Auth = proxy.UserAuth
 
 	proxy.addToDummies(req)
 
 	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost()+"/"+proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost()+"/"+proxy.encryptHost(req.URL.String(), r))
 		req.Host = proxy.Upstream
 		req.URL, _ = url.Parse("http://" + proxy.Upstream)
 	} else {
 		req.Host = proxy.genHost()
-		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.Cipher.EncryptCompress(req.URL.String(), rkeybuf...))
+		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.encryptHost(req.URL.String(), r))
 	}
 
 	if proxy.Policy.IsSet(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
@@ -130,6 +131,8 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response
 	}
 
 	cookies := make([]string, 0, len(req.Cookies()))
+	rkeybuf := r.iv[:]
+
 	for _, c := range req.Cookies() {
 		c.Value = proxy.Cipher.EncryptString(c.Value, rkeybuf...)
 		cookies = append(cookies, c.String())
@@ -170,14 +173,6 @@ func stripURI(uri string) string {
 }
 
 func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) bool {
-	var err error
-	req.URL, err = url.Parse(proxy.Cipher.DecryptDecompress(stripURI(req.RequestURI), rkeybuf...))
-	if err != nil {
-		logg.E(err)
-		return false
-	}
-
-	req.Host = req.URL.Host
 
 	cookies := make([]string, 0, len(req.Cookies()))
 	for _, c := range req.Cookies() {
@@ -231,7 +226,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 							di = len(v)
 						}
 
-						v = gc.DecryptDecompress(v[ei+1:di], rkeybuf...)
+						v = gc.DecryptString(v[ei+1:di], rkeybuf...)
 					}
 				}
 			case "content-encoding", "content-type":
@@ -262,7 +257,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 		// but some browsers do not support this behavior
 		// here we just do the combination in advance and split them when decrypting
 		dst.Add("Set-Cookie", gc.genWord(true)+"="+
-			gc.EncryptCompress(strings.Join(setcookies, "\n"), rkeybuf...)+"; Domain="+gc.genWord(true)+".com; HttpOnly")
+			gc.EncryptString(strings.Join(setcookies, "\n"), rkeybuf...)+"; Domain="+gc.genWord(true)+".com; HttpOnly")
 	}
 }
 
@@ -357,6 +352,8 @@ func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
 	rd := proxy.Cipher.Rand
 	s1, s2, s3, s4 := byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256))
 	enc := proxy.Cipher.Encrypt(msg64.Encode(host, r), s1, s2, s3, s4)
+	enc = append(enc, s1, s2, s3, s4)
+
 	return msg64.Base41Encode(enc)
 }
 

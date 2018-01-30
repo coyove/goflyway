@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/base64"
 	"net"
 	"net/http"
 
@@ -69,16 +70,22 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	}
 
 	// We have doubts, so query the upstream
-	dnsloc := "http://" + proxy.genHost()
-	rkey, _ := proxy.Cipher.NewIV(doDNS, []byte(host), proxy.UserAuth)
-	if proxy.URLHeader != "" {
-		dnsloc = "http://" + proxy.Upstream
+	cr := proxy.Cipher.newRequest()
+	cr.Opt.Set(doDNS)
+	cr.Auth = proxy.UserAuth
+	cr.Query = host
+
+	dnsloc := "http://" + proxy.Upstream
+	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptHost("dns", cr)
+
+	if proxy.URLHeader == "" {
+		dnsloc = trueloc
 	}
 
 	req, _ := http.NewRequest("GET", dnsloc, nil)
-	req.Header.Add(proxy.rkeyHeader, rkey)
+
 	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost())
+		req.Header.Add(proxy.URLHeader, trueloc)
 	}
 
 	resp, err := proxy.tpq.RoundTrip(req)
@@ -92,8 +99,8 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	}
 
 	tryClose(resp.Body)
-	ip, _ := base32Decode(resp.Header.Get(dnsRespHeader), true)
-	if ip == nil || len(ip) != net.IPv4len {
+	ip, err := base64.StdEncoding.DecodeString(resp.Header.Get(dnsRespHeader))
+	if err != nil || ip == nil || len(ip) != net.IPv4len {
 		return r, " (remote-err)"
 	}
 
