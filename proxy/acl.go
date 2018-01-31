@@ -26,7 +26,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	host, _ = splitHostPort(host)
 
 	if c, ok := proxy.DNSCache.Get(host); ok && c.(*Rule) != nil {
-		return c.(*Rule).Ans, " (cache-" + c.(*Rule).IP + ")"
+		return c.(*Rule).Ans, " (cached)"
 	}
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)

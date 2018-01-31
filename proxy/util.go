@@ -82,13 +82,14 @@ func (o *Options) UnSet(option byte) { *o = Options((byte(*o) | option) - option
 
 func (o *Options) Val() byte { return byte(*o) }
 
-type builder string
+type buffer struct{ bytes.Buffer }
 
-func (b *builder) Append(texts ...string) { *b = builder(string(*b) + strings.Join(texts, "")) }
-
-func (b *builder) String() string { return string(*b) }
-
-func (b *builder) UnsafeBytes() *[]byte { return (*[]byte)(unsafe.Pointer(b)) }
+func (b *buffer) Writes(ss ...string) *buffer {
+	for _, s := range ss {
+		b.WriteString(s)
+	}
+	return b
+}
 
 func (proxy *ProxyClient) addToDummies(req *http.Request) {
 	for _, field := range dummyHeaders {
@@ -351,24 +352,31 @@ func unsafeStringBytes(in *string) *[]byte {
 func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
 	rd := proxy.Cipher.Rand
 	s1, s2, s3, s4 := byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256))
-	enc := proxy.Cipher.Encrypt(msg64.Encode(host, r), s1, s2, s3, s4)
-	enc = append(enc, s1, s2, s3, s4)
+	iv := r.iv[:]
 
-	return msg64.Base41Encode(enc)
+	enc := proxy.Cipher.Encrypt(msg64.Encode(host, r), iv...)
+	encln, ln := len(enc), len(enc)+ivLen+4
+	buf := make([]byte, ln)
+	copy(buf, enc)
+	copy(buf[encln:], iv)
+	buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1] = s1, s2, s3, s4
+	proxy.Cipher.Encrypt(buf[encln:encln+ivLen], s1, s2, s3, s4)
+
+	return msg64.Base41Encode(buf)
 }
 
 func (proxy *ProxyUpstream) decryptHost(url string) (host string, r *clientRequest) {
 	buf, ok := msg64.Base41Decode(url)
-	if !ok || len(buf) < 4 {
+	if !ok || len(buf) < 4+ivLen {
 		return
 	}
 
 	ln := len(buf)
-	s1, s2, s3, s4 := buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]
-	buf = proxy.Cipher.Decrypt(buf[:ln-4], s1, s2, s3, s4)
-
 	r = new(clientRequest)
-	host = msg64.Decode(buf, r)
 
+	s1, s2, s3, s4 := buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]
+	copy(r.iv[:], proxy.Cipher.Decrypt(buf[ln-4-ivLen:ln-4], s1, s2, s3, s4))
+	buf = proxy.Cipher.Decrypt(buf[:ln-4-ivLen], r.iv[:]...)
+	host = msg64.Decode(buf, r)
 	return
 }

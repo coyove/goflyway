@@ -192,10 +192,10 @@ func (gc *Cipher) genWord(random bool) string {
 }
 
 type clientRequest struct {
-	Query string  `json:"q,omitempty"`
-	Auth  string  `json:"a,omitempty"`
-	IV    string  `json:"i"`
-	Opt   Options `json:"o"`
+	Query  string  `json:"q,omitempty"`
+	Auth   string  `json:"a,omitempty"`
+	Opt    Options `json:"o"`
+	Filler uint64  `json:"f"`
 
 	iv [ivLen]byte
 }
@@ -205,7 +205,9 @@ func (gc *Cipher) newRequest() *clientRequest {
 	for i := 0; i < ivLen; i++ {
 		r.iv[i] = byte(gc.Rand.Intn(256))
 	}
-	r.IV = base64.StdEncoding.EncodeToString(r.iv[:])
+
+	// generate a random uint64 number, this will make encryptHost() outputs different lengths of data
+	r.Filler = 2 << uint64(gc.Rand.Intn(21)*3+1)
 	return r
 }
 

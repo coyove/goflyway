@@ -46,12 +46,11 @@ type ClientConfig struct {
 type ProxyClient struct {
 	*ClientConfig
 
-	rkeyHeader string
-	tp         *http.Transport // to upstream
-	tpq        *http.Transport // to upstream used for dns query
-	tpd        *http.Transport // to host directly
-	dummies    *lru.Cache
-	pool       *tcpmux.DialPool
+	tp      *http.Transport // to upstream
+	tpq     *http.Transport // to upstream used for dns query
+	tpd     *http.Transport // to host directly
+	dummies *lru.Cache
+	pool    *tcpmux.DialPool
 
 	Localaddr string
 	Listener  *listenerWrapper
@@ -199,17 +198,16 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		r.Opt.Set(doPartial)
 	}
 
-	var pl builder
-	pl.Append("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
+	var pl buffer
+	pl.Writes("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 
 	for _, h := range dummyHeaders {
 		if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
-			pl.Append(h, ": ", v.(string), "\r\n")
+			pl.Writes(h, ": ", v.(string), "\r\n")
 		}
 	}
 
-	pl.Append("\r\n")
-	upstreamConn.Write(*pl.UnsafeBytes())
+	upstreamConn.Write(pl.Writes("\r\n").Bytes())
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
@@ -247,18 +245,23 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		r.Opt.Set(doPartial)
 	}
 
-	var pl builder
+	var pl buffer
 	if proxy.URLHeader == "" {
-		pl.Append("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
+		pl.Writes("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 	} else {
-		pl.Append("GET http://", proxy.Upstream, "/ HTTP/1.1\r\nHost: ", proxy.Upstream, "\r\n",
+		pl.Writes("GET http://", proxy.Upstream, "/ HTTP/1.1\r\nHost: ", proxy.Upstream, "\r\n",
 			proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptHost(host, r), "\r\n")
 	}
 
-	pl.Append("Upgrade: websocket\r\nConnection: Upgrade\r\n",
-		"Sec-WebSocket-Key: ", r.IV[:24], "\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	wsKey := [20]byte{}
+	for i := 0; i < 20; i++ {
+		wsKey[i] = byte(proxy.Cipher.Rand.Intn(256))
+	}
 
-	upstreamConn.Write(*pl.UnsafeBytes())
+	pl.Writes("Upgrade: websocket\r\nConnection: Upgrade\r\n",
+		"Sec-WebSocket-Key: ", base64.StdEncoding.EncodeToString(wsKey[:]), "\r\nSec-WebSocket-Version: 13\r\n\r\n")
+
+	upstreamConn.Write(pl.Bytes())
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
@@ -309,12 +312,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "CONNECT" {
-		hij, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
-			return
-		}
-
+		hij, _ := w.(http.Hijacker) // No HTTP2
 		proxyClient, _, err := hij.Hijack()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -488,11 +486,6 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	}
 }
 
-func (proxy *ProxyClient) UpdateKey(newKey string) {
-	proxy.Cipher.Init(newKey)
-	proxy.rkeyHeader = "X-" + proxy.Cipher.Alias
-}
-
 func (proxy *ProxyClient) Start() error {
 	return http.Serve(proxy.Listener, proxy)
 }
@@ -515,8 +508,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
 		tpq: &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, ResponseHeaderTimeout: timeoutOp, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 
-		dummies:    lru.NewCache(len(dummyHeaders)),
-		rkeyHeader: "X-" + config.Cipher.Alias,
+		dummies: lru.NewCache(len(dummyHeaders)),
 
 		ClientConfig: config,
 	}

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 
 	"github.com/coyove/goflyway/pkg/logg"
@@ -27,19 +28,18 @@ type ServerConfig struct {
 	*Cipher
 }
 
-// for multi-users server, not implemented yet
+// UserConfig is for multi-users server, not implemented yet
 type UserConfig struct {
 	Auth          string
 	Throttling    int64
 	ThrottlingMax int64
 }
 
+// ProxyUpstream is the main struct for upstream server
 type ProxyUpstream struct {
-	tp            *http.Transport
-	rp            http.Handler
-	blacklist     *lru.Cache
-	trustedTokens map[string]bool
-	rkeyHeader    string
+	tp        *http.Transport
+	rp        http.Handler
+	blacklist *lru.Cache
 
 	Localaddr string
 
@@ -111,7 +111,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rkey := r.Header.Get(proxy.rkeyHeader)
 	dst, cr := proxy.decryptHost(stripURI(r.RequestURI))
 
 	if dst == "" || cr == nil {
@@ -122,7 +121,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rkeybuf, _ := base64.StdEncoding.DecodeString(cr.IV)
+	rkeybuf := cr.iv[:]
 	if len(rkeybuf) != ivLen {
 		logg.D("invalid key request from: ", addr)
 		proxy.blacklist.Add(addr, nil)
@@ -201,15 +200,21 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var p string
+		var p buffer
 		if cr.Opt.IsSet(doWebSocket) {
 			ioc.WSCtrl = wsServer
-			p = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: " + (rkey + rkey)[4:32] + "\r\n\r\n"
+
+			var accept buffer
+			accept.Writes(r.Header.Get("Sec-WebSocket-Key"), "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+
+			ans := sha1.Sum(accept.Bytes())
+			p.Writes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: ",
+				base64.StdEncoding.EncodeToString(ans[:]), "\r\n\r\n")
 		} else {
-			p = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: " + time.Now().UTC().Format(time.RFC1123) + "\r\n\r\n"
+			p.Writes("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: ", time.Now().UTC().Format(time.RFC1123), "\r\n\r\n")
 		}
 
-		downstreamConn.Write([]byte(p))
+		downstreamConn.Write(p.Bytes())
 		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
@@ -224,7 +229,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		logg.D(r.Method, " ", r.URL.String())
 
-		r.Header.Del(proxy.rkeyHeader)
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
 			logg.E("HTTP forward: ", r.URL, ", ", err)
@@ -264,10 +268,8 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 	proxy := &ProxyUpstream{
 		tp: &http.Transport{TLSClientConfig: tlsSkip},
 
-		ServerConfig:  config,
-		blacklist:     lru.NewCache(128),
-		trustedTokens: make(map[string]bool),
-		rkeyHeader:    "X-" + config.Cipher.Alias,
+		ServerConfig: config,
+		blacklist:    lru.NewCache(128),
 	}
 
 	tcpmux.Version = checksum1b([]byte(config.Cipher.Alias)) | 0x80
