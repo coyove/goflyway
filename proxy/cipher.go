@@ -8,7 +8,6 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/binary"
-	"strings"
 )
 
 const (
@@ -39,12 +38,13 @@ var primes = []int16{
 type Cipher struct {
 	IO io_t
 
-	Key       []byte
-	KeyString string
-	Block     cipher.Block
-	Rand      rand.Rand
-	Partial   bool
-	Alias     string
+	Key     string
+	Block   cipher.Block
+	Rand    rand.Rand
+	Partial bool
+	Alias   string
+
+	keyBuf []byte
 }
 
 type inplace_ctr_t struct {
@@ -120,17 +120,17 @@ func (gc *Cipher) getCipherStream(key *[16]byte) *inplace_ctr_t {
 
 // Init inits the Cipher struct with key
 func (gc *Cipher) Init(key string) (err error) {
-	gc.KeyString = key
-	gc.Key = []byte(key)
+	gc.Key = key
+	gc.keyBuf = []byte(key)
 
-	for len(gc.Key) < 32 {
-		gc.Key = append(gc.Key, gc.Key...)
+	for len(gc.keyBuf) < 32 {
+		gc.keyBuf = append(gc.keyBuf, gc.keyBuf...)
 	}
 
-	gc.Block, err = aes.NewCipher(gc.Key[:32])
+	gc.Block, err = aes.NewCipher(gc.keyBuf[:32])
 
 	alias := make([]byte, 16)
-	gc.Block.Encrypt(alias, gc.Key)
+	gc.Block.Encrypt(alias, gc.keyBuf)
 	gc.Alias = fmt.Sprintf("%X", alias[:3])
 
 	return
@@ -181,7 +181,7 @@ func (gc *Cipher) newRequest() *clientRequest {
 
 func (gc *Cipher) genIV(init *[4]byte, out *[ivLen]byte) {
 	mul := uint32(primes[init[0]]) * uint32(primes[init[1]]) * uint32(primes[init[2]]) * uint32(primes[init[3]])
-	seed := binary.LittleEndian.Uint32(gc.Key[:4])
+	seed := binary.LittleEndian.Uint32(gc.keyBuf[:4])
 
 	for i := 0; i < ivLen/4; i++ {
 		seed = (mul * seed) % 0x7fffffff
