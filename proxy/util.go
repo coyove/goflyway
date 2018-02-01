@@ -13,11 +13,10 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
-	"net/url"
+	_url "net/url"
 	"regexp"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -84,6 +83,19 @@ func (o *Options) Val() byte { return byte(*o) }
 
 type buffer struct{ bytes.Buffer }
 
+func (b *buffer) R() *buffer { b.Buffer.Reset(); return b }
+
+func (b *buffer) ToURL() (*_url.URL, error) { return _url.Parse(b.String()) }
+
+func (b *buffer) Trunc(t byte) *buffer {
+	if ln := b.Len(); ln > 0 {
+		if b.Bytes()[ln-1] == t {
+			b.Truncate(ln - 1)
+		}
+	}
+	return b
+}
+
 func (b *buffer) Writes(ss ...string) *buffer {
 	for _, s := range ss {
 		b.WriteString(s)
@@ -103,26 +115,27 @@ func (proxy *ProxyClient) genHost() string {
 	const tlds = ".com.net.org"
 	if proxy.DummyDomain == "" {
 		i := proxy.Rand.Intn(3) * 4
-		return proxy.Cipher.genWord(true) + tlds[i:i+4]
+		return proxy.Cipher.Jibber() + tlds[i:i+4]
 	}
 
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response, []byte, error) {
+func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response, *[ivLen]byte, error) {
 	r := proxy.Cipher.newRequest()
 	r.Opt.Set(doForward)
 	r.Auth = proxy.UserAuth
 
 	proxy.addToDummies(req)
 
+	var urlBuf buffer
 	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, "http://"+proxy.genHost()+"/"+proxy.encryptHost(req.URL.String(), r))
+		req.Header.Add(proxy.URLHeader, urlBuf.Writes("http://", proxy.genHost(), "/", proxy.encryptHost(req.URL.String(), r)).String())
 		req.Host = proxy.Upstream
-		req.URL, _ = url.Parse("http://" + proxy.Upstream)
+		req.URL, _ = urlBuf.R().Writes("http://", proxy.Upstream).ToURL()
 	} else {
 		req.Host = proxy.genHost()
-		req.URL, _ = url.Parse("http://" + req.Host + "/" + proxy.encryptHost(req.URL.String(), r))
+		req.URL, _ = urlBuf.R().Writes("http://", req.Host, "/", proxy.encryptHost(req.URL.String(), r)).ToURL()
 	}
 
 	if proxy.Policy.IsSet(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
@@ -131,27 +144,25 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response
 		req.Header.Add("Authorization", x)
 	}
 
-	cookies := make([]string, 0, len(req.Cookies()))
-	rkeybuf := r.iv[:]
-
+	var cookies buffer
 	for _, c := range req.Cookies() {
-		c.Value = proxy.Cipher.EncryptString(c.Value, rkeybuf...)
-		cookies = append(cookies, c.String())
+		c.Value = proxy.Cipher.Encrypt(c.Value, &r.iv)
+		cookies.Writes(c.String(), ";")
 	}
+	req.Header.Set("Cookie", cookies.Trunc(';').String())
 
-	req.Header.Set("Cookie", strings.Join(cookies, ";"))
 	if origin := req.Header.Get("Origin"); origin != "" {
-		req.Header.Set("Origin", proxy.EncryptString(origin, rkeybuf...)+".com")
+		req.Header.Set("Origin", proxy.Encrypt(origin, &r.iv)+".com")
 	}
 
 	if referer := req.Header.Get("Referer"); referer != "" {
-		req.Header.Set("Referer", proxy.EncryptString(referer, rkeybuf...))
+		req.Header.Set("Referer", proxy.Encrypt(referer, &r.iv))
 	}
 
-	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, rkeybuf)
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
 	// logg.D(req.Header)
 	resp, err := proxy.tp.RoundTrip(req)
-	return resp, rkeybuf, err
+	return resp, &r.iv, err
 }
 
 func stripURI(uri string) string {
@@ -173,21 +184,20 @@ func stripURI(uri string) string {
 	return uri
 }
 
-func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) bool {
-
-	cookies := make([]string, 0, len(req.Cookies()))
+func (proxy *ProxyUpstream) decryptRequest(req *http.Request, r *clientRequest) {
+	var cookies buffer
 	for _, c := range req.Cookies() {
-		c.Value = proxy.Cipher.DecryptString(c.Value, rkeybuf...)
-		cookies = append(cookies, c.String())
+		c.Value = proxy.Cipher.Decrypt(c.Value, &r.iv)
+		cookies.Writes(c.String(), ";")
 	}
-	req.Header.Set("Cookie", strings.Join(cookies, ";"))
+	req.Header.Set("Cookie", cookies.Trunc(';').String())
 
 	if origin := req.Header.Get("Origin"); len(origin) > 4 {
-		req.Header.Set("Origin", proxy.DecryptString(origin[:len(origin)-4], rkeybuf...))
+		req.Header.Set("Origin", proxy.Decrypt(origin[:len(origin)-4], &r.iv))
 	}
 
 	if referer := req.Header.Get("Referer"); referer != "" {
-		req.Header.Set("Referer", proxy.DecryptString(referer, rkeybuf...))
+		req.Header.Set("Referer", proxy.Decrypt(referer, &r.iv))
 	}
 
 	for k := range req.Header {
@@ -202,16 +212,15 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, rkeybuf []byte) bo
 		}
 	}
 
-	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, rkeybuf)
-	return true
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
 }
 
-func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
+func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byte) {
 	for k := range dst {
 		dst.Del(k)
 	}
 
-	setcookies := []string{}
+	var setcookies buffer
 	for k, vs := range src {
 	READ:
 		for _, v := range vs {
@@ -219,7 +228,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 			case "set-cookie":
 				if rkeybuf != nil {
 					if enc {
-						setcookies = append(setcookies, v)
+						setcookies.Writes(v, "\n")
 						continue READ
 					} else {
 						ei, di := strings.Index(v, "="), strings.Index(v, ";")
@@ -227,7 +236,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 							di = len(v)
 						}
 
-						v = gc.DecryptString(v[ei+1:di], rkeybuf...)
+						v = gc.Decrypt(v[ei+1:di], rkeybuf)
 					}
 				}
 			case "content-encoding", "content-type":
@@ -253,12 +262,11 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf []byte) {
 		}
 	}
 
-	if len(setcookies) > 0 && rkeybuf != nil {
+	if setcookies.Trunc('\n').Len() > 0 && rkeybuf != nil {
 		// some http proxies or middlewares will combine multiple Set-Cookie headers into one
 		// but some browsers do not support this behavior
 		// here we just do the combination in advance and split them when decrypting
-		dst.Add("Set-Cookie", gc.genWord(true)+"="+
-			gc.EncryptString(strings.Join(setcookies, "\n"), rkeybuf...)+"; Domain="+gc.genWord(true)+".com; HttpOnly")
+		dst.Add("Set-Cookie", gc.Jibber()+"="+gc.Encrypt(setcookies.String(), rkeybuf)+"; Domain="+gc.Jibber()+".com; HttpOnly")
 	}
 }
 
@@ -345,23 +353,18 @@ func isTimeoutErr(err error) bool {
 	return false
 }
 
-func unsafeStringBytes(in *string) *[]byte {
-	return (*[]byte)(unsafe.Pointer(in))
-}
-
 func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
-	rd := proxy.Cipher.Rand
-	s1, s2, s3, s4 := byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256)), byte(rd.Intn(256))
-	iv := r.iv[:]
+	var ss [4]byte
+	proxy.Cipher.Rand.Read(ss[:])
 
-	enc := proxy.Cipher.Encrypt(msg64.Encode(host, r), iv...)
+	enc := proxy.Cipher.Xor(msg64.Encode(host, r), &r.iv, nil)
 	encln, ln := len(enc), len(enc)+ivLen+4
 	buf := make([]byte, ln)
 	copy(buf, enc)
-	copy(buf[encln:], iv)
-	buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1] = s1, s2, s3, s4
-	proxy.Cipher.Encrypt(buf[encln:encln+ivLen], s1, s2, s3, s4)
+	copy(buf[encln:], r.iv[:])
+	copy(buf[encln+ivLen:], ss[:])
 
+	proxy.Cipher.Xor(buf[encln:encln+ivLen], nil, &ss)
 	return msg64.Base41Encode(buf)
 }
 
@@ -374,9 +377,9 @@ func (proxy *ProxyUpstream) decryptHost(url string) (host string, r *clientReque
 	ln := len(buf)
 	r = new(clientRequest)
 
-	s1, s2, s3, s4 := buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]
-	copy(r.iv[:], proxy.Cipher.Decrypt(buf[ln-4-ivLen:ln-4], s1, s2, s3, s4))
-	buf = proxy.Cipher.Decrypt(buf[:ln-4-ivLen], r.iv[:]...)
+	ss := [4]byte{buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]}
+	copy(r.iv[:], proxy.Cipher.Xor(buf[ln-4-ivLen:ln-4], nil, &ss))
+	buf = proxy.Cipher.Xor(buf[:ln-4-ivLen], &r.iv, nil)
 	host = msg64.Decode(buf, r)
 	return
 }

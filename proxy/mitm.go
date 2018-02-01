@@ -153,11 +153,12 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			}
 
 			logg.D(req.Method, "^ ", rURL)
+			var respBuf buffer
 
 			resp, rkeybuf, err := proxy.encryptAndTransport(req)
 			if err != nil {
 				logg.E("proxy pass: ", rURL, ", ", err)
-				tlsClient.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n" + err.Error()))
+				tlsClient.Write(respBuf.Writes("HTTP/1.1 500 Internal Server Error\r\n\r\n", err.Error()).Bytes())
 				break
 			}
 
@@ -166,10 +167,10 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
-				tlsClient.Write([]byte("HTTP/1.1 " + resp.Status + "\r\n"))
+				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 ", resp.Status, "\r\n").Bytes())
 			} else {
 				// we don't support upgrade in mitm
-				tlsClient.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
 				break
 			}
 

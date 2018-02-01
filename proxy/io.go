@@ -35,7 +35,7 @@ type IOConfig struct {
 	WSCtrl  byte
 }
 
-func (iot *io_t) Bridge(target, source net.Conn, key []byte, options IOConfig) {
+func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOConfig) {
 	// copy from source, decrypt, to target
 	o := options
 	switch o.WSCtrl {
@@ -303,12 +303,14 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 	return
 }
 
-func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig) (written int64, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			logg.E("wtf, ", r)
-		}
-	}()
+func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOConfig) (written int64, err error) {
+	if logg.GetLevel() == logg.LvDebug {
+		defer func() {
+			if r := recover(); r != nil {
+				logg.E("wtf, ", r)
+			}
+		}()
+	}
 
 	buf := make([]byte, 32*1024)
 	ctr := (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key)
@@ -391,7 +393,6 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 			}
 
 			if nr != nw {
-				logg.D(nr, " ", nw, xbuf)
 				err = io.ErrShortWrite
 				break
 			}
@@ -415,17 +416,15 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key []byte, config IOConfig)
 	return written, err
 }
 
-func (iot *io_t) NewReadCloser(src io.ReadCloser, key []byte) *IOReadCloserCipher {
+func (iot *io_t) NewReadCloser(src io.ReadCloser, key *[ivLen]byte) *IOReadCloserCipher {
 	return &IOReadCloserCipher{
 		src: src,
-		key: key,
 		ctr: (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key),
 	}
 }
 
 type IOReadCloserCipher struct {
 	src io.ReadCloser
-	key []byte
 	ctr *inplace_ctr_t
 }
 

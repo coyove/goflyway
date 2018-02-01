@@ -63,7 +63,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 	return ioc
 }
 
-func (proxy *ProxyUpstream) Write(w http.ResponseWriter, key, p []byte, code int) (n int, err error) {
+func (proxy *ProxyUpstream) Write(w http.ResponseWriter, key *[ivLen]byte, p []byte, code int) (n int, err error) {
 	if ctr := proxy.Cipher.getCipherStream(key); ctr != nil {
 		ctr.XorBuffer(p)
 	}
@@ -116,14 +116,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dst == "" || cr == nil {
 		logg.D("invalid request from: ", addr)
 		logg.D(stripURI(r.RequestURI))
-		proxy.blacklist.Add(addr, nil)
-		replySomething()
-		return
-	}
-
-	rkeybuf := cr.iv[:]
-	if len(rkeybuf) != ivLen {
-		logg.D("invalid key request from: ", addr)
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
@@ -215,7 +207,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		downstreamConn.Write(p.Bytes())
-		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, rkeybuf, ioc)
+		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
 		r.URL, err = url.Parse(dst)
@@ -225,14 +217,14 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		r.Host = r.URL.Host
-		proxy.decryptRequest(r, rkeybuf)
+		proxy.decryptRequest(r, cr)
 
 		logg.D(r.Method, " ", r.URL.String())
 
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
 			logg.E("HTTP forward: ", r.URL, ", ", err)
-			proxy.Write(w, rkeybuf, []byte(err.Error()), http.StatusInternalServerError)
+			proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
 
@@ -240,10 +232,10 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", r.URL)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, rkeybuf)
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, proxy.getIOConfig(cr.Auth)); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
 			logg.E("copy ", nr, " bytes: ", err)
 		}
 

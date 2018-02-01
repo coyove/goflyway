@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"github.com/coyove/goflyway/pkg/logg"
+	"fmt"
 	"github.com/coyove/goflyway/pkg/rand"
 
 	"crypto/aes"
@@ -42,14 +42,14 @@ type Cipher struct {
 	Key       []byte
 	KeyString string
 	Block     cipher.Block
-	Rand      *rand.ConcurrentRand
+	Rand      rand.Rand
 	Partial   bool
 	Alias     string
 }
 
 type inplace_ctr_t struct {
 	b       cipher.Block
-	ctr     []byte
+	ctr     [ivLen]byte
 	out     []byte
 	outUsed int
 }
@@ -64,7 +64,7 @@ func (x *inplace_ctr_t) XorBuffer(buf []byte) {
 			x.out = x.out[:cap(x.out)]
 			bs := x.b.BlockSize()
 			for remain <= len(x.out)-bs {
-				x.b.Encrypt(x.out[remain:], x.ctr)
+				x.b.Encrypt(x.out[remain:], x.ctr[:])
 				remain += bs
 
 				// Increment counter
@@ -84,19 +84,12 @@ func (x *inplace_ctr_t) XorBuffer(buf []byte) {
 	}
 }
 
-func dup(in []byte) (out []byte) {
-	out = make([]byte, len(in))
-	copy(out, in)
-	return
-}
-
-func xor(blk cipher.Block, iv, buf []byte) []byte {
-	iv = dup(iv)
+func xor(blk cipher.Block, iv [ivLen]byte, buf []byte) []byte {
 	bsize := blk.BlockSize()
 	x := make([]byte, len(buf)/bsize*bsize+bsize)
 
 	for i := 0; i < len(x); i += bsize {
-		blk.Encrypt(x[i:], iv)
+		blk.Encrypt(x[i:], iv[:])
 
 		for i := len(iv) - 1; i >= 0; i-- {
 			if iv[i]++; iv[i] != 0 {
@@ -112,25 +105,20 @@ func xor(blk cipher.Block, iv, buf []byte) []byte {
 	return buf
 }
 
-func (gc *Cipher) getCipherStream(key []byte) *inplace_ctr_t {
+func (gc *Cipher) getCipherStream(key *[16]byte) *inplace_ctr_t {
 	if key == nil {
 		return nil
 	}
 
-	if len(key) != ivLen {
-		logg.E("iv is not 128bit long: ", key)
-		return nil
-	}
-
 	return &inplace_ctr_t{
-		b: gc.Block,
-		// key must be duplicated because it gets modified during XorBuffer
-		ctr:     dup(key),
+		b:       gc.Block,
+		ctr:     *key,
 		out:     make([]byte, 0, streamBufferSize),
 		outUsed: 0,
 	}
 }
 
+// Init inits the Cipher struct with key
 func (gc *Cipher) Init(key string) (err error) {
 	gc.KeyString = key
 	gc.Key = []byte(key)
@@ -140,55 +128,38 @@ func (gc *Cipher) Init(key string) (err error) {
 	}
 
 	gc.Block, err = aes.NewCipher(gc.Key[:32])
-	gc.Rand = rand.New(int64(binary.BigEndian.Uint64(gc.Key[:8])))
-	gc.Alias = gc.genWord(false)
+
+	alias := make([]byte, 16)
+	gc.Block.Encrypt(alias, gc.Key)
+	gc.Alias = fmt.Sprintf("%X", alias[:3])
 
 	return
 }
 
-func (gc *Cipher) genWord(random bool) string {
+func (gc *Cipher) Jibber() string {
 	const (
-		vowels = "aeiou"
-		vowelx = "aeioutr"
+		vowels = "aeioutr" // t, r are specials
 		cons   = "bcdfghlmnprst"
 	)
 
-	ret := make([]byte, 16)
-	i, ln := 0, 0
+	s := gc.Rand.Intn(20)
+	b := (vowels + cons)[s]
 
-	if random {
-		ret[0] = (vowels + cons)[gc.Rand.Intn(18)]
-		i, ln = 1, gc.Rand.Intn(6)+3
-	} else {
-		gc.Block.Encrypt(ret, gc.Key)
-		ret[0] = (vowels + cons)[ret[0]/15]
-		i, ln = 1, int(ret[15]/85)+6
+	var ret buffer
+	ret.WriteByte(b)
+	ln := gc.Rand.Intn(10) + 5
+
+	if s < 7 {
+		ret.WriteByte(cons[gc.Rand.Intn(13)])
 	}
 
-	link := func(prev string, this string, thisidx byte) {
-		if strings.ContainsRune(prev, rune(ret[i-1])) {
-			if random {
-				ret[i] = this[gc.Rand.Intn(len(this))]
-			} else {
-				ret[i] = this[ret[i]/thisidx]
-			}
-
-			i++
-		}
+	for i := 0; i < ln; i += 2 {
+		ret.WriteByte(vowels[gc.Rand.Intn(7)])
+		ret.WriteByte(cons[gc.Rand.Intn(13)])
 	}
 
-	for i < ln {
-		link(vowels, cons, 20)
-		link(cons, vowels, 52)
-		link(vowels, cons, 20)
-		link(cons, vowelx, 37)
-	}
-
-	if !random {
-		ret[0] -= 32
-	}
-
-	return string(ret[:ln])
+	ret.Truncate(ln)
+	return ret.String()
 }
 
 type clientRequest struct {
@@ -202,73 +173,45 @@ type clientRequest struct {
 
 func (gc *Cipher) newRequest() *clientRequest {
 	r := &clientRequest{}
-	for i := 0; i < ivLen; i++ {
-		r.iv[i] = byte(gc.Rand.Intn(256))
-	}
-
+	gc.Rand.Read(r.iv[:])
 	// generate a random uint64 number, this will make encryptHost() outputs different lengths of data
 	r.Filler = 2 << uint64(gc.Rand.Intn(21)*3+1)
 	return r
 }
 
-func (gc *Cipher) genIV(ss ...byte) []byte {
-	if len(ss) == ivLen {
-		return ss
-	}
-
-	ret := make([]byte, ivLen)
-
-	var mul uint32 = 1
-	for _, s := range ss {
-		mul *= uint32(primes[s])
-	}
-
-	var seed uint32 = binary.LittleEndian.Uint32(gc.Key[:4])
+func (gc *Cipher) genIV(init *[4]byte, out *[ivLen]byte) {
+	mul := uint32(primes[init[0]]) * uint32(primes[init[1]]) * uint32(primes[init[2]]) * uint32(primes[init[3]])
+	seed := binary.LittleEndian.Uint32(gc.Key[:4])
 
 	for i := 0; i < ivLen/4; i++ {
 		seed = (mul * seed) % 0x7fffffff
-		binary.LittleEndian.PutUint32(ret[i*4:], seed)
+		binary.LittleEndian.PutUint32(out[i*4:], seed)
 	}
-
-	return ret
 }
 
-func (gc *Cipher) Encrypt(buf []byte, ss ...byte) []byte {
-	if ss == nil || len(ss) < 2 {
-		b, b2 := byte(gc.Rand.Intn(256)), byte(gc.Rand.Intn(256))
-		return append(xor(gc.Block, gc.genIV(b, b2), buf), b, b2)
+// Xor is an inplace xor method, and it just returns buf then
+func (gc *Cipher) Xor(buf []byte, full *[ivLen]byte, quad *[4]byte) []byte {
+	if full != nil {
+		return xor(gc.Block, *full, buf)
 	}
 
-	return xor(gc.Block, gc.genIV(ss...), buf)
+	var iv [ivLen]byte
+	gc.genIV(quad, &iv)
+	return xor(gc.Block, iv, buf)
 }
 
-func (gc *Cipher) Decrypt(buf []byte, ss ...byte) []byte {
-	if buf == nil || len(buf) == 0 {
-		return []byte{}
-	}
-
-	if ss == nil || len(ss) < 2 {
-		if len(buf) < 2 {
-			return []byte{}
-		}
-
-		b, b2 := byte(buf[len(buf)-2]), byte(buf[len(buf)-1])
-		return xor(gc.Block, gc.genIV(b, b2), buf[:len(buf)-2])
-	}
-
-	return xor(gc.Block, gc.genIV(ss...), buf)
+// Encrypt encrypts a string
+func (gc *Cipher) Encrypt(text string, iv *[ivLen]byte) string {
+	return base64.URLEncoding.EncodeToString(gc.Xor([]byte(text), iv, nil))
 }
 
-func (gc *Cipher) EncryptString(text string, rkey ...byte) string {
-	return base64.URLEncoding.EncodeToString(gc.Encrypt([]byte(text), rkey...))
-}
-
-func (gc *Cipher) DecryptString(text string, rkey ...byte) string {
+// Decrypt decrypts a string
+func (gc *Cipher) Decrypt(text string, iv *[ivLen]byte) string {
 	buf, err := base64.URLEncoding.DecodeString(text)
 	if err != nil {
 		return ""
 	}
-	return string(gc.Decrypt(buf, rkey...))
+	return string(gc.Xor(buf, iv, nil))
 }
 
 func checksum1b(buf []byte) byte {

@@ -225,7 +225,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.iv[:], IOConfig{Partial: proxy.Partial})
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, &r.iv, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn
 }
@@ -278,7 +278,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.iv[:], IOConfig{
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, &r.iv, IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
 	})
@@ -357,7 +357,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var resp *http.Response
 		var err error
-		var rkeybuf []byte
+		var rkeybuf *[ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
 			logg.D("BLACKLIST ", r.Host, ext)
