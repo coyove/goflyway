@@ -237,6 +237,10 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 						}
 
 						v = gc.Decrypt(v[ei+1:di], rkeybuf)
+						if !strings.HasSuffix(v, gc.Alias) {
+							continue READ
+						}
+						v = v[:len(v)-6]
 					}
 				}
 			case "content-encoding", "content-type":
@@ -262,10 +266,11 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 		}
 	}
 
-	if setcookies.Trunc('\n').Len() > 0 && rkeybuf != nil {
+	if setcookies.Len() > 0 && rkeybuf != nil {
 		// some http proxies or middlewares will combine multiple Set-Cookie headers into one
 		// but some browsers do not support this behavior
 		// here we just do the combination in advance and split them when decrypting
+		setcookies.Trunc('\n').WriteString(gc.Alias)
 		dst.Add("Set-Cookie", gc.Jibber()+"="+gc.Encrypt(setcookies.String(), rkeybuf)+"; Domain="+gc.Jibber()+".com; HttpOnly")
 	}
 }
