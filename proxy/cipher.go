@@ -40,7 +40,7 @@ type Cipher struct {
 
 	Key     string
 	Block   cipher.Block
-	Rand    rand.Rand
+	Rand    *rand.Rand
 	Partial bool
 	Alias   string
 
@@ -128,6 +128,7 @@ func (gc *Cipher) Init(key string) (err error) {
 	}
 
 	gc.Block, err = aes.NewCipher(gc.keyBuf[:32])
+	gc.Rand = rand.New()
 
 	alias := make([]byte, 16)
 	gc.Block.Encrypt(alias, gc.keyBuf)
