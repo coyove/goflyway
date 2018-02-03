@@ -224,7 +224,7 @@ func (gc *Cipher) Decrypt(text string, iv *[ivLen]byte) string {
 	sum := binary.BigEndian.Uint16(buf)
 
 	if msg64.Crc16b(0, buf[2:]) != sum {
-		logg.E("invalid checksum: ", text)
+		logg.D("invalid checksum: ", text)
 		return ""
 	}
 

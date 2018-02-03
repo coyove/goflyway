@@ -6,20 +6,19 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"sync/atomic"
+	"sync"
 )
 
-const bufferLen = 2016 // don't exceed 1<<32-1 and keep an integral multiple of 16 bytes
-const racingLoops = 1e7
+const bufferLen = 2000 // don't exceed 1<<32-1 and keep an integral multiple of 16 bytes
 const budget = (1 << 20) / bufferLen
 
 // Rand is a concurrent random number generator struct
 type Rand struct {
-	off       uint64
-	reloading uint32 // 0 = Normal, 1 = Reloading buffer
-	counter   uint32
-	block     cipher.Block
-	buffer    [bufferLen]byte
+	off     uint64
+	counter uint32
+	block   cipher.Block
+	buffer  [bufferLen]byte
+	mu      sync.Mutex
 }
 
 // New returns a new Rand struct
@@ -46,34 +45,28 @@ func (src *Rand) Int31() int32 {
 // Uint64 returns an uint64 number
 // It has many duplicated code from Read(), but to achieve best performance, this redundancy is necessary
 func (src *Rand) Uint64() uint64 {
-	i := 0
-AGAIN:
-	if i++; i > racingLoops {
-		panic(fmt.Sprintf("racing loop in Uint64()"))
-	}
-
-	offEnd := atomic.AddUint64(&src.off, 8)
-	offStart := offEnd - 8
+	src.mu.Lock()
+	offStart, offEnd := src.off, src.off+8
 
 	if offEnd > bufferLen {
-		if atomic.CompareAndSwapUint32(&src.reloading, 0, 1) {
-			if src.counter++; src.counter >= budget {
-				if _, err := rand.Read(src.buffer[:]); err != nil {
-					panic(err)
-				}
-				src.counter = 0
-			} else {
-				src.block.Encrypt(src.buffer[:], src.buffer[:])
+		if src.counter++; src.counter >= budget {
+			if _, err := rand.Read(src.buffer[:]); err != nil {
+				panic(err)
 			}
-
-			atomic.StoreUint64(&src.off, 0)
-			atomic.StoreUint32(&src.reloading, 0)
+			src.counter = 0
+		} else {
+			src.block.Encrypt(src.buffer[:], src.buffer[:])
 		}
 
-		goto AGAIN
+		src.off = 0
+		offStart, offEnd = 0, 8
 	}
 
-	return binary.BigEndian.Uint64(src.buffer[offStart:offEnd])
+	src.off = offEnd
+
+	i := binary.BigEndian.Uint64(src.buffer[offStart:offEnd])
+	src.mu.Unlock()
+	return i
 }
 
 // Intn returns an integer within [0, n)
@@ -132,7 +125,6 @@ func (src *Rand) Perm(n int) []int {
 }
 
 // Read reads bytes into buf
-// Notice that this method is lock-free but with pitfalls
 func (src *Rand) Read(buf []byte) error {
 	n := uint64(len(buf))
 
@@ -140,38 +132,27 @@ func (src *Rand) Read(buf []byte) error {
 		return fmt.Errorf("rand: don't read more than %d bytes in a single Read()", bufferLen)
 	}
 
-	i := 0
-AGAIN:
-	if i++; i > racingLoops {
-		return fmt.Errorf("racing loop in Read()")
-	}
-
-	offEnd := atomic.AddUint64(&src.off, n)
-	offStart := offEnd - n
+	src.mu.Lock()
+	offStart, offEnd := src.off, src.off+n
 
 	if offEnd > bufferLen {
-		if atomic.CompareAndSwapUint32(&src.reloading, 0, 1) {
-			// Got the spot, start reloading
-			// At this point there could be other goroutines being already at "copy" stage
-			// The following operation may corrupt what they copy
-			if src.counter++; src.counter >= budget {
-				if _, err := rand.Read(src.buffer[:]); err != nil {
-					return err
-				}
-				src.counter = 0
-			} else {
-				src.block.Encrypt(src.buffer[:], src.buffer[:])
+		if src.counter++; src.counter >= budget {
+			if _, err := rand.Read(src.buffer[:]); err != nil {
+				panic(err)
 			}
-
-			atomic.StoreUint64(&src.off, 0)
-			atomic.StoreUint32(&src.reloading, 0)
+			src.counter = 0
+		} else {
+			src.block.Encrypt(src.buffer[:], src.buffer[:])
 		}
 
-		goto AGAIN
+		offStart, offEnd = 0, n
 	}
 
-	// copy stage
+	src.off = offEnd
+
 	copy(buf, src.buffer[offStart:offEnd])
+	// fmt.Println(buf, offStart)
+	src.mu.Unlock()
 	return nil
 }
 

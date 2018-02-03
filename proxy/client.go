@@ -386,7 +386,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, iv)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{Partial: false}); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{
+			Partial: false,
+			Role:    roleRecv,
+		}); err != nil {
 			logg.E("copy ", nr, " bytes: ", err)
 		}
 

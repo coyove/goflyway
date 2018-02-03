@@ -185,7 +185,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				break
 			}
 
-			nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{Partial: false, Chunked: true})
+			nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{
+				Partial: false,
+				Chunked: true,
+				Role:    roleRecv,
+			})
 			if err != nil {
 				logg.E("copy ", nr, " bytes: ", err)
 			}

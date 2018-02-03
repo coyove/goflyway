@@ -420,18 +420,21 @@ func (iot *io_t) NewReadCloser(src io.ReadCloser, key *[ivLen]byte) *IOReadClose
 	return &IOReadCloserCipher{
 		src: src,
 		ctr: (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key),
+		tr:  &iot.Tr,
 	}
 }
 
 type IOReadCloserCipher struct {
 	src io.ReadCloser
 	ctr *inplace_ctr_t
+	tr  *trafficSurvey
 }
 
 func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
 	n, err = rc.src.Read(p)
 	if n > 0 && rc.ctr != nil {
 		rc.ctr.XorBuffer(p[:n])
+		rc.tr.totalSent += uint64(n)
 	}
 
 	return

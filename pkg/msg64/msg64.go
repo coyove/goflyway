@@ -10,12 +10,13 @@ import (
 )
 
 var crc16Table [256]uint16
-var r rand.Rand
+var r *rand.Rand
 
 func init() {
 	for i := 0; i < 256; i++ {
 		crc16Table[i] = uint16(0x1021 * i)
 	}
+	r = rand.New()
 }
 
 func Crc16n(crc uint16, b byte) uint16 {
