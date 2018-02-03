@@ -18,20 +18,22 @@ func init() {
 	}
 }
 
-func crc16(crc uint16, v interface{}) uint16 {
-	switch v.(type) {
-	case []byte:
-		buf := v.([]byte)
-		for i := 0; i < len(buf); i++ {
-			crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(buf[i])]
-		}
-	case string:
-		str := v.(string)
-		for i := 0; i < len(str); i++ {
-			crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(str[i])]
-		}
-	}
+func Crc16n(crc uint16, b byte) uint16 {
+	crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(b)]
+	return crc
+}
 
+func Crc16b(crc uint16, v []byte) uint16 {
+	for i := 0; i < len(v); i++ {
+		crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(v[i])]
+	}
+	return crc
+}
+
+func Crc16s(crc uint16, v string) uint16 {
+	for i := 0; i < len(v); i++ {
+		crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(v[i])]
+	}
 	return crc
 }
 
@@ -210,14 +212,14 @@ func charToIdx(b byte) (byte, byte, int) {
 func Encode(str string, payload interface{}) []byte {
 	ln := len(str)
 	b := &bitsArray{underlay: make([]byte, 0, ln*2)}
-	crc := crc16(0, str)
+	crc := Crc16s(0, str)
 
 	var pbuf *bytes.Buffer
 	if payload != nil {
 		pbuf = &bytes.Buffer{}
 		tmp, _ := json.Marshal(payload)
 		json.Compact(pbuf, tmp)
-		crc = crc16(crc, pbuf.Bytes())
+		crc = Crc16b(crc, pbuf.Bytes())
 	}
 
 	if strings.HasPrefix(str, "https://") {
@@ -284,7 +286,7 @@ func (m *msgReader) Read(buf []byte) (int, error) {
 		}
 
 		buf[i] = b
-		m.crc = ((m.crc << 8) & 0xFF00) ^ crc16Table[((m.crc>>8)&0xFF)^uint16(b)]
+		m.crc = Crc16n(m.crc, b)
 	}
 
 	return len(buf), nil
@@ -379,7 +381,7 @@ READ:
 
 			crc = uint16(b2)<<8 + uint16(b3)
 		case _SEP:
-			src.crc = crc16(0, ret)
+			src.crc = Crc16b(0, ret)
 			dec := json.NewDecoder(src)
 			if payload != nil {
 				if dec.Decode(payload) != nil {
@@ -392,7 +394,7 @@ READ:
 		}
 	}
 
-	src.crc = crc16(0, ret)
+	src.crc = Crc16b(0, ret)
 
 VERIFY:
 	if (src.crc & 0x7FFF) == crc {

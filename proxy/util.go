@@ -215,7 +215,7 @@ func (proxy *ProxyUpstream) decryptRequest(req *http.Request, r *clientRequest) 
 	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
 }
 
-func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byte) {
+func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
 	for k := range dst {
 		dst.Del(k)
 	}
@@ -226,7 +226,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 		for _, v := range vs {
 			switch strings.ToLower(k) {
 			case "set-cookie":
-				if rkeybuf != nil {
+				if iv != nil {
 					if enc {
 						setcookies.Writes(v, "\n")
 						continue READ
@@ -236,7 +236,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 							di = len(v)
 						}
 
-						v = gc.Decrypt(v[ei+1:di], rkeybuf)
+						v = gc.Decrypt(v[ei+1:di], iv)
 						if !strings.HasSuffix(v, gc.Alias) {
 							continue READ
 						}
@@ -247,11 +247,11 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 				if enc {
 					dst.Add("X-"+k, v)
 					continue READ
-				} else if rkeybuf != nil {
+				} else if iv != nil {
 					continue READ
 				}
 
-				// rkeybuf is nil and we are in decrypt mode
+				// IV is nil and we are in decrypt mode
 				// aka plain copy mode, so fall to the bottom
 			case "x-content-encoding", "x-content-type":
 				if !enc {
@@ -266,12 +266,12 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, rkeybuf *[ivLen]byt
 		}
 	}
 
-	if setcookies.Len() > 0 && rkeybuf != nil {
+	if setcookies.Len() > 0 && iv != nil {
 		// some http proxies or middlewares will combine multiple Set-Cookie headers into one
 		// but some browsers do not support this behavior
 		// here we just do the combination in advance and split them when decrypting
 		setcookies.Trunc('\n').WriteString(gc.Alias)
-		dst.Add("Set-Cookie", gc.Jibber()+"="+gc.Encrypt(setcookies.String(), rkeybuf)+"; Domain="+gc.Jibber()+".com; HttpOnly")
+		dst.Add("Set-Cookie", gc.Jibber()+"="+gc.Encrypt(setcookies.String(), iv)+"; Domain="+gc.Jibber()+".com; HttpOnly")
 	}
 }
 

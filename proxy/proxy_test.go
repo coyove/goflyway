@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"bytes"
+	"encoding/base64"
 	"strconv"
 	"testing"
 	"time"
@@ -14,24 +14,13 @@ func TestCipher(t *testing.T) {
 
 	test := func(m byte) {
 		p := make([]byte, c.Rand.Intn(20)+16)
-		for i := range p {
-			if p[i] = byte(c.Rand.Intn(256)); p[i] > 200 {
-				p = nil
-				break
-			}
-		}
+		iv := [16]byte{}
+		c.Rand.Read(p)
+		c.Rand.Read(iv[:])
 
-		auth := make([]byte, c.Rand.Intn(20)+10)
-		for i := range auth {
-			auth[i] = byte(c.Rand.Intn(256))
-		}
-
-		s, pp := c.NewIV(Options(m), p, string(auth))
-		m2, p2, auth2 := c.ReverseIV(s)
-		if byte(m2) != m ||
-			(!bytes.Equal(p2, p) && !bytes.Equal(p2, pp)) ||
-			(!bytes.Equal(auth, auth2) && string(auth2) != c.Alias) {
-			t.Error(p, auth, m)
+		str := base64.StdEncoding.EncodeToString(p)
+		if c.Decrypt(c.Encrypt(str, &iv), &iv) != str {
+			t.Error(str)
 		}
 	}
 
@@ -40,11 +29,11 @@ func TestCipher(t *testing.T) {
 	}
 }
 
-func BenchmarkGenWord(b *testing.B) {
+func BenchmarkJibber(b *testing.B) {
 	r := &Cipher{}
 	r.Init("12345678")
 
 	for i := 0; i < b.N; i++ {
-		r.genWord(false)
+		r.Jibber()
 	}
 }

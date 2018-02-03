@@ -6,6 +6,7 @@ import (
 
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lru"
+	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/tcpmux"
 
 	"net"
@@ -264,7 +265,7 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 		blacklist:    lru.NewCache(128),
 	}
 
-	tcpmux.Version = checksum1b([]byte(config.Cipher.Alias)) | 0x80
+	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {

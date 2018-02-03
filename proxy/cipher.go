@@ -2,6 +2,9 @@ package proxy
 
 import (
 	"fmt"
+
+	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/goflyway/pkg/rand"
 
 	"crypto/aes"
@@ -203,22 +206,27 @@ func (gc *Cipher) Xor(buf []byte, full *[ivLen]byte, quad *[4]byte) []byte {
 
 // Encrypt encrypts a string
 func (gc *Cipher) Encrypt(text string, iv *[ivLen]byte) string {
-	return base64.URLEncoding.EncodeToString(gc.Xor([]byte(text), iv, nil))
+	sum := msg64.Crc16s(0, text)
+	buf := make([]byte, len(text)+2)
+	binary.BigEndian.PutUint16(buf, sum)
+	copy(buf[2:], text)
+	return base64.URLEncoding.EncodeToString(xor(gc.Block, *iv, buf))
 }
 
 // Decrypt decrypts a string
 func (gc *Cipher) Decrypt(text string, iv *[ivLen]byte) string {
 	buf, err := base64.URLEncoding.DecodeString(text)
-	if err != nil {
+	if err != nil || len(buf) < 2 {
 		return ""
 	}
-	return string(gc.Xor(buf, iv, nil))
-}
 
-func checksum1b(buf []byte) byte {
-	s := int16(1)
-	for _, b := range buf {
-		s *= primes[b]
+	buf = xor(gc.Block, *iv, buf)
+	sum := binary.BigEndian.Uint16(buf)
+
+	if msg64.Crc16b(0, buf[2:]) != sum {
+		logg.E("invalid checksum: ", text)
+		return ""
 	}
-	return byte(s>>12) + byte(s&0x00f0)
+
+	return string(buf[2:])
 }

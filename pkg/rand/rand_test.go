@@ -28,6 +28,31 @@ func BenchmarkRand(b *testing.B) {
 	}
 }
 
+func BenchmarkRandRandom(b *testing.B) {
+	r := New()
+	buf := make([]byte, 1024)
+
+	for i := 0; i < b.N; i++ {
+		r.Read(buf[:r.Intn(1024)])
+	}
+}
+
+func BenchmarkMathRandRandom(b *testing.B) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	buf := make([]byte, 1024)
+
+	for i := 0; i < b.N; i++ {
+		n := r.Intn(1024)
+		for j := 0; j <= n-8; j += 8 {
+			binary.BigEndian.PutUint64(buf[j:j+8], r.Uint64())
+		}
+
+		for j := 0; j < n%8; j++ {
+			buf[len(buf)-1-j] = byte(r.Intn(256))
+		}
+	}
+}
+
 var dummy = 0
 
 func BenchmarkRandMulti(b *testing.B) {

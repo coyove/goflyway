@@ -3,6 +3,8 @@ package proxy
 import (
 	"crypto/tls"
 
+	"github.com/coyove/goflyway/pkg/msg64"
+
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lru"
@@ -357,7 +359,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var resp *http.Response
 		var err error
-		var rkeybuf *[ivLen]byte
+		var iv *[ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
 			logg.D("BLACKLIST ", r.Host, ext)
@@ -368,7 +370,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
 			logg.D(r.Method, "^ ", r.Host, ext)
-			resp, rkeybuf, err = proxy.encryptAndTransport(r)
+			resp, iv, err = proxy.encryptAndTransport(r)
 		}
 
 		if err != nil {
@@ -381,10 +383,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D("[", resp.Status, "] - ", rURL)
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, rkeybuf)
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, iv)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, rkeybuf, IOConfig{Partial: false}); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{Partial: false}); err != nil {
 			logg.E("copy ", nr, " bytes: ", err)
 		}
 
@@ -517,7 +519,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.Cipher.IO.Ob = proxy.pool
 	}
 
-	tcpmux.Version = checksum1b([]byte(config.Cipher.Alias)) | 0x80
+	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
