@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
+	"sync"
 
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/lru"
@@ -41,6 +43,7 @@ type ProxyUpstream struct {
 	tp        *http.Transport
 	rp        http.Handler
 	blacklist *lru.Cache
+	wsMapping map[[ivLen]byte]*wsCallback
 
 	Localaddr string
 
@@ -211,6 +214,32 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
+
+		if r.Header.Get("Token") != "" {
+			token, _ := base64.StdEncoding.DecodeString(r.Header.Get("Token"))
+			logg.L(token)
+			tokenIV := [ivLen]byte{}
+			copy(tokenIV[:], token)
+			if m := proxy.wsMapping[tokenIV]; m != nil {
+				if cr.Opt.IsSet(doWSCallback) {
+					m.Lock()
+					if nr, err := proxy.Cipher.IO.Copy(w, bytes.NewReader(m.rBuf), &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
+						logg.E("copy ", nr, " bytes: ", err)
+					}
+					m.rBuf = m.rBuf[0:0]
+					m.Unlock()
+					return
+				}
+
+				if nr, err := proxy.Cipher.IO.Copy(m.write, r.Body, &cr.iv, IOConfig{}); err != nil {
+					logg.E("copy ", nr, " bytes: ", err)
+				} else {
+					logg.L("write ", nr)
+				}
+				return
+			}
+		}
+
 		r.URL, err = url.Parse(dst)
 		if err != nil {
 			replySomething()
@@ -231,6 +260,11 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if resp.StatusCode >= 400 {
 			logg.D("[", resp.Status, "] - ", r.URL)
+		}
+
+		if strings.ToLower(r.Header.Get("upgrade")) == "websocket" && resp.StatusCode == 200 {
+			proxy.wsMapping[cr.iv] = &wsCallback{}
+			logg.E("ws")
 		}
 
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
@@ -259,7 +293,8 @@ func (proxy *ProxyUpstream) Start() error {
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 	proxy := &ProxyUpstream{
-		tp: &http.Transport{TLSClientConfig: tlsSkip},
+		tp:        &http.Transport{TLSClientConfig: tlsSkip},
+		wsMapping: make(map[[ivLen]byte]*wsCallback),
 
 		ServerConfig: config,
 		blacklist:    lru.NewCache(128),
@@ -288,3 +323,29 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 	proxy.Localaddr = addr
 	return proxy
 }
+
+type wsCallback struct {
+	sync.Mutex
+	last  int64
+	write net.Conn
+	rBuf  []byte
+}
+
+func (w *wsCallback) Read(buf []byte) (n int, err error) {
+	return w.write.Write(buf)
+}
+
+func (w *wsCallback) Write(buf []byte) (n int, err error) {
+	w.last = time.Now().UnixNano()
+	w.Lock()
+	w.rBuf = append(w.rBuf, buf...)
+	w.Unlock()
+	return len(buf), nil
+}
+
+func (w *wsCallback) Close() error                       { return w.write.Close() }
+func (w *wsCallback) LocalAddr() net.Addr                { return nil }
+func (w *wsCallback) RemoteAddr() net.Addr               { return nil }
+func (w *wsCallback) SetDeadline(t time.Time) error      { return nil }
+func (w *wsCallback) SetReadDeadline(t time.Time) error  { return nil }
+func (w *wsCallback) SetWriteDeadline(t time.Time) error { return nil }

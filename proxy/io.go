@@ -431,6 +431,10 @@ type IOReadCloserCipher struct {
 }
 
 func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
+	if rc.src == nil {
+		return 0, io.EOF
+	}
+
 	n, err = rc.src.Read(p)
 	if n > 0 && rc.ctr != nil {
 		rc.ctr.XorBuffer(p[:n])
@@ -441,5 +445,8 @@ func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
 }
 
 func (rc *IOReadCloserCipher) Close() error {
+	if rc.src == nil {
+		return nil
+	}
 	return rc.src.Close()
 }

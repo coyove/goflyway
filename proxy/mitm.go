@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"github.com/coyove/goflyway/pkg/logg"
 
 	"bufio"
@@ -110,9 +113,29 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 		}
 
 		bufTLSClient := bufio.NewReader(tlsClient)
+		var wsToken *[ivLen]byte
 
 		for {
 			proxy.Cipher.IO.markActive(tlsClient, 0)
+
+			if wsToken != nil {
+				frame, err := wsReadFrame(bufTLSClient)
+				if err != nil {
+					logg.E(err)
+					break
+				}
+				logg.L("read frame ", len(frame))
+				req, _ := http.NewRequest("GET", "http://abc.com", bytes.NewReader(frame))
+				//TODO
+				req.Header.Add("Token", base64.StdEncoding.EncodeToString(wsToken[:]))
+				if _, _, err = proxy.encryptAndTransport(req); err != nil {
+					logg.E(err)
+					tlsClient.Write([]byte{0x88, 0}) // close frame
+					break
+				}
+
+				continue
+			}
 
 			var err error
 			var rURL string
@@ -120,14 +143,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			if buf, err = bufTLSClient.Peek(3); err == io.EOF || len(buf) != 3 {
 				break
 			}
-
-			// switch string(buf) {
-			// case "GET", "POS", "HEA", "PUT", "OPT", "DEL", "PAT", "TRA":
-			// 	// good
-			// default:
-			// 	proxy.dialUpstreamAndBridge(&bufioConn{Conn: tlsClient, m: bufTLSClient}, host, auth, []byte{})
-			// 	return
-			// }
 
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
@@ -170,8 +185,33 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 ", resp.Status, "\r\n").Bytes())
 			} else {
 				// we don't support upgrade in mitm
-				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
-				break
+				// tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
+				wsToken = rkeybuf
+				logg.D("token: ", base64.StdEncoding.EncodeToString(wsToken[:]))
+
+				go func() {
+					for {
+						req, _ := http.NewRequest("GET", "http://abc.com", nil)
+						//TODO
+						req.Header.Add("Token", base64.StdEncoding.EncodeToString(wsToken[:]))
+						if resp, iv, err := proxy.encryptAndTransport(req, doWSCallback); err != nil {
+							logg.E(err)
+							tlsClient.Write([]byte{0x88, 0}) // close frame
+							break
+						} else if nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, iv, IOConfig{
+							Partial: false,
+							Role:    roleRecv,
+						}); err != nil {
+							logg.E("copy ", nr, " bytes: ", err)
+							tlsClient.Write([]byte{0x88, 0})
+							break
+						} else {
+							tryClose(resp.Body)
+						}
+
+						time.Sleep(time.Second)
+					}
+				}()
 			}
 
 			hdr := http.Header{}
@@ -198,4 +238,29 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 		tlsClient.Close()
 	}()
+}
+
+func wsReadFrame(src io.Reader) (payload []byte, err error) {
+	buf := make([]byte, 4, 10)
+	if _, err = io.ReadAtLeast(src, buf, 4); err != nil {
+		return
+	}
+
+	ln := int(buf[1] & 0x7f)
+	switch ln {
+	case 127:
+		buf = append(buf, 0, 0, 0, 0, 0, 0)
+		if _, err = io.ReadAtLeast(src, buf[4:], 6); err != nil {
+			return
+		}
+		ln = int(binary.BigEndian.Uint64(buf[2:10]))
+	case 126:
+		ln = int(binary.BigEndian.Uint16(buf[2:4]))
+	default:
+		// <= 125 bytes
+	}
+
+	payload = make([]byte, ln)
+	_, err = io.ReadAtLeast(src, payload, ln)
+	return
 }

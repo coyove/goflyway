@@ -30,14 +30,14 @@ const (
 )
 
 const (
-	doConnect   = 1 << iota // Establish TCP tunnel
-	doForward               // Forward plain HTTP request
-	doWebSocket             // Use WebSocket protocol
-	doDNS                   // DNS query request
-	doPartial               // Partial encryption
-	doUDPRelay              // UDP relay request
-	doRSV1                  // Reserved
-	doRSV2                  // Reserved
+	doConnect    = 1 << iota // Establish TCP tunnel
+	doForward                // Forward plain HTTP request
+	doWebSocket              // Use WebSocket protocol
+	doDNS                    // DNS query request
+	doPartial                // Partial encryption
+	doUDPRelay               // UDP relay request
+	doWSCallback             // Reserved
+	doRSV2                   // Reserved
 )
 
 const (
@@ -121,9 +121,12 @@ func (proxy *ProxyClient) genHost() string {
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptAndTransport(req *http.Request) (*http.Response, *[ivLen]byte, error) {
+func (proxy *ProxyClient) encryptAndTransport(req *http.Request, extra ...byte) (*http.Response, *[ivLen]byte, error) {
 	r := proxy.Cipher.newRequest()
 	r.Opt.Set(doForward)
+	for _, e := range extra {
+		r.Opt.Set(e)
+	}
 	r.Auth = proxy.UserAuth
 
 	proxy.addToDummies(req)
