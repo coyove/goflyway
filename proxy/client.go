@@ -511,7 +511,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	proxy := &ProxyClient{
 		pool: tcpmux.NewDialer(config.Upstream, config.Mux),
 
-		tp:  &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL},
+		tp:  &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
 		tpq: &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, ResponseHeaderTimeout: timeoutOp, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 

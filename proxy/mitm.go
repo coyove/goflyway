@@ -124,7 +124,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if wsToken != "" {
 				frame, err := wsReadFrame(tlsClient)
-				if err != nil && err != io.EOF {
+				if err != nil {
 					if !isClosedConnErr(err) {
 						logg.E(err)
 					}
@@ -198,12 +198,15 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
-			} else {
+			} else if proxy.Policy.IsSet(PolicyWSCB) {
 				wsToken = base64.StdEncoding.EncodeToString(rkeybuf[:])
 				wsCallQueue = &bytes.Buffer{}
 				wsLastSend = time.Now().UnixNano()
 
 				go func() {
+					// Now let's start a goroutine which will query the upstream
+					// to see if there are any new WS frames sent from the host in every 1 second
+					// If yes, it sends them to the browser, if upstream returns code other than 200, it exits
 					logg.L("WebSocket remote callback new token: ", wsToken)
 					for {
 						req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
@@ -234,6 +237,9 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 					tlsClient.Close()
 					logg.L("WebSocket remote callback finished: ", wsToken)
 				}()
+			} else {
+				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
+				break
 			}
 
 			tlsClient.Write(respBuf.R().Writes("HTTP/1.1 ", resp.Status, "\r\n").Bytes())

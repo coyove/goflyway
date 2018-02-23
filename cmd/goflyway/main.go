@@ -39,7 +39,7 @@ var (
 	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
 	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] disable UDP relay")
 	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
-	cmdWSCBClose = flag.Int64("wscbt", 20, "[S] timeout for WebSocket callback")
+	cmdWSCBClose = flag.Int64("wscb-timeout", 200, "[S] timeout for WebSocket callback")
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[C] global proxy")
@@ -51,6 +51,7 @@ var (
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
+	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -111,13 +112,13 @@ func loadConfig() {
 	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
 	*cmdWebConPort = cf.GetInt("misc", "webconport", *cmdWebConPort)
 	*cmdDNSCache = cf.GetInt("misc", "dnscache", *cmdDNSCache)
-	*cmdWSCBClose = cf.GetInt("misc", "wscbt", *cmdWSCBClose)
+	*cmdWSCBClose = cf.GetInt("misc", "wscbtimeout", *cmdWSCBClose)
 	*cmdMux = cf.GetInt("misc", "mux", *cmdMux)
 	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
 	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
 	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
-
+	*cmdWSCB = cf.GetBool("misc", "wscb", *cmdWSCB)
 	*cmdCloseConn = cf.GetInt("misc", "closeconn", *cmdCloseConn)
 }
 
@@ -225,6 +226,10 @@ func main() {
 		if *cmdGlobal {
 			fmt.Println("* global proxy: goflyway will proxy everything except private IPs")
 			cc.Policy.Set(proxy.PolicyGlobal)
+		}
+
+		if *cmdWSCB {
+			cc.Policy.Set(proxy.PolicyWSCB)
 		}
 
 		if *cmdVPN {

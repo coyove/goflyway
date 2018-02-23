@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
-	"io"
 	"sync"
 
 	"github.com/coyove/goflyway/pkg/logg"
@@ -231,6 +230,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			m := proxy.wsMapping.m[tokenIV]
 			proxy.wsMapping.RUnlock()
 
+			logg.E(cr.WSToken, " ", m)
 			if m != nil {
 				switch cr.WSCallback {
 				case 'b':
@@ -242,6 +242,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					m.rBuf = m.rBuf[0:0]
 					m.Unlock()
 				case 'c':
+					w.WriteHeader(200)
 					if nr, err := proxy.Cipher.IO.Copy(m.conn, r.Body, &cr.iv, IOConfig{}); err != nil {
 						logg.E("copy ", nr, " bytes: ", err)
 					}
@@ -311,7 +312,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				for {
 					frame, err := wsReadFrame(conn)
-					if err != nil && err != io.EOF {
+					if err != nil {
 						if !isClosedConnErr(err) {
 							logg.E(err)
 						}
