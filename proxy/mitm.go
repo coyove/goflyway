@@ -207,7 +207,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 					// Now let's start a goroutine which will query the upstream
 					// to see if there are any new WS frames sent from the host in every 1 second
 					// If yes, it sends them to the browser, if upstream returns code other than 200, it exits
-					logg.L("WebSocket remote callback new token: ", wsToken)
+					logg.D("WebSocket remote callback new token: ", wsToken)
 					for {
 						req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
 						cr := proxy.newRequest()
@@ -235,7 +235,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 					tlsClient.Write([]byte{0x88, 0})
 					tlsClient.Close()
-					logg.L("WebSocket remote callback finished: ", wsToken)
+					logg.D("WebSocket remote callback finished: ", wsToken)
 				}()
 			} else {
 				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())

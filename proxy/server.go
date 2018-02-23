@@ -230,7 +230,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			m := proxy.wsMapping.m[tokenIV]
 			proxy.wsMapping.RUnlock()
 
-			logg.E(cr.WSToken, " ", m)
+			// logg.E(cr.WSToken, " ", m)
 			if m != nil {
 				switch cr.WSCallback {
 				case 'b':
