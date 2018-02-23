@@ -31,6 +31,7 @@ type IOConfig struct {
 	Bucket  *TokenBucket
 	Chunked bool
 	Partial bool
+	Print   bool
 	Role    byte
 	WSCtrl  byte
 }
@@ -260,7 +261,7 @@ func wsWrite(dst io.Writer, payload []byte, mask bool) (n int, err error) {
 
 func wsRead(src io.Reader) (payload []byte, n int, err error) {
 	buf := make([]byte, 4)
-	if n, err = io.ReadAtLeast(src, buf, 4); err != nil {
+	if n, err = io.ReadAtLeast(src, buf[:2], 2); err != nil {
 		return
 	}
 
@@ -271,18 +272,20 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 	mask := (buf[1] & 0x80) > 0
 	ln := int(buf[1] & 0x7f)
 
-	if ln != 126 {
-		if ln == 127 {
-			logg.E("goflyway doesn't accept payload longer than 65535, please check")
+	switch ln {
+	case 126:
+		if n, err = io.ReadAtLeast(src, buf[2:4], 2); err != nil {
 			return
 		}
-		// ln : 0 ~ 125
-	} else {
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
+	case 127:
+		logg.E("goflyway doesn't accept payload longer than 65535, please check")
+		return
+	default:
 	}
 
 	if mask {
-		if n, err = io.ReadAtLeast(src, buf, 4); err != nil {
+		if n, err = io.ReadAtLeast(src, buf[:4], 4); err != nil {
 			return
 		}
 		// now buf contains mask key

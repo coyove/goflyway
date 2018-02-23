@@ -39,13 +39,14 @@ var (
 	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
 	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] disable UDP relay")
 	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
+	cmdWSCBClose = flag.Int64("wscbt", 20, "[S] timeout for WebSocket callback")
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[C] global proxy")
 	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
 	cmdPartial    = flag.Bool("partial", false, "[C] partially encrypt the tunnel traffic")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
-	cmdWebConPort = flag.Int64("web-port", 8101, "[C] web console listening port, 0 to disable")
+	cmdWebConPort = flag.Int64("web-port", 65536, "[C] web console listening port, 0 to disable, 65536 to auto select")
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
@@ -110,6 +111,7 @@ func loadConfig() {
 	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
 	*cmdWebConPort = cf.GetInt("misc", "webconport", *cmdWebConPort)
 	*cmdDNSCache = cf.GetInt("misc", "dnscache", *cmdDNSCache)
+	*cmdWSCBClose = cf.GetInt("misc", "wscbt", *cmdWSCBClose)
 	*cmdMux = cf.GetInt("misc", "mux", *cmdMux)
 	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
 	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
@@ -237,6 +239,7 @@ func main() {
 			ThrottlingMax: *cmdThrotMax,
 			ProxyPassAddr: *cmdProxyPass,
 			DisableUDP:    *cmdDiableUDP,
+			WSCBTimeout:   *cmdWSCBClose,
 		}
 
 		if *cmdAuth != "" {
@@ -286,6 +289,11 @@ func main() {
 		if *cmdWebConPort != 0 {
 			go func() {
 				addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
+				if *cmdWebConPort == 65536 {
+					addr_, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
+					addr = fmt.Sprintf("127.0.0.1:%d", addr_.Port+10)
+				}
+
 				http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
 				fmt.Println("* access client web console at [", addr, "]")
 				logg.F(http.ListenAndServe(addr, nil))

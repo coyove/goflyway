@@ -167,11 +167,12 @@ func (gc *Cipher) Jibber() string {
 }
 
 type clientRequest struct {
-	Query   string  `json:"q,omitempty"`
-	Auth    string  `json:"a,omitempty"`
-	WSToken string  `json:"a,omitempty"`
-	Opt     Options `json:"o"`
-	Filler  uint64  `json:"f"`
+	Query      string  `json:"q,omitempty"`
+	Auth       string  `json:"a,omitempty"`
+	WSToken    string  `json:"w,omitempty"`
+	WSCallback byte    `json:"c,omitempty"`
+	Opt        Options `json:"o"`
+	Filler     uint64  `json:"f"`
 
 	iv [ivLen]byte
 }

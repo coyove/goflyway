@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"io"
 	"sync"
@@ -25,6 +26,7 @@ import (
 type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
+	WSCBTimeout   int64
 	DisableUDP    bool
 	ProxyPassAddr string
 
@@ -45,7 +47,10 @@ type ProxyUpstream struct {
 	tp        *http.Transport
 	rp        http.Handler
 	blacklist *lru.Cache
-	wsMapping map[[ivLen]byte]*wsCallback
+	wsMapping struct {
+		sync.RWMutex
+		m map[[ivLen]byte]*wsCallback
+	}
 
 	Localaddr string
 
@@ -217,29 +222,35 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
 
-		if r.Header.Get("Token") != "" {
-			token, _ := base64.StdEncoding.DecodeString(r.Header.Get("Token"))
-			logg.L(token, proxy.wsMapping)
+		if cr.WSToken != "" {
+			token, _ := base64.StdEncoding.DecodeString(cr.WSToken)
 			tokenIV := [ivLen]byte{}
 			copy(tokenIV[:], token)
-			if m := proxy.wsMapping[tokenIV]; m != nil {
-				if cr.Opt.IsSet(doWSCallback) {
+
+			proxy.wsMapping.RLock()
+			m := proxy.wsMapping.m[tokenIV]
+			proxy.wsMapping.RUnlock()
+
+			if m != nil {
+				switch cr.WSCallback {
+				case 'b':
 					m.Lock()
+					w.WriteHeader(200)
 					if nr, err := proxy.Cipher.IO.Copy(w, bytes.NewReader(m.rBuf), &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
 						logg.E("copy ", nr, " bytes: ", err)
 					}
 					m.rBuf = m.rBuf[0:0]
 					m.Unlock()
-					return
+				case 'c':
+					if nr, err := proxy.Cipher.IO.Copy(m.conn, r.Body, &cr.iv, IOConfig{}); err != nil {
+						logg.E("copy ", nr, " bytes: ", err)
+					}
 				}
-
-				if nr, err := proxy.Cipher.IO.Copy(m.write, r.Body, &cr.iv, IOConfig{}); err != nil {
-					logg.E("copy ", nr, " bytes: ", err)
-				} else {
-					logg.L("write ", nr)
-				}
-				return
+			} else {
+				w.WriteHeader(404)
 			}
+
+			return
 		}
 
 		r.URL, err = url.Parse(dst)
@@ -254,21 +265,35 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logg.D(r.Method, " ", r.URL.String())
 
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			respErr := func(err error) {
+				logg.E(err)
+				proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
+			}
+
 			reqbuf, err := httputil.DumpRequestOut(r, false)
-			logg.L(err)
+			if err != nil {
+				respErr(err)
+				return
+			}
+
 			host, port := splitHostPort(r.Host)
 			if port == "" {
 				port = ":443"
 			}
-			logg.L(host, port)
-			conn, _ := net.Dial("tcp", host+port)
+
+			conn, err := tls.Dial("tcp", host+port, tlsSkip)
+			if err != nil {
+				respErr(err)
+				return
+			}
 
 			rd := bufio.NewReader(conn)
 			conn.Write(reqbuf)
-			logg.L(rd.Peek(100))
 			resp, err := http.ReadResponse(rd, r)
-			logg.L(err)
-			logg.L("code=====", resp.StatusCode)
+			if err != nil {
+				respErr(err)
+				return
+			}
 
 			copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
 			w.WriteHeader(resp.StatusCode)
@@ -279,18 +304,23 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			tryClose(resp.Body)
 
-			proxy.wsMapping[cr.iv] = &wsCallback{write: proxy.hijack(w)}
+			proxy.wsMapping.Lock()
+			proxy.wsMapping.m[cr.iv] = &wsCallback{conn: conn}
+			proxy.wsMapping.Unlock()
 
 			go func() {
 				for {
 					frame, err := wsReadFrame(conn)
 					if err != nil && err != io.EOF {
-						logg.E(err)
+						if !isClosedConnErr(err) {
+							logg.E(err)
+						}
 						break
 					}
-					logg.L(len(frame))
-					m := proxy.wsMapping[cr.iv]
-					m.Write(frame)
+
+					proxy.wsMapping.RLock()
+					proxy.wsMapping.m[cr.iv].Write(frame)
+					proxy.wsMapping.RUnlock()
 				}
 			}()
 		} else {
@@ -327,17 +357,33 @@ func (proxy *ProxyUpstream) Start() error {
 	}
 
 	proxy.Cipher.IO.Ob = ln.(*tcpmux.ListenPool)
+
+	go func() {
+		for tick := range time.Tick(time.Second) {
+			proxy.wsMapping.Lock()
+			ts := tick.UnixNano()
+			for k, ws := range proxy.wsMapping.m {
+				if ws.last != 0 && (ts-ws.last)/1e9 > proxy.WSCBTimeout {
+					ws.conn.Close()
+					delete(proxy.wsMapping.m, k)
+				}
+			}
+			proxy.wsMapping.Unlock()
+		}
+	}()
+
 	return http.Serve(ln, proxy)
 }
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 	proxy := &ProxyUpstream{
-		tp:        &http.Transport{TLSClientConfig: tlsSkip},
-		wsMapping: make(map[[ivLen]byte]*wsCallback),
+		tp: &http.Transport{TLSClientConfig: tlsSkip},
 
 		ServerConfig: config,
 		blacklist:    lru.NewCache(128),
 	}
+
+	proxy.wsMapping.m = make(map[[ivLen]byte]*wsCallback)
 
 	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
 
@@ -365,13 +411,9 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 
 type wsCallback struct {
 	sync.Mutex
-	last  int64
-	write net.Conn
-	rBuf  []byte
-}
-
-func (w *wsCallback) Read(buf []byte) (n int, err error) {
-	return w.write.Write(buf)
+	last int64
+	conn net.Conn
+	rBuf []byte
 }
 
 func (w *wsCallback) Write(buf []byte) (n int, err error) {
@@ -381,10 +423,3 @@ func (w *wsCallback) Write(buf []byte) (n int, err error) {
 	w.Unlock()
 	return len(buf), nil
 }
-
-func (w *wsCallback) Close() error                       { return w.write.Close() }
-func (w *wsCallback) LocalAddr() net.Addr                { return nil }
-func (w *wsCallback) RemoteAddr() net.Addr               { return nil }
-func (w *wsCallback) SetDeadline(t time.Time) error      { return nil }
-func (w *wsCallback) SetReadDeadline(t time.Time) error  { return nil }
-func (w *wsCallback) SetWriteDeadline(t time.Time) error { return nil }

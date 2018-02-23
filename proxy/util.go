@@ -30,14 +30,12 @@ const (
 )
 
 const (
-	doConnect    = 1 << iota // Establish TCP tunnel
-	doForward                // Forward plain HTTP request
-	doWebSocket              // Use WebSocket protocol
-	doDNS                    // DNS query request
-	doPartial                // Partial encryption
-	doUDPRelay               // UDP relay request
-	doWSCallback             // Reserved
-	doRSV2                   // Reserved
+	doConnect   = 1 << iota // Establish TCP tunnel
+	doForward               // Forward plain HTTP request
+	doWebSocket             // Use WebSocket protocol
+	doDNS                   // DNS query request
+	doPartial               // Partial encryption
+	doUDPRelay              // UDP relay request
 )
 
 const (
@@ -73,19 +71,36 @@ var (
 
 type Options byte
 
-func (o *Options) IsSet(option byte) bool { return (byte(*o) & option) != 0 }
+func (o *Options) IsSet(option byte) bool {
+	return (byte(*o) & option) != 0
+}
 
-func (o *Options) Set(option byte) { *o = Options(byte(*o) | option) }
+func (o *Options) Set(options ...byte) {
+	for _, option := range options {
+		*o = Options(byte(*o) | option)
+	}
+}
 
-func (o *Options) UnSet(option byte) { *o = Options((byte(*o) | option) - option) }
+func (o *Options) UnSet(options ...byte) {
+	for _, option := range options {
+		*o = Options((byte(*o) | option) - option)
+	}
+}
 
-func (o *Options) Val() byte { return byte(*o) }
+func (o *Options) Val() byte {
+	return byte(*o)
+}
 
 type buffer struct{ bytes.Buffer }
 
-func (b *buffer) R() *buffer { b.Buffer.Reset(); return b }
+func (b *buffer) R() *buffer {
+	b.Buffer.Reset()
+	return b
+}
 
-func (b *buffer) ToURL() (*_url.URL, error) { return _url.Parse(b.String()) }
+func (b *buffer) ToURL() (*_url.URL, error) {
+	return _url.Parse(b.String())
+}
 
 func (b *buffer) Trunc(t byte) *buffer {
 	if ln := b.Len(); ln > 0 {
@@ -121,14 +136,8 @@ func (proxy *ProxyClient) genHost() string {
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptAndTransport(req *http.Request, extra ...byte) (*http.Response, *[ivLen]byte, error) {
-	r := proxy.Cipher.newRequest()
-	r.Opt.Set(doForward)
-	for _, e := range extra {
-		r.Opt.Set(e)
-	}
+func (proxy *ProxyClient) encryptAndTransport(req *http.Request, r *clientRequest) (*http.Response, *[ivLen]byte, error) {
 	r.Auth = proxy.UserAuth
-
 	proxy.addToDummies(req)
 
 	var urlBuf buffer

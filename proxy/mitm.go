@@ -114,25 +114,38 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 		}
 
 		bufTLSClient := bufio.NewReader(tlsClient)
-		var wsToken *[ivLen]byte
+
+		var wsToken string
+		var wsCallQueue *bytes.Buffer
+		var wsLastSend int64
 
 		for {
 			proxy.Cipher.IO.markActive(tlsClient, 0)
 
-			if wsToken != nil {
-				frame, err := wsReadFrame(bufTLSClient)
+			if wsToken != "" {
+				frame, err := wsReadFrame(tlsClient)
 				if err != nil && err != io.EOF {
-					logg.E(err)
+					if !isClosedConnErr(err) {
+						logg.E(err)
+					}
 					break
 				}
-				logg.L("read frame ", len(frame))
-				req, _ := http.NewRequest("GET", "http://abc.com", bytes.NewReader(frame))
-				//TODO
-				req.Header.Add("Token", base64.StdEncoding.EncodeToString(wsToken[:]))
-				if _, _, err = proxy.encryptAndTransport(req); err != nil {
-					logg.E(err)
-					tlsClient.Write([]byte{0x88, 0}) // close frame
-					break
+
+				wsCallQueue.Write(frame)
+				if time.Now().UnixNano()-wsLastSend > 1e9 && wsCallQueue.Len() > 0 {
+					req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, wsCallQueue)
+					cr := proxy.newRequest()
+					cr.Opt.Set(doForward)
+					cr.WSCallback = 'c'
+					cr.WSToken = wsToken
+					if _, _, err = proxy.encryptAndTransport(req, cr); err != nil {
+						logg.E(err)
+						tlsClient.Write([]byte{0x88, 0}) // close frame
+						break
+					}
+
+					wsCallQueue.Reset()
+					wsLastSend = time.Now().UnixNano()
 				}
 
 				continue
@@ -153,7 +166,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				break
 			}
 
-			rURL = req.URL.String()
+			rURL = req.URL.Host
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
 
@@ -165,13 +178,15 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				}
 
 				req.URL, err = url.Parse("https://" + h + req.URL.String())
-				rURL = req.URL.String()
+				rURL = req.URL.Host
 			}
 
 			logg.D(req.Method, "^ ", rURL)
-			var respBuf buffer
 
-			resp, rkeybuf, err := proxy.encryptAndTransport(req)
+			var respBuf buffer
+			cr := proxy.newRequest()
+			cr.Opt.Set(doForward)
+			resp, rkeybuf, err := proxy.encryptAndTransport(req, cr)
 			if err != nil {
 				logg.E("proxy pass: ", rURL, ", ", err)
 				tlsClient.Write(respBuf.Writes("HTTP/1.1 500 Internal Server Error\r\n\r\n", err.Error()).Bytes())
@@ -183,28 +198,30 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
-				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 ", resp.Status, "\r\n").Bytes())
 			} else {
-				// we don't support upgrade in mitm
-				// tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
-				wsToken = rkeybuf
-				logg.D("token: ", base64.StdEncoding.EncodeToString(wsToken[:]))
+				wsToken = base64.StdEncoding.EncodeToString(rkeybuf[:])
+				wsCallQueue = &bytes.Buffer{}
+				wsLastSend = time.Now().UnixNano()
 
 				go func() {
+					logg.L("WebSocket remote callback new token: ", wsToken)
 					for {
-						req, _ := http.NewRequest("GET", "http://abc.com", nil)
-						//TODO
-						req.Header.Add("Token", base64.StdEncoding.EncodeToString(wsToken[:]))
-						if resp, iv, err := proxy.encryptAndTransport(req, doWSCallback); err != nil {
+						req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
+						cr := proxy.newRequest()
+						cr.Opt.Set(doForward)
+						cr.WSCallback = 'b'
+						cr.WSToken = wsToken
+
+						if resp, iv, err := proxy.encryptAndTransport(req, cr); err != nil {
 							logg.E(err)
-							tlsClient.Write([]byte{0x88, 0}) // close frame
 							break
-						} else if nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, iv, IOConfig{
-							Partial: false,
-							Role:    roleRecv,
-						}); err != nil {
-							logg.E("copy ", nr, " bytes: ", err)
-							tlsClient.Write([]byte{0x88, 0})
+						} else if resp.StatusCode != 200 {
+							logg.L("remote callback exited with code: ", resp.StatusCode)
+							break
+						} else if _, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, iv, IOConfig{Role: roleRecv}); err != nil {
+							if !isClosedConnErr(err) {
+								logg.E(err)
+							}
 							break
 						} else {
 							tryClose(resp.Body)
@@ -212,8 +229,14 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 						time.Sleep(time.Second)
 					}
+
+					tlsClient.Write([]byte{0x88, 0})
+					tlsClient.Close()
+					logg.L("WebSocket remote callback finished: ", wsToken)
 				}()
 			}
+
+			tlsClient.Write(respBuf.R().Writes("HTTP/1.1 ", resp.Status, "\r\n").Bytes())
 
 			hdr := http.Header{}
 			copyHeaders(hdr, resp.Header, proxy.Cipher, false, rkeybuf)
@@ -226,14 +249,18 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				break
 			}
 
-			nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{
-				Partial: false,
-				Chunked: true,
-				Role:    roleRecv,
-			})
-			if err != nil {
-				logg.E("copy ", nr, " bytes: ", err)
+			if wsToken == "" {
+				// Chunked encoding will ruin the handshake of WS
+				nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{
+					Partial: false,
+					Chunked: true,
+					Role:    roleRecv,
+				})
+				if err != nil {
+					logg.E("copy ", nr, " bytes: ", err)
+				}
 			}
+
 			tryClose(resp.Body)
 		}
 
@@ -242,27 +269,36 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 }
 
 func wsReadFrame(src io.Reader) (payload []byte, err error) {
-	buf := make([]byte, 4, 10)
-	if _, err = io.ReadAtLeast(src, buf, 4); err != nil {
+	buf := make([]byte, 10)
+	buflen := 2
+	if _, err = io.ReadAtLeast(src, buf[:2], 2); err != nil {
 		return
 	}
 
 	ln := int(buf[1] & 0x7f)
 	switch ln {
 	case 127:
-		buf = append(buf, 0, 0, 0, 0, 0, 0)
-		if _, err = io.ReadAtLeast(src, buf[4:], 6); err != nil {
+		if _, err = io.ReadAtLeast(src, buf[2:10], 8); err != nil {
 			return
 		}
 		ln = int(binary.BigEndian.Uint64(buf[2:10]))
+		buflen = 10
 	case 126:
+		if _, err = io.ReadAtLeast(src, buf[2:4], 2); err != nil {
+			return
+		}
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
+		buflen = 4
 	default:
 		// <= 125 bytes
 	}
 
+	if (buf[1] & 0x80) > 0 {
+		ln += 4
+	}
+
 	payload = make([]byte, ln)
 	_, err = io.ReadAtLeast(src, payload, ln)
-	payload = append(buf, payload...)
+	payload = append(buf[:buflen], payload...)
 	return
 }

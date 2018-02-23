@@ -370,7 +370,9 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
 			logg.D(r.Method, "^ ", r.Host, ext)
-			resp, iv, err = proxy.encryptAndTransport(r)
+			cr := proxy.newRequest()
+			cr.Opt.Set(doForward)
+			resp, iv, err = proxy.encryptAndTransport(r, cr)
 		}
 
 		if err != nil {
