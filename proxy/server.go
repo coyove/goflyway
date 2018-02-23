@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
+	"io"
 	"sync"
 
 	"github.com/coyove/goflyway/pkg/logg"
@@ -217,7 +219,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if r.Header.Get("Token") != "" {
 			token, _ := base64.StdEncoding.DecodeString(r.Header.Get("Token"))
-			logg.L(token)
+			logg.L(token, proxy.wsMapping)
 			tokenIV := [ivLen]byte{}
 			copy(tokenIV[:], token)
 			if m := proxy.wsMapping[tokenIV]; m != nil {
@@ -251,30 +253,67 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		logg.D(r.Method, " ", r.URL.String())
 
-		resp, err := proxy.tp.RoundTrip(r)
-		if err != nil {
-			logg.E("HTTP forward: ", r.URL, ", ", err)
-			proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
-			return
+		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			reqbuf, err := httputil.DumpRequestOut(r, false)
+			logg.L(err)
+			host, port := splitHostPort(r.Host)
+			if port == "" {
+				port = ":443"
+			}
+			logg.L(host, port)
+			conn, _ := net.Dial("tcp", host+port)
+
+			rd := bufio.NewReader(conn)
+			conn.Write(reqbuf)
+			logg.L(rd.Peek(100))
+			resp, err := http.ReadResponse(rd, r)
+			logg.L(err)
+			logg.L("code=====", resp.StatusCode)
+
+			copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
+			w.WriteHeader(resp.StatusCode)
+
+			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
+				logg.E("copy ", nr, " bytes: ", err)
+			}
+
+			tryClose(resp.Body)
+
+			proxy.wsMapping[cr.iv] = &wsCallback{write: proxy.hijack(w)}
+
+			go func() {
+				for {
+					frame, err := wsReadFrame(conn)
+					if err != nil && err != io.EOF {
+						logg.E(err)
+						break
+					}
+					logg.L(len(frame))
+					m := proxy.wsMapping[cr.iv]
+					m.Write(frame)
+				}
+			}()
+		} else {
+			resp, err := proxy.tp.RoundTrip(r)
+			if err != nil {
+				logg.E("HTTP forward: ", r.URL, ", ", err)
+				proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			if resp.StatusCode >= 400 {
+				logg.D("[", resp.Status, "] - ", r.URL)
+			}
+
+			copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
+			w.WriteHeader(resp.StatusCode)
+
+			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
+				logg.E("copy ", nr, " bytes: ", err)
+			}
+
+			tryClose(resp.Body)
 		}
-
-		if resp.StatusCode >= 400 {
-			logg.D("[", resp.Status, "] - ", r.URL)
-		}
-
-		if strings.ToLower(r.Header.Get("upgrade")) == "websocket" && resp.StatusCode == 200 {
-			proxy.wsMapping[cr.iv] = &wsCallback{}
-			logg.E("ws")
-		}
-
-		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
-		w.WriteHeader(resp.StatusCode)
-
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-			logg.E("copy ", nr, " bytes: ", err)
-		}
-
-		tryClose(resp.Body)
 	} else {
 		proxy.blacklist.Add(addr, nil)
 		replySomething()

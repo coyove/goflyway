@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+
 	"github.com/coyove/goflyway/pkg/logg"
 
 	"bufio"
@@ -120,7 +121,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if wsToken != nil {
 				frame, err := wsReadFrame(bufTLSClient)
-				if err != nil {
+				if err != nil && err != io.EOF {
 					logg.E(err)
 					break
 				}
@@ -262,5 +263,6 @@ func wsReadFrame(src io.Reader) (payload []byte, err error) {
 
 	payload = make([]byte, ln)
 	_, err = io.ReadAtLeast(src, payload, ln)
+	payload = append(buf, payload...)
 	return
 }
