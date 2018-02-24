@@ -123,12 +123,22 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			proxy.Cipher.IO.markActive(tlsClient, 0)
 
 			if wsToken != "" {
+				tlsClient.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 				frame, err := wsReadFrame(tlsClient)
+				tlsClient.SetReadDeadline(time.Time{})
+
 				if err != nil {
-					if !isClosedConnErr(err) {
-						logg.E(err)
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
+						// Since we are (almostly) reading from a local connection,
+						// a timeout doesn't 100% mean we lost the client, we will keep
+						// trying until other errors occurred.
+						continue
+					} else {
+						if !isClosedConnErr(err) {
+							logg.E(err)
+						}
+						break
 					}
-					break
 				}
 
 				wsCallQueue.Write(frame)
@@ -204,9 +214,9 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				wsLastSend = time.Now().UnixNano()
 
 				go func() {
-					// Now let's start a goroutine which will query the upstream
-					// to see if there are any new WS frames sent from the host in every 1 second
-					// If yes, it sends them to the browser, if upstream returns code other than 200, it exits
+					// Now let's start a goroutine which will query the upstream in every 1 second
+					// to see if there are any new WS frames sent from the host.
+					// If yes, it sends frames back to the browser, if upstream returns code other than 200, it exits
 					logg.D("WebSocket remote callback new token: ", wsToken)
 					for {
 						req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
@@ -303,8 +313,8 @@ func wsReadFrame(src io.Reader) (payload []byte, err error) {
 		ln += 4
 	}
 
-	payload = make([]byte, ln)
-	_, err = io.ReadAtLeast(src, payload, ln)
-	payload = append(buf[:buflen], payload...)
+	payload = make([]byte, buflen+ln)
+	copy(payload[:buflen], buf[:buflen])
+	_, err = io.ReadAtLeast(src, payload[buflen:], ln)
 	return
 }
