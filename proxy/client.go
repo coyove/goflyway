@@ -171,7 +171,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return nil, err
 	}
 
-	if !bytes.Contains(respbuf, okHTTP[9:14]) { // []byte(" 200 ")
+	if !bytes.Contains(respbuf, []byte(" 200 ")) { //
 		x := string(respbuf)
 		if x = x[strings.Index(x, " ")+1:]; len(x) > 3 {
 			x = x[:3]
@@ -213,7 +213,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
-	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], okHTTP[:15]) {
+	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
 		if err != nil {
 			logg.E(host, ": ", err)
 		}

@@ -57,7 +57,7 @@ const (
 )
 
 var (
-	okHTTP          = []byte{'H', 'T', 'T', 'P', '/', '1', '.', '1', ' ', '2', '0', '0', ' ', 'O', 'K', '\r', '\n', '\r', '\n'}
+	okHTTP          = []byte("HTTP/1.0 200 Connection Established\r\n\r\n")
 	okSOCKS         = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
