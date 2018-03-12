@@ -33,9 +33,9 @@ For more info, please refer to the following links.
 | Flag | Default | Value(s) |
 |------|---------|----------|
 | -c | "" | Configuration file path |
-| -lv, -log | Logging level ("dbg", "log", "warn", "err", "off") |
+| -lv, -log | "" | Logging level ("dbg", "log", "warn", "err", "off") |
 | -lf | "" | Log file |
-| -a | "" | Proxy authentication (username:password) |
+| -a | "" | Proxy authentication ("username:password") |
 | -k | "0123456789abcdef" | Password |
 | -l | ":8100" | Local listening address |
 | -t | 20 | Close connections when they go idle for at least n seconds |
