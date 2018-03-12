@@ -25,7 +25,7 @@ For more info, please refer to the following links.
 
 | Flag | Default | Value(s) |
 |------|---------|----------|
-| -gen-ca | false | Generate certificate (ca.pem) and private key (key.pem) |
+| -gen-ca | false | Generate certificate (`ca.pem`) and private key (`key.pem`) |
 | -debug | false | Turn on debug mode |
 
 ### General Flags
@@ -37,7 +37,7 @@ For more info, please refer to the following links.
 | -lf | "" | Log file |
 | -a | "" | Proxy authentication (username:password) |
 | -k | "0123456789abcdef" | Password |
-| -l | -:8100" | Local listening address |
+| -l | ":8100" | Local listening address |
 | -t | 20 | Close connections when they go idle for at least n seconds |
 
 ### Server Flags
@@ -46,8 +46,8 @@ For more info, please refer to the following links.
 |------|---------|----------|
 | -throt | 0 | Traffic throttling in bytes |
 | -throt-max | 1024&#42;1024 | Traffic throttling token bucket max capacity |
-| -disable-udp | false | -[S] disable UDP relay |
-| -proxy-pass | -" | -[S] use goflyway as a reverse HTTP proxy |
+| -disable-udp | false | Disable UDP relay |
+| -proxy-pass | "" | Use Goflyway as a reverse HTTP proxy |
 
 ### Client Flags
 
