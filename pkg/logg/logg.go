@@ -154,7 +154,7 @@ func print(l string, params ...interface{}) {
 				m.message += ", timed out"
 			}
 
-			if op.Name == "" {
+			if op.Name != "" {
 				m.message += ": " + op.Name
 			} else {
 				m.message += ", but with an empty name (?)"
