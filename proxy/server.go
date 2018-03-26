@@ -75,7 +75,7 @@ func (proxy *ProxyUpstream) getIOConfig(auth string) IOConfig {
 
 func (proxy *ProxyUpstream) Write(w http.ResponseWriter, key *[ivLen]byte, p []byte, code int) (n int, err error) {
 	if ctr := proxy.Cipher.getCipherStream(key); ctr != nil {
-		ctr.XorBuffer(p)
+		ctr.XORKeyStream(p, p)
 	}
 
 	w.WriteHeader(code)

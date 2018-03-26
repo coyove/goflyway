@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"crypto/cipher"
 	"crypto/tls"
 	"encoding/binary"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/coyove/goflyway/pkg/logg"
 	"github.com/coyove/goflyway/pkg/rand"
+	"github.com/coyove/goflyway/pkg/trafficmon"
 	"github.com/coyove/tcpmux"
 )
 
@@ -92,7 +94,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 type io_t struct {
 	sync.Mutex
 	iid uint64
-	Tr  trafficSurvey // note 64bit align
+	Tr  trafficmon.Survey // note 64bit align
 
 	started  bool
 	sendStat bool
@@ -158,11 +160,11 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.idleTime = int64(maxIdleTime)
-	iot.Tr.Init(20 * 60 / trafficSurveyinterval) // 20 mins
+	iot.Tr.Init(20*60, trafficSurveyinterval) // 20 mins
 
 	go func() {
 		count := 0
-		lastSent, lastRecved := uint64(0), uint64(0)
+		// lastSent, lastRecved := uint64(0), uint64(0)
 
 		for tick := range time.Tick(time.Second) {
 			iot.Lock()
@@ -179,11 +181,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			count++
 
 			if count%trafficSurveyinterval == 0 {
-				sent, recv := iot.Tr.totalSent-lastSent, iot.Tr.totalRecved-lastRecved
-				lastSent, lastRecved = iot.Tr.totalSent, iot.Tr.totalRecved
-
-				iot.Tr.sent.Append(float64(sent) / trafficSurveyinterval)
-				iot.Tr.recved.Append(float64(recv) / trafficSurveyinterval)
+				iot.Tr.Update()
 			}
 
 			if count == 60 {
@@ -338,9 +336,9 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		if nr > 0 {
 			xbuf := buf[0:nr]
 			if config.Role == roleSend {
-				atomic.AddUint64(&iot.Tr.totalSent, uint64(nr))
+				iot.Tr.Send(int64(nr))
 			} else if config.Role == roleRecv {
-				atomic.AddUint64(&iot.Tr.totalRecved, uint64(nr))
+				iot.Tr.Recv(int64(nr))
 			}
 
 			if config.Partial && encrypted == sslRecordLen {
@@ -348,11 +346,12 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 			} else if ctr != nil {
 
 				if encrypted+nr > sslRecordLen && config.Partial {
-					ctr.XorBuffer(xbuf[:sslRecordLen-encrypted])
+					ybuf := xbuf[:sslRecordLen-encrypted]
+					ctr.XORKeyStream(ybuf, ybuf)
 					encrypted = sslRecordLen
 					// we are done, the traffic coming later will be transfered as is
 				} else {
-					ctr.XorBuffer(xbuf)
+					ctr.XORKeyStream(xbuf, xbuf)
 					encrypted += nr
 				}
 
@@ -429,8 +428,8 @@ func (iot *io_t) NewReadCloser(src io.ReadCloser, key *[ivLen]byte) *IOReadClose
 
 type IOReadCloserCipher struct {
 	src io.ReadCloser
-	ctr *inplace_ctr_t
-	tr  *trafficSurvey
+	ctr cipher.Stream
+	tr  *trafficmon.Survey
 }
 
 func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
@@ -440,8 +439,8 @@ func (rc *IOReadCloserCipher) Read(p []byte) (n int, err error) {
 
 	n, err = rc.src.Read(p)
 	if n > 0 && rc.ctr != nil {
-		rc.ctr.XorBuffer(p[:n])
-		rc.tr.totalSent += uint64(n)
+		rc.ctr.XORKeyStream(p[:n], p[:n])
+		rc.tr.Send(int64(n))
 	}
 
 	return

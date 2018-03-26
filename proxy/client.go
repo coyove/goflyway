@@ -66,7 +66,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 			return nil, err
 		}
 
-		proxy.IO.Tr.AddLatency(time.Now().UnixNano() - lat)
+		proxy.IO.Tr.Latency(time.Now().UnixNano() - lat)
 		return upstreamConn, nil
 	}
 
@@ -181,7 +181,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 		return nil, errors.New("connect2: cannot connect to the HTTPS proxy (" + x + ")")
 	}
 
-	proxy.IO.Tr.AddLatency(time.Now().UnixNano() - lat)
+	proxy.IO.Tr.Latency(time.Now().UnixNano() - lat)
 	return connectConn, nil
 }
 

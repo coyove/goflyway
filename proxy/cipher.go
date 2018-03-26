@@ -50,43 +50,6 @@ type Cipher struct {
 	keyBuf []byte
 }
 
-type inplace_ctr_t struct {
-	b       cipher.Block
-	ctr     [ivLen]byte
-	out     []byte
-	outUsed int
-}
-
-// From src/crypto/cipher/ctr.go
-func (x *inplace_ctr_t) XorBuffer(buf []byte) {
-	for i := 0; i < len(buf); i++ {
-		if x.outUsed >= len(x.out)-x.b.BlockSize() {
-			// refill
-			remain := len(x.out) - x.outUsed
-			copy(x.out, x.out[x.outUsed:])
-			x.out = x.out[:cap(x.out)]
-			bs := x.b.BlockSize()
-			for remain <= len(x.out)-bs {
-				x.b.Encrypt(x.out[remain:], x.ctr[:])
-				remain += bs
-
-				// Increment counter
-				for i := len(x.ctr) - 1; i >= 0; i-- {
-					x.ctr[i]++
-					if x.ctr[i] != 0 {
-						break
-					}
-				}
-			}
-			x.out = x.out[:remain]
-			x.outUsed = 0
-		}
-
-		buf[i] ^= x.out[x.outUsed]
-		x.outUsed++
-	}
-}
-
 func xor(blk cipher.Block, iv [ivLen]byte, buf []byte) []byte {
 	bsize := blk.BlockSize()
 	x := make([]byte, len(buf)/bsize*bsize+bsize)
@@ -108,17 +71,12 @@ func xor(blk cipher.Block, iv [ivLen]byte, buf []byte) []byte {
 	return buf
 }
 
-func (gc *Cipher) getCipherStream(key *[16]byte) *inplace_ctr_t {
+func (gc *Cipher) getCipherStream(key *[ivLen]byte) cipher.Stream {
 	if key == nil {
 		return nil
 	}
 
-	return &inplace_ctr_t{
-		b:       gc.Block,
-		ctr:     *key,
-		out:     make([]byte, 0, streamBufferSize),
-		outUsed: 0,
-	}
+	return cipher.NewCTR(gc.Block, (*key)[:])
 }
 
 // Init inits the Cipher struct with key
