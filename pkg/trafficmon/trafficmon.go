@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -104,6 +105,7 @@ type Survey struct {
 	latencyMax  int64
 	sent        trafficData
 	recved      trafficData
+	sync.Mutex
 }
 
 func (s *Survey) Init(length, intval int) {
@@ -144,8 +146,10 @@ func (s *Survey) Latency(nsec int64) {
 }
 
 func (s *Survey) Update() {
+	s.Lock()
 	s.sent.Append(s.totalSent)
 	s.recved.Append(s.totalRecved)
+	s.Unlock()
 }
 
 func (s *Survey) Data() (int64, int64) {
@@ -153,6 +157,9 @@ func (s *Survey) Data() (int64, int64) {
 }
 
 func (s *Survey) SVG(w, h int, logarithm bool) *bytes.Buffer {
+	s.Lock()
+	defer s.Unlock()
+
 	ret := &bytes.Buffer{}
 	ret.WriteString(fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 %d %d\">", w, h))
 	ret.WriteString("<style>*{ font-family: \"Lucida Console\", Monaco, monospace; box-sizing: border-box; }</style>")
