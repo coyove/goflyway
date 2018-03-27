@@ -291,7 +291,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
 			payload.Entries = count
-			payload.EntriesRatio = count * 100 / int(proxy.DNSCache.GetMaxWeight())
+			payload.EntriesRatio = count * 100 / int(proxy.DNSCache.MaxWeight())
 
 			// use lang=en to force english display
 			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {

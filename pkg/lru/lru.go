@@ -48,14 +48,6 @@ func (c *Cache) Clear() {
 	c.Unlock()
 }
 
-func (c *Cache) GetMaxWeight() int64 {
-	return c.maxWeight
-}
-
-func (c *Cache) GetCurrentWeight() int64 {
-	return c.curWeight
-}
-
 // Info iterates the cache
 func (c *Cache) Info(callback func(Key, interface{}, int64, int64)) {
 	c.Lock()
@@ -82,6 +74,21 @@ func (c *Cache) AddWeight(key Key, value interface{}, weight int64) error {
 	c.Lock()
 	defer c.Unlock()
 
+	controlWeight := func() {
+		if c.maxWeight == 0 {
+			return
+		}
+
+		for c.curWeight > c.maxWeight {
+			if ele := c.ll.Back(); ele != nil {
+				c.removeElement(ele, true)
+			} else {
+				panic("shouldn't happen")
+			}
+		}
+		// Since weight <= c.maxWeight, we will always reach here without problems
+	}
+
 	if ee, ok := c.cache[key]; ok {
 		e := ee.Value.(*entry)
 		c.ll.MoveToFront(ee)
@@ -91,31 +98,19 @@ func (c *Cache) AddWeight(key Key, value interface{}, weight int64) error {
 		e.hits++
 
 		c.curWeight += diff
-		for c.curWeight > c.maxWeight {
-			if ele := c.ll.Back(); ele != nil {
-				c.removeElement(ele, true)
-			} else {
-				panic("shouldn't happen")
-			}
-		}
+		controlWeight()
 		return nil
-	}
-
-	if c.maxWeight != 0 {
-		for c.curWeight+weight > c.maxWeight {
-			if ele := c.ll.Back(); ele != nil {
-				c.removeElement(ele, true)
-			} else {
-				panic("shouldn't happen")
-			}
-		}
-	} else if c.curWeight+weight < c.curWeight {
-		panic("too many entries, really?")
 	}
 
 	c.curWeight += weight
 	ele := c.ll.PushFront(&entry{key, value, 1, weight})
 	c.cache[key] = ele
+	controlWeight()
+
+	if c.curWeight < 0 {
+		panic("too many entries, really?")
+	}
+
 	return nil
 }
 
@@ -166,6 +161,16 @@ func (c *Cache) Len() (len int) {
 	len = c.ll.Len()
 	c.Unlock()
 	return
+}
+
+// MaxWeight returns max weight
+func (c *Cache) MaxWeight() int64 {
+	return c.maxWeight
+}
+
+// Weight returns current weight
+func (c *Cache) Weight() int64 {
+	return c.curWeight
 }
 
 func (c *Cache) remove(key Key, doCallback bool) {

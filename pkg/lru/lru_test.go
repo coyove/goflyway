@@ -32,7 +32,7 @@ func TestCache_Add(t *testing.T) {
 		}
 	}
 
-	if c.GetCurrentWeight() != 10 {
+	if c.Weight() != 10 {
 		t.Error("cache now should weight 10")
 	}
 
@@ -49,7 +49,7 @@ func TestCache_Add(t *testing.T) {
 		t.Error("how can you add a key this big?")
 	}
 
-	if c.Len() != 1 || c.GetCurrentWeight() != 1 {
+	if c.Len() != 1 || c.Weight() != 1 {
 		t.Error("cache now should contain only one element")
 	}
 
@@ -84,8 +84,8 @@ func TestCache_Add(t *testing.T) {
 	}
 
 	c.AddWeight("keyFive", "", 10)
-	if c.Len() != 1 || c.GetCurrentWeight() != 10 {
-		t.Error("cache now should contain only one element", c.Len(), c.GetCurrentWeight())
+	if c.Len() != 1 || c.Weight() != 10 {
+		t.Error("cache now should contain only one element", c.Len(), c.Weight())
 	}
 
 	if _, ok := c.Get("keyX"); ok {
