@@ -265,7 +265,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 
 			buf, count := &bytes.Buffer{}, 0
 
-			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
+			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64, w int64) {
 				count++
 				rule := v.(*pp.Rule)
 				ip, r := rule.IP, rule.R
@@ -291,7 +291,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 			payload.DNS = buf.String()
 			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
 			payload.Entries = count
-			payload.EntriesRatio = count * 100 / proxy.DNSCache.MaxEntries
+			payload.EntriesRatio = count * 100 / int(proxy.DNSCache.GetMaxWeight())
 
 			// use lang=en to force english display
 			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
@@ -310,7 +310,7 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 
 			if r.FormValue("reset") != "" {
 				keys := []string{}
-				proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64) {
+				proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64, w int64) {
 					if r := v.(*pp.Rule); r.OldAns != r.Ans {
 						keys = append(keys, k.(string))
 					}

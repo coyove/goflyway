@@ -2,44 +2,45 @@ package lru
 
 import (
 	"container/list"
+	"fmt"
 	"sync"
 )
 
 type Cache struct {
-	// MaxEntries is the maximum number of cache entries before
-	// an item is evicted. Zero means no limit.
-	MaxEntries int
-
-	// OnEvicted optionally specifies a callback function to be
-	// executed when an entry is purged from the cache.
+	// OnEvicted is called when an entry is going to be purged from the cache.
 	OnEvicted func(key Key, value interface{})
+
+	maxWeight int64
+	curWeight int64
 
 	ll    *list.List
 	cache map[interface{}]*list.Element
 
-	sync.RWMutex
+	sync.Mutex
 }
 
 // A Key may be any value that is comparable. See http://golang.org/ref/spec#Comparison_operators
 type Key interface{}
 
 type entry struct {
-	key   Key
-	value interface{}
-	hits  int64
+	key    Key
+	value  interface{}
+	hits   int64
+	weight int64
 }
 
-// New creates a new Cache.
-// If maxEntries is zero, the cache has no limit and it's assumed
-// that eviction is done by the caller.
-func NewCache(maxEntries int) *Cache {
+var ErrWeightTooBig = fmt.Errorf("weight can't be held by the cache")
+
+// NewCache creates a new Cache.
+func NewCache(maxWeight int64) *Cache {
 	return &Cache{
-		MaxEntries: maxEntries,
-		ll:         list.New(),
-		cache:      make(map[interface{}]*list.Element),
+		maxWeight: maxWeight,
+		ll:        list.New(),
+		cache:     make(map[interface{}]*list.Element),
 	}
 }
 
+// Clear clears the cache
 func (c *Cache) Clear() {
 	c.Lock()
 	c.ll = list.New()
@@ -47,54 +48,81 @@ func (c *Cache) Clear() {
 	c.Unlock()
 }
 
-func (c *Cache) Info(callback func(Key, interface{}, int64)) {
-	c.RLock()
-	f := c.ll.Front()
-
-	for f != nil {
-		e := f.Value.(*entry)
-		callback(e.key, e.value, e.hits)
-
-		f = f.Next()
-	}
-
-	c.RUnlock()
+func (c *Cache) GetMaxWeight() int64 {
+	return c.maxWeight
 }
 
-// Add adds a value to the cache.
-func (c *Cache) Add(key Key, value interface{}) {
+func (c *Cache) GetCurrentWeight() int64 {
+	return c.curWeight
+}
+
+// Info iterates the cache
+func (c *Cache) Info(callback func(Key, interface{}, int64, int64)) {
+	c.Lock()
+
+	for f := c.ll.Front(); f != nil; f = f.Next() {
+		e := f.Value.(*entry)
+		callback(e.key, e.value, e.hits, e.weight)
+	}
+
+	c.Unlock()
+}
+
+// Add adds a value to the cache with weight = 1.
+func (c *Cache) Add(key Key, value interface{}) error {
+	return c.AddWeight(key, value, 1)
+}
+
+// AddWeight adds a value to the cache with weight.
+func (c *Cache) AddWeight(key Key, value interface{}, weight int64) error {
+	if weight > c.maxWeight || weight < 1 {
+		return ErrWeightTooBig
+	}
+
 	c.Lock()
 	defer c.Unlock()
 
-	if c.cache == nil {
-		c.cache = make(map[interface{}]*list.Element)
-		c.ll = list.New()
-	}
-
 	if ee, ok := c.cache[key]; ok {
-		c.ll.MoveToFront(ee)
 		e := ee.Value.(*entry)
-
+		c.ll.MoveToFront(ee)
+		diff := weight - e.weight
+		e.weight = weight
 		e.value = value
 		e.hits++
-		return
+
+		c.curWeight += diff
+		for c.curWeight > c.maxWeight {
+			if ele := c.ll.Back(); ele != nil {
+				c.removeElement(ele, true)
+			} else {
+				panic("shouldn't happen")
+			}
+		}
+		return nil
 	}
 
-	ele := c.ll.PushFront(&entry{key, value, 1})
-	c.cache[key] = ele
-	if c.MaxEntries != 0 && c.ll.Len() > c.MaxEntries {
-		c.removeOldest()
+	if c.maxWeight != 0 {
+		for c.curWeight+weight > c.maxWeight {
+			if ele := c.ll.Back(); ele != nil {
+				c.removeElement(ele, true)
+			} else {
+				panic("shouldn't happen")
+			}
+		}
+	} else if c.curWeight+weight < c.curWeight {
+		panic("too many entries, really?")
 	}
+
+	c.curWeight += weight
+	ele := c.ll.PushFront(&entry{key, value, 1, weight})
+	c.cache[key] = ele
+	return nil
 }
 
-// Get looks up a key's value from the cache.
+// Get gets a key
 func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	c.Lock()
 	defer c.Unlock()
-
-	if c.cache == nil {
-		return
-	}
 
 	if ele, hit := c.cache[key]; hit {
 		e := ele.Value.(*entry)
@@ -106,61 +134,54 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	return
 }
 
-func (c *Cache) GetHits(key Key) (hits int64, ok bool) {
+// GetEx returns the extra info of the given key
+func (c *Cache) GetEx(key Key) (hits int64, weight int64, ok bool) {
 	c.Lock()
 	defer c.Unlock()
 
-	if c.cache == nil {
-		return
-	}
-
 	if ele, hit := c.cache[key]; hit {
-		return ele.Value.(*entry).hits, true
+		return ele.Value.(*entry).hits, ele.Value.(*entry).weight, true
 	}
 
 	return
 }
 
-// Remove removes the provided key from the cache.
+// Remove removes the given key from the cache.
 func (c *Cache) Remove(key Key) {
 	c.Lock()
-	defer c.Unlock()
+	c.remove(key, true)
+	c.Unlock()
+}
 
-	if c.cache == nil {
-		return
-	}
-	if ele, hit := c.cache[key]; hit {
-		c.removeElement(ele)
-	}
+// RemoveSlient removes the given key without triggering OnEvicted
+func (c *Cache) RemoveSlient(key Key) {
+	c.Lock()
+	c.remove(key, false)
+	c.Unlock()
 }
 
 // Len returns the number of items in the cache.
-func (c *Cache) Len() int {
-	c.RLock()
-	defer c.RUnlock()
-
-	if c.cache == nil {
-		return 0
-	}
-	return c.ll.Len()
+func (c *Cache) Len() (len int) {
+	c.Lock()
+	len = c.ll.Len()
+	c.Unlock()
+	return
 }
 
-// RemoveOldest removes the oldest item from the cache.
-func (c *Cache) removeOldest() {
-	if c.cache == nil {
-		return
-	}
-	ele := c.ll.Back()
-	if ele != nil {
-		c.removeElement(ele)
+func (c *Cache) remove(key Key, doCallback bool) {
+	if ele, hit := c.cache[key]; hit {
+		c.removeElement(ele, doCallback)
 	}
 }
 
-func (c *Cache) removeElement(e *list.Element) {
-	c.ll.Remove(e)
+func (c *Cache) removeElement(e *list.Element, doCallback bool) {
 	kv := e.Value.(*entry)
-	delete(c.cache, kv.key)
-	if c.OnEvicted != nil {
+
+	if c.OnEvicted != nil && doCallback {
 		c.OnEvicted(kv.key, kv.value)
 	}
+
+	c.ll.Remove(e)
+	c.curWeight -= e.Value.(*entry).weight
+	delete(c.cache, kv.key)
 }

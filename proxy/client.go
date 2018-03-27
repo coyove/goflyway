@@ -515,7 +515,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
 		tpq: &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, ResponseHeaderTimeout: timeoutOp, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 
-		dummies: lru.NewCache(len(dummyHeaders)),
+		dummies: lru.NewCache(int64(len(dummyHeaders))),
 
 		ClientConfig: config,
 	}

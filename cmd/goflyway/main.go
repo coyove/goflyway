@@ -184,7 +184,7 @@ func main() {
 			Upstream:       *cmdUpstream,
 			UDPRelayCoconn: int(*cmdUDPonTCP),
 			Cipher:         cipher,
-			DNSCache:       lru.NewCache(int(*cmdDNSCache)),
+			DNSCache:       lru.NewCache(*cmdDNSCache),
 			CACache:        lru.NewCache(256),
 			ACL:            acl,
 			Mux:            int(*cmdMux),
