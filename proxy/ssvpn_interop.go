@@ -5,11 +5,12 @@ package proxy
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/coyove/goflyway/pkg/trafficmon"
 	"net"
 	"strconv"
 	"syscall"
 	"unsafe"
+
+	"github.com/coyove/goflyway/pkg/trafficmon"
 
 	"github.com/coyove/goflyway/pkg/fd"
 )
@@ -80,8 +81,8 @@ func sendTrafficStats(stat *trafficmon.Survey) error {
 
 	payload := make([]byte, 16)
 	totalRecved, totalSent := stat.Data()
-	binary.LittleEndian.PutUint64(payload, totalSent)
-	binary.LittleEndian.PutUint64(payload[8:], totalRecved)
+	binary.LittleEndian.PutUint64(payload, uint64(totalSent))
+	binary.LittleEndian.PutUint64(payload[8:], uint64(totalRecved))
 
 	if n, err := syscall.Write(sock, payload); err != nil {
 		return err
