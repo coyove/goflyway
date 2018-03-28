@@ -192,7 +192,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				if reverse {
 					dir = 's'
 				}
-				drawHVLine(canvas, leftmargin+1+ln-i*2-s, margin+h+1+1, dir, sh, false, clr2, clr)
+				drawHVLine(canvas, leftmargin+1+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
 			}
 		}
 	}
