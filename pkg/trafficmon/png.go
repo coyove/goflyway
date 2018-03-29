@@ -240,11 +240,11 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 
 	text := fmt.Sprintf("out    last:%s kb/s  max:%s kb/s  avg:%s kb/s\n"+
 		"in     last:%s kb/s  max:%s kb/s  avg:%s kb/s\n"+
-		"total  in:  %s MB    out:%s MB\n"+
+		"total  in:  %s GB    out:%s GB\n"+
 		"ping   max: %s ms    avg:%s ms    min:%s ms",
 		format(s.sent.data[0]/128), format(float64(smax)/128), format(float64(savg)/128),
 		format(s.recved.data[0]/128), format(float64(rmax)/128), format(float64(ravg)/128),
-		format(float64(s.totalSent)/1024/1024), format(float64(s.totalRecved)/1024/1024),
+		format(float64(s.totalSent)/1073741824), format(float64(s.totalRecved)/1073741824),
 		format(float64(s.latencyMax)/1e6), format(s.latency/1e6), format(float64(s.latencyMin)/1e6))
 
 	if extra != "" {
