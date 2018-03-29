@@ -166,13 +166,6 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	_draw := func(avg, max float64, data []float64, reverse bool, clr, clr2 color.Color) {
 		k := float64(h) / float64(max)
 
-		y := margin + 1 + h + 1 - int(avg*k)
-		if reverse {
-			y = margin + 1 + h + 1 + int(avg*k)
-		}
-
-		drawHVLine(canvas, leftmargin+1, y, 'e', ln, true, clr, clr)
-
 		yAxi := h * 2 / 3 / face.Height
 		delta := max / 1024 / float64(yAxi)
 
@@ -204,6 +197,13 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 			}
 		}
 
+		y := margin + 1 + h + 1 - int(avg*k)
+		if reverse {
+			y = margin + 1 + h + 1 + int(avg*k)
+		}
+
+		drawHVLine(canvas, leftmargin+1, y, 'e', ln, true, clr, clr)
+
 		for i := 0; i < len(data); i++ {
 			sh := int(data[i] * k)
 
@@ -212,7 +212,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				if reverse {
 					dir = 's'
 				}
-				drawHVLine(canvas, leftmargin+1+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
+				drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
 			}
 		}
 	}
