@@ -15,11 +15,16 @@ import (
 )
 
 const (
-	margin = 15 // pixels
+	margin = 18 // pixels
 )
 
 func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool, startColor, endColor color.Color) {
-	if length <= 1 {
+	if length < 1 {
+		return
+	}
+
+	if length == 1 {
+		canvas.Set(x0, y0, startColor)
 		return
 	}
 
@@ -88,8 +93,8 @@ var (
 )
 
 func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Buffer {
-	smin, savg, smax := s.sent.Range()
-	rmin, ravg, rmax := s.recved.Range()
+	_, savg, smax := s.sent.Range()
+	_, ravg, rmax := s.recved.Range()
 
 	leftmargin := len(formatFloat(smax/1024)) * 9
 	if m := len(formatFloat(rmax/1024)) * 9; m > leftmargin {
@@ -100,7 +105,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	ln := len(s.sent.data) * wScale
 	width := leftmargin + 1 + ln + 1 + margin
 	lineHeight := dejavu.FullHeight + 2
-	height := margin + 1 + h + 1 + h + 1 + margin + 4*lineHeight + margin
+	height := margin + 1 + h + 1 + h + 1 + margin + 5*lineHeight + margin
 	if extra != "" {
 		height += lineHeight * len(strings.Split(extra, "\n"))
 	}
@@ -145,7 +150,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		if i%xTickMinute == 0 {
 			clr = colorGray
 		}
-		drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin+1, 's', h+1+h, false, clr, clr)
+		drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, clr, clr)
 	}
 
 	for i := xTickMinute * 2; i < minutes-xTickMinute; i += xTickMinute * 2 {
@@ -172,7 +177,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				}
 
 				if i%2 == 1 {
-					drawHVLine(canvas, leftmargin+1, y, 'e', ln, false, colorGray2, colorGray2)
+					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGray2, colorGray2)
 					if reverse {
 						if margin+1+h+1+h+1-y < dejavu.Height*3/2 {
 							break
@@ -184,7 +189,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 					}
 					drawYLabel(formatFloat(s/1024), y)
 				} else {
-					drawHVLine(canvas, leftmargin+1, y, 'e', ln, true, colorLightGray, colorLightGray)
+					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorLightGray, colorLightGray)
 				}
 			}
 		}
@@ -217,14 +222,14 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	drawYLabel("0.00", margin+1+h)
 	drawYLabel(formatFloat(rmax/1024), margin+h+1+h-3)
 
-	text := fmt.Sprintf("out: %sMB / %sKB/s  max: %sKB/s  avg: %sKB/s  min: %sKB/s\n"+
-		"in:  %sMB / %sKB/s  max: %sKB/s  avg: %sKB/s  min: %sKB/s\n"+
-		"ack: %dms %.0fms %dms",
-		format(float64(s.totalSent)/1024/1024), format(s.sent.data[0]/1024),
-		format(float64(smax)/1024), format(float64(savg)/1024), format(float64(smin)/1024),
-		format(float64(s.totalRecved)/1024/1024), format(s.recved.data[0]/1024),
-		format(float64(rmax)/1024), format(float64(ravg)/1024), format(float64(rmin)/1024),
-		s.latencyMax/1e6, s.latency/1e6, s.latencyMin/1e6)
+	text := fmt.Sprintf("out    last:%s kb/s  max:%s kb/s  avg:%s kb/s\n"+
+		"in     last:%s kb/s  max:%s kb/s  avg:%s kb/s\n"+
+		"total  in:  %s MB    out:%s MB\n"+
+		"ping   max: %s ms    avg:%s ms    min:%s ms",
+		format(s.sent.data[0]/256), format(float64(smax)/256), format(float64(savg)/256),
+		format(s.recved.data[0]/256), format(float64(rmax)/256), format(float64(ravg)/256),
+		format(float64(s.totalSent)/1024/1024), format(float64(s.totalRecved)/1024/1024),
+		format(float64(s.latencyMax)/1e6), format(s.latency/1e6), format(float64(s.latencyMin)/1e6))
 
 	if extra != "" {
 		text += "\n" + extra
@@ -247,11 +252,22 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		dejavu.DrawText(canvas, line, margin*2, y+lineHeight*(1+i), image.Black)
 	}
 
-	drawHVLine(canvas, leftmargin, margin, 'e', ln+2, false, colorBorder, colorBorder)
-	drawHVLine(canvas, leftmargin, margin+h+h+2, 'e', ln+2, false, colorBorder, colorBorder)
-	drawHVLine(canvas, leftmargin, margin+h+2, 'e', ln+2, false, colorBorder, colorBorder)
-	drawHVLine(canvas, leftmargin, margin, 's', h+h+3, false, colorBorder, colorBorder)
-	drawHVLine(canvas, leftmargin+ln+2, margin, 's', h+h+3, false, colorBorder, colorBorder)
+	// Zero Axis
+	drawHVLine(canvas, leftmargin, margin+h+2, 'e', ln+2, false, color.Black, color.Black)
+
+	// X Axis
+	drawHVLine(canvas, leftmargin, margin+h+h+2, 'e', ln+5, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin+ln+5, margin+h+h, 's', 5, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin+ln+6, margin+h+h+1, 's', 3, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin+ln+7, margin+h+h+2, 's', 1, false, colorBorder, colorBorder)
+
+	// Y Axis
+	drawHVLine(canvas, leftmargin, margin-3, 's', h+h+6, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin-2, margin-3, 'e', 5, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin-1, margin-4, 'e', 3, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin, margin-5, 'e', 1, false, colorBorder, colorBorder)
+
+	// Border
 	drawHVLine(canvas, 0, 0, 'e', width, false, colorBorder2, colorBorder2)
 	drawHVLine(canvas, 0, 1, 'e', width, false, colorBorder2, colorBorder2)
 	drawHVLine(canvas, 0, 0, 's', height, false, colorBorder2, colorBorder2)
