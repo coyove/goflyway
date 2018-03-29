@@ -142,16 +142,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	u := now.Unix()
 	now = time.Unix(u-int64(now.Second())+round(float64(now.Second())/float64(s.sent.interval))*int64(s.sent.interval), 0)
 	formatTime := func(minute int) string { return time.Unix(now.Unix()-int64(minute)*60, 0).Format("15:04") }
-
-	// roundedTime := time.Unix(now.Unix()-int64(now.Second()), 0)
 	fm := int(float64(tick*now.Second()) / 60)
-	for i := 0; i < minutes; i++ {
-		clr := colorLightGray
-		if i%xTickMinute == 0 {
-			clr = colorGray
-		}
-		drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, clr, clr)
-	}
 
 	for i := xTickMinute * 2; i < minutes-xTickMinute; i += xTickMinute * 2 {
 		drawXLabel(formatTime(i), leftmargin+1+ln-fm-i*tick, 's')
@@ -160,7 +151,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	drawXLabel(formatTime(minutes), leftmargin+1, 'l')
 	drawXLabel(formatTime(0), leftmargin+1+ln+1, 'r')
 
-	_draw := func(avg, max float64, data []float64, reverse bool, clr, clr2 color.Color) {
+	_draw := func(avg, max float64, data []float64, reverse bool, drawSubGrid bool, clr, clr2 color.Color) {
 		k := float64(h) / float64(max)
 
 		yAxi := h * 2 / 3 / dejavu.Height
@@ -177,6 +168,10 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				}
 
 				if i%2 == 1 {
+					if drawSubGrid {
+						continue
+					}
+
 					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGray2, colorGray2)
 					if reverse {
 						if margin+1+h+1+h+1-y < dejavu.Height*3/2 {
@@ -188,10 +183,14 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 						}
 					}
 					drawYLabel(formatFloat(s/1024), y)
-				} else {
+				} else if drawSubGrid {
 					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorLightGray, colorLightGray)
 				}
 			}
+		}
+
+		if drawSubGrid {
+			return
 		}
 
 		y := margin + 1 + h + 1 - int(avg*k)
@@ -216,8 +215,25 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 
 	sColor := color.RGBA{0xff, 0x52, 0x52, 255}
 	rColor := color.RGBA{0x00, 0x96, 0x88, 255}
-	_draw(savg, smax, s.sent.data, false, sColor, color.RGBA{0xbb, 0x32, 0x32, 255})
-	_draw(ravg, rmax, s.recved.data, true, rColor, color.RGBA{0x00, 0x59, 0x4b, 255})
+
+	for i := 0; i < minutes; i++ {
+		if i%xTickMinute != 0 {
+			drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, colorLightGray, colorLightGray)
+		}
+	}
+
+	_draw(savg, smax, s.sent.data, false, true, sColor, color.RGBA{0xbb, 0x32, 0x32, 255})
+	_draw(ravg, rmax, s.recved.data, true, true, rColor, color.RGBA{0x00, 0x59, 0x4b, 255})
+
+	for i := 0; i < minutes; i++ {
+		if i%xTickMinute == 0 {
+			drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, colorGray, colorGray)
+		}
+	}
+
+	_draw(savg, smax, s.sent.data, false, false, sColor, color.RGBA{0xbb, 0x32, 0x32, 255})
+	_draw(ravg, rmax, s.recved.data, true, false, rColor, color.RGBA{0x00, 0x59, 0x4b, 255})
+
 	drawYLabel(formatFloat(smax/1024), margin+3)
 	drawYLabel("0.00", margin+1+h)
 	drawYLabel(formatFloat(rmax/1024), margin+h+1+h-3)
@@ -226,8 +242,8 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		"in     last:%s kb/s  max:%s kb/s  avg:%s kb/s\n"+
 		"total  in:  %s MB    out:%s MB\n"+
 		"ping   max: %s ms    avg:%s ms    min:%s ms",
-		format(s.sent.data[0]/256), format(float64(smax)/256), format(float64(savg)/256),
-		format(s.recved.data[0]/256), format(float64(rmax)/256), format(float64(ravg)/256),
+		format(s.sent.data[0]/128), format(float64(smax)/128), format(float64(savg)/128),
+		format(s.recved.data[0]/128), format(float64(rmax)/128), format(float64(ravg)/128),
 		format(float64(s.totalSent)/1024/1024), format(float64(s.totalRecved)/1024/1024),
 		format(float64(s.latencyMax)/1e6), format(s.latency/1e6), format(float64(s.latencyMin)/1e6))
 
@@ -245,8 +261,8 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		draw.Draw(canvas, image.Rect(x0+1, y+y0+1, x0+legendSize-1, y+y0+legendSize-1), img, image.Point{0, 0}, draw.Over)
 	}
 
-	drawLegend(12, 6, image.NewUniform(sColor))
-	drawLegend(12, 6+lineHeight, image.NewUniform(rColor))
+	drawLegend(margin, 6, image.NewUniform(sColor))
+	drawLegend(margin, 6+lineHeight, image.NewUniform(rColor))
 
 	for i, line := range strings.Split(text, "\n") {
 		dejavu.DrawText(canvas, line, margin*2, y+lineHeight*(1+i), image.Black)
