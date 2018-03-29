@@ -1,6 +1,6 @@
 NAME?=goflyway
 SOURCE?=./cmd/goflyway/main.go
-LIST?=chinalist.txt ca.pem
+LIST?=chinalist.txt
 VERSION:=$(shell date +%y%m%d%H%M%S)
 
 .PHONY: release windows darwin linux clean

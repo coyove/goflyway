@@ -250,8 +250,8 @@ func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r 
 		if r.Method == "GET" {
 
 			if strings.HasPrefix(r.RequestURI, "/traffic.svg") {
-				w.Header().Add("Content-Type", "image/png")
-				w.Write(proxy.IO.Tr.PNG(100, 2, 2, "").Bytes())
+				w.Header().Add("Content-Type", "image/svg+xml")
+				w.Write(proxy.IO.Tr.SVG(300, 50, r.FormValue("log") == "1").Bytes())
 				return
 			}
 
