@@ -12,8 +12,15 @@ func format(f float64) string {
 		return strconv.FormatFloat(f, 'f', 3, 64)
 	} else if f < 100 {
 		return strconv.FormatFloat(f, 'f', 2, 64)
+	} else if f < 1000 {
+		return strconv.FormatFloat(f, 'f', 1, 64)
 	}
-	return strconv.FormatFloat(f, 'f', 1, 64)
+
+	x := strconv.FormatInt(int64(f), 10)
+	if f < 10000 {
+		return " " + x
+	}
+	return x
 }
 
 func (s *Survey) SVG(w, h int, logarithm bool) *bytes.Buffer {

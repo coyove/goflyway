@@ -11,14 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
+	"github.com/coyove/goflyway/pkg/dejavu"
 )
 
 const (
-	margin     = 15 // pixels
-	lineHeight = 16
+	margin = 15 // pixels
 )
 
 func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool, startColor, endColor color.Color) {
@@ -100,15 +97,9 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	}
 	leftmargin += margin / 2
 
-	face := basicfont.Face7x13
-	pix := face.Mask.(*image.Alpha).Pix
-	fixDot := func(i int) { pix[i+2], pix[i+10], pix[i+15] = 255, 0, 0 }
-	fixDot(78*14 + 6*9)
-	fixDot(78*26 + 6*4)
-	fixDot(78*26 + 6*9)
-
 	ln := len(s.sent.data) * wScale
 	width := leftmargin + 1 + ln + 1 + margin
+	lineHeight := dejavu.FullHeight + 2
 	height := margin + 1 + h + 1 + h + 1 + margin + 4*lineHeight + margin
 	if extra != "" {
 		height += lineHeight * len(strings.Split(extra, "\n"))
@@ -118,24 +109,25 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.RGBA{0xf3, 0xf3, 0xf3, 0xff}), image.Point{0, 0}, draw.Over)
 	draw.Draw(canvas, image.Rect(leftmargin, margin, leftmargin+1+ln, margin+h*2+3), image.White, image.Point{0, 0}, draw.Over)
 
-	d := &font.Drawer{Dst: canvas, Src: image.Black, Face: face}
-
 	drawYLabel := func(text string, y int) {
-		d.Dot = fixed.P(leftmargin-2-d.MeasureString(text).Round(), y+face.Height/2)
-		d.DrawString(text)
+		dejavu.DrawText(canvas, text, leftmargin-2-len(text)*dejavu.Width, y+dejavu.Height/2, image.Black)
 	}
 
 	drawXLabel := func(text string, x int, align byte) {
-		w := d.MeasureString(text).Round()
+		w := len(text) * dejavu.Width
+		base := margin + 1 + h + 1 + h + 1 + 2
+
+		var y int
 		switch align {
 		case 'r':
-			d.Dot = fixed.P(x-w, margin+1+h+1+h+1+2+face.Height)
+			x, y = x-w, base+dejavu.Height
 		case 'l':
-			d.Dot = fixed.P(x, margin+1+h+1+h+1+2+face.Height)
+			x, y = x, base+dejavu.Height
 		default:
-			d.Dot = fixed.P(x-w/2, margin+1+h+1+h+1+2+face.Height)
+			x, y = x-w/2, base+dejavu.Height
 		}
-		d.DrawString(text)
+
+		dejavu.DrawText(canvas, text, x, y, image.Black)
 	}
 
 	minutes := len(s.sent.data) / (60 / s.sent.interval)
@@ -166,7 +158,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	_draw := func(avg, max float64, data []float64, reverse bool, clr, clr2 color.Color) {
 		k := float64(h) / float64(max)
 
-		yAxi := h * 2 / 3 / face.Height
+		yAxi := h * 2 / 3 / dejavu.Height
 		delta := max / 1024 / float64(yAxi)
 
 		if delta > 1 {
@@ -182,11 +174,11 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				if i%2 == 1 {
 					drawHVLine(canvas, leftmargin+1, y, 'e', ln, false, colorGray2, colorGray2)
 					if reverse {
-						if margin+1+h+1+h+1-y < face.Height*3/2 {
+						if margin+1+h+1+h+1-y < dejavu.Height*3/2 {
 							break
 						}
 					} else {
-						if y-margin < face.Height*3/2 {
+						if y-margin < dejavu.Height*3/2 {
 							break
 						}
 					}
@@ -240,7 +232,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 
 	y := margin + 1 + h + 1 + h + 1 + lineHeight + 4
 	drawHVLine(canvas, 0, y, 'e', width, true, colorGray, colorGray)
-	y += 4
+	y += 2
 
 	drawLegend := func(x0, y0 int, img image.Image) {
 		const legendSize = 10
@@ -252,11 +244,9 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	drawLegend(12, 6+lineHeight, image.NewUniform(rColor))
 
 	for i, line := range strings.Split(text, "\n") {
-		d.Dot = fixed.P(margin*2, y+lineHeight*(1+i))
-		d.DrawString(line)
+		dejavu.DrawText(canvas, line, margin*2, y+lineHeight*(1+i), image.Black)
 	}
 
-	_ = fmt.Println
 	drawHVLine(canvas, leftmargin, margin, 'e', ln+2, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin, margin+h+h+2, 'e', ln+2, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin, margin+h+2, 'e', ln+2, false, colorBorder, colorBorder)
@@ -270,6 +260,9 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	drawHVLine(canvas, 1, height-2, 'e', width, false, colorBorder3, colorBorder3)
 	drawHVLine(canvas, width-1, 0, 's', height, false, colorBorder3, colorBorder3)
 	drawHVLine(canvas, width-2, 1, 's', height, false, colorBorder3, colorBorder3)
+
+	date := now.Format(time.RFC1123)
+	dejavu.DrawText(canvas, date, width-4-len(date)*dejavu.Width, height-6, image.Black)
 
 	b := &bytes.Buffer{}
 	png.Encode(b, canvas)
