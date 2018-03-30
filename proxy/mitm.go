@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
+	"net/http/httputil"
+	"sync/atomic"
 
 	"github.com/coyove/goflyway/pkg/logg"
 
@@ -91,6 +94,8 @@ func (proxy *ProxyClient) sign(host string) *tls.Certificate {
 	return cert
 }
 
+var mitmSessionCounter int64
+
 func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 	_host, _ := splitHostPort(host)
 	// try self signing a cert of this host
@@ -102,6 +107,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 	client.Write(okHTTP)
 
 	go func() {
+
+		counter := atomic.AddInt64(&mitmSessionCounter, 1)
 
 		tlsClient := tls.Server(client, &tls.Config{
 			InsecureSkipVerify: true,
@@ -148,7 +155,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 					cr.Opt.Set(doForward)
 					cr.WSCallback = 'c'
 					cr.WSToken = wsToken
-					if _, _, err = proxy.encryptAndTransport(req, cr); err != nil {
+					proxy.encryptRequest(req, cr)
+					if _, err = proxy.tp.RoundTrip(req); err != nil {
 						logg.E(err)
 						tlsClient.Write([]byte{0x88, 0}) // close frame
 						break
@@ -176,6 +184,16 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				break
 			}
 
+			if proxy.MITMDump != nil {
+				buf, _ := httputil.DumpRequest(req, false)
+
+				var b buffer
+				b.WriteString(fmt.Sprintf("# %s <<<<<< request %d >>>>>>\n", timeStampMilli(), counter))
+				b.Write(buf)
+
+				proxy.MITMDump.Write(b.Bytes())
+			}
+
 			rURL = req.URL.Host
 			req.Header.Del("Proxy-Authorization")
 			req.Header.Del("Proxy-Connection")
@@ -196,7 +214,18 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			var respBuf buffer
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
-			resp, rkeybuf, err := proxy.encryptAndTransport(req, cr)
+			rkeybuf := proxy.encryptRequest(req, cr)
+
+			if proxy.MITMDump != nil {
+				req.Body = proxy.Cipher.IO.NewReadCloser(&dumpReadWriteWrapper{
+					reader:  req.Body.(*IOReadCloserCipher).src,
+					counter: counter,
+					file:    proxy.MITMDump,
+				}, rkeybuf)
+			}
+
+			resp, err := proxy.tp.RoundTrip(req)
+
 			if err != nil {
 				logg.E("proxy pass: ", rURL, ", ", err)
 				tlsClient.Write(respBuf.Writes("HTTP/1.1 500 Internal Server Error\r\n\r\n", err.Error()).Bytes())
@@ -225,7 +254,9 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 						cr.WSCallback = 'b'
 						cr.WSToken = wsToken
 
-						if resp, iv, err := proxy.encryptAndTransport(req, cr); err != nil {
+						iv := proxy.encryptRequest(req, cr)
+						resp, err := proxy.tp.RoundTrip(req)
+						if err != nil {
 							logg.E(err)
 							break
 						} else if resp.StatusCode != 200 {
@@ -265,9 +296,24 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				break
 			}
 
+			var clientWriter io.Writer = tlsClient
+
+			if proxy.MITMDump != nil {
+				buf, _ := httputil.DumpResponse(resp, false)
+
+				var b buffer
+				b.WriteString(fmt.Sprintf("# %s >>>>>> response %d <<<<<<\n", timeStampMilli(), counter))
+				b.Write(buf)
+
+				proxy.MITMDump.Write(b.Bytes())
+				proxy.MITMDump.Sync()
+
+				clientWriter = &dumpReadWriteWrapper{writer: tlsClient, counter: counter, file: proxy.MITMDump}
+			}
+
 			if wsToken == "" {
 				// Chunked encoding will ruin the handshake of WS
-				nr, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, rkeybuf, IOConfig{
+				nr, err := proxy.Cipher.IO.Copy(clientWriter, resp.Body, rkeybuf, IOConfig{
 					Partial: false,
 					Chunked: true,
 					Role:    roleRecv,

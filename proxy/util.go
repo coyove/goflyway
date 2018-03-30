@@ -137,7 +137,7 @@ func (proxy *ProxyClient) genHost() string {
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptAndTransport(req *http.Request, r *clientRequest) (*http.Response, *[ivLen]byte, error) {
+func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[ivLen]byte {
 	r.Auth = proxy.UserAuth
 	proxy.addToDummies(req)
 
@@ -173,9 +173,7 @@ func (proxy *ProxyClient) encryptAndTransport(req *http.Request, r *clientReques
 	}
 
 	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
-	// logg.D(req.Header)
-	resp, err := proxy.tp.RoundTrip(req)
-	return resp, &r.iv, err
+	return &r.iv
 }
 
 func stripURI(uri string) string {

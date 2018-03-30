@@ -51,6 +51,7 @@ var (
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
+	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
 	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
 
 	// Shadowsocks compatible flags
@@ -234,6 +235,10 @@ func main() {
 
 		if *cmdVPN {
 			cc.Policy.Set(proxy.PolicyVPN)
+		}
+
+		if *cmdMITMDump != "" {
+			cc.MITMDump, _ = os.Create(*cmdMITMDump)
 		}
 	}
 

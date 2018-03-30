@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"os"
 
 	"github.com/coyove/goflyway/pkg/msg64"
 
@@ -27,6 +28,8 @@ type ClientConfig struct {
 	Upstream string
 	Policy   Options
 	UserAuth string
+
+	MITMDump *os.File
 
 	Connect2     string
 	Connect2Auth string
@@ -372,7 +375,8 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logg.D(r.Method, "^ ", r.Host, ext)
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
-			resp, iv, err = proxy.encryptAndTransport(r, cr)
+			iv = proxy.encryptRequest(r, cr)
+			resp, err = proxy.tp.RoundTrip(r)
 		}
 
 		if err != nil {

@@ -172,7 +172,8 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 						continue
 					}
 
-					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGray2, colorGray2)
+					// Draw horizontal primary grid line
+					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGray, colorGray)
 					if reverse {
 						if margin+1+h+1+h+1-y < dejavu.Height*3/2 {
 							break
@@ -184,6 +185,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 					}
 					drawYLabel(formatFloat(s/1024), y)
 				} else if drawSubGrid {
+					// Draw horizontal sub grid line
 					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorLightGray, colorLightGray)
 				}
 			}
@@ -244,7 +246,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		"ping   max: %s ms    avg:%s ms    min:%s ms",
 		format(s.sent.data[0]/128), format(float64(smax)/128), format(float64(savg)/128),
 		format(s.recved.data[0]/128), format(float64(rmax)/128), format(float64(ravg)/128),
-		format(float64(s.totalSent)/1073741824), format(float64(s.totalRecved)/1073741824),
+		format(float64(s.totalRecved)/1073741824), format(float64(s.totalSent)/1073741824),
 		format(float64(s.latencyMax)/1e6), format(s.latency/1e6), format(float64(s.latencyMin)/1e6))
 
 	if extra != "" {
