@@ -31,8 +31,7 @@ func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool
 	sr, sg, sb, _ := startColor.RGBA()
 	er, eg, eb, _ := endColor.RGBA()
 	dr, dg, db := int(er)-int(sr), int(eg)-int(sg), int(eb)-int(sb)
-	clr, k := color.RGBA{}, 0
-	clr.A = 255
+	clr, k := startColor.(color.RGBA), 0
 
 	ic := func(in uint32) uint8 { return uint8(in / 256) }
 	ici := func(in int) uint8 { return uint8(in / 256) }
@@ -47,33 +46,48 @@ func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool
 		k++
 	}
 
+	set := func(x, y int, clr color.Color) {
+		rgba := canvas.At(x, y).(color.RGBA)
+		n := clr.(color.RGBA)
+		r, g, b := int(n.R)*int(n.A)/255, int(n.G)*int(n.A)/255, int(n.B)*int(n.A)/255
+		r0, g0, b0 := int(rgba.R)*int(255-n.A)/255, int(rgba.G)*int(255-n.A)/255, int(rgba.B)*int(255-n.A)/255
+		c := func(a, b int) uint8 {
+			if a+b > 255 {
+				return 255
+			}
+			return uint8(a + b)
+		}
+		rgba.R, rgba.G, rgba.B = c(r, r0), c(g, g0), c(b, b0)
+		canvas.Set(x, y, rgba)
+	}
+
 	switch dir {
 	case 's':
 		for y := y0; y < y0+length; y++ {
 			calcColor()
 			if !dotted || y%2 == 0 {
-				canvas.Set(x0, y, clr)
+				set(x0, y, clr)
 			}
 		}
 	case 'n':
 		for y := y0; y > y0-length; y-- {
 			calcColor()
 			if !dotted || y%2 == 0 {
-				canvas.Set(x0, y, clr)
+				set(x0, y, clr)
 			}
 		}
 	case 'e':
 		for x := x0; x < x0+length; x++ {
 			calcColor()
 			if !dotted || x%2 == 0 {
-				canvas.Set(x, y0, clr)
+				set(x, y0, clr)
 			}
 		}
 	case 'w':
 		for x := x0; x > x0-length; x-- {
 			calcColor()
 			if !dotted || x%2 == 0 {
-				canvas.Set(x, y0, clr)
+				set(x, y0, clr)
 			}
 		}
 	}
@@ -84,12 +98,14 @@ func formatFloat(f float64) string {
 }
 
 var (
-	colorGray      = color.RGBA{0xcc, 0xcc, 0xcc, 255}
-	colorGray2     = color.RGBA{0xdd, 0xdd, 0xdd, 255}
-	colorLightGray = color.RGBA{0xee, 0xee, 0xee, 255}
-	colorBorder    = color.RGBA{0x76, 0x76, 0x76, 255}
-	colorBorder2   = color.RGBA{0xcf, 0xcf, 0xcf, 255}
-	colorBorder3   = color.RGBA{0x9e, 0x9e, 0x9e, 255}
+	colorBlack     = color.RGBA{0x00, 0x00, 0x00, 0xff}
+	colorGray      = color.RGBA{0xcc, 0xcc, 0xcc, 0xff}
+	colorGray2     = color.RGBA{0xdd, 0xdd, 0xdd, 0xff}
+	colorLightGray = color.RGBA{0x00, 0x00, 0x00, 0x11}
+	colorBorder    = color.RGBA{0x76, 0x76, 0x76, 0xff}
+	colorBorder2   = color.RGBA{0xcf, 0xcf, 0xcf, 0xff}
+	colorBorder3   = color.RGBA{0x9e, 0x9e, 0x9e, 0xff}
+	colorGrid      = color.RGBA{207, 0, 0, 64}
 )
 
 func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Buffer {
@@ -115,7 +131,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	draw.Draw(canvas, image.Rect(leftmargin, margin, leftmargin+1+ln, margin+h*2+3), image.White, image.Point{0, 0}, draw.Over)
 
 	drawYLabel := func(text string, y int) {
-		dejavu.DrawText(canvas, text, leftmargin-2-len(text)*dejavu.Width, y+dejavu.Height/2, image.Black)
+		dejavu.DrawText(canvas, text, leftmargin-5-len(text)*dejavu.Width, y+dejavu.Height/2, image.Black)
 	}
 
 	drawXLabel := func(text string, x int, align byte) {
@@ -154,6 +170,20 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	_draw := func(avg, max float64, data []float64, reverse bool, drawSubGrid bool, clr, clr2 color.Color) {
 		k := float64(h) / float64(max)
 
+		if !drawSubGrid {
+			for i := 0; i < len(data); i++ {
+				sh := int(data[i] * k)
+
+				for s := 0; s < wScale; s++ {
+					dir := byte('n')
+					if reverse {
+						dir = 's'
+					}
+					drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
+				}
+			}
+		}
+
 		yAxi := h * 2 / 3 / dejavu.Height
 		delta := max / 1024 / float64(yAxi)
 
@@ -173,7 +203,8 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 					}
 
 					// Draw horizontal primary grid line
-					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGray, colorGray)
+					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorGrid, colorGrid)
+					drawHVLine(canvas, leftmargin+1, y, 'w', 4, false, colorGrid, colorGrid)
 					if reverse {
 						if margin+1+h+1+h+1-y < dejavu.Height*3/2 {
 							break
@@ -187,6 +218,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				} else if drawSubGrid {
 					// Draw horizontal sub grid line
 					drawHVLine(canvas, leftmargin+1, y, 'e', ln+3, true, colorLightGray, colorLightGray)
+					drawHVLine(canvas, leftmargin+1, y, 'w', 3, false, colorLightGray, colorLightGray)
 				}
 			}
 		}
@@ -201,40 +233,33 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		}
 
 		drawHVLine(canvas, leftmargin+1, y, 'e', ln, true, clr, clr)
+		drawHVLine(canvas, leftmargin+1, y, 'w', 3, false, clr, clr)
+	}
 
-		for i := 0; i < len(data); i++ {
-			sh := int(data[i] * k)
+	_drawVGrid := func(sub bool) {
+		for i := 0; i < minutes; i++ {
+			x, h2 := leftmargin+1+ln-fm-i*tick, 1+h+1+h+1
+			if i%xTickMinute != 0 && sub {
+				drawHVLine(canvas, x, margin-3, 's', h2+3, true, colorLightGray, colorLightGray)
+				drawHVLine(canvas, x, margin+h2, 's', 1, false, colorLightGray, colorLightGray)
+			}
 
-			for s := 0; s < wScale; s++ {
-				dir := byte('n')
-				if reverse {
-					dir = 's'
-				}
-				drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
+			if i%xTickMinute == 0 && !sub {
+				drawHVLine(canvas, x, margin-3, 's', h2+3, true, colorGrid, colorGrid)
+				drawHVLine(canvas, x, margin+h2, 's', 2, false, colorGrid, colorGrid)
 			}
 		}
 	}
 
-	sColor := color.RGBA{0xff, 0x52, 0x52, 255}
-	rColor := color.RGBA{0x00, 0x96, 0x88, 255}
+	rColor, rColor2 := color.RGBA{0x19, 0xa9, 0xda, 255}, color.RGBA{0x0e, 0x6f, 0x90, 255}
+	sColor, sColor2 := color.RGBA{0x00, 0x96, 0x88, 255}, color.RGBA{0x00, 0x59, 0x4b, 255}
 
-	for i := 0; i < minutes; i++ {
-		if i%xTickMinute != 0 {
-			drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, colorLightGray, colorLightGray)
-		}
-	}
-
-	_draw(savg, smax, s.sent.data, false, true, sColor, color.RGBA{0xbb, 0x32, 0x32, 255})
-	_draw(ravg, rmax, s.recved.data, true, true, rColor, color.RGBA{0x00, 0x59, 0x4b, 255})
-
-	for i := 0; i < minutes; i++ {
-		if i%xTickMinute == 0 {
-			drawHVLine(canvas, leftmargin+1+ln-fm-i*tick, margin-3, 's', h+1+h+1+3, true, colorGray, colorGray)
-		}
-	}
-
-	_draw(savg, smax, s.sent.data, false, false, sColor, color.RGBA{0xbb, 0x32, 0x32, 255})
-	_draw(ravg, rmax, s.recved.data, true, false, rColor, color.RGBA{0x00, 0x59, 0x4b, 255})
+	_draw(savg, smax, s.sent.data, false, false, sColor, sColor2)
+	_draw(ravg, rmax, s.recved.data, true, false, rColor, rColor2)
+	_drawVGrid(true)
+	_draw(savg, smax, s.sent.data, false, true, sColor, sColor2)
+	_draw(ravg, rmax, s.recved.data, true, true, rColor, rColor2)
+	_drawVGrid(false)
 
 	drawYLabel(formatFloat(smax/1024), margin+3)
 	drawYLabel("0.00", margin+1+h)
@@ -271,16 +296,16 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 	}
 
 	// Zero Axis
-	drawHVLine(canvas, leftmargin, margin+h+2, 'e', ln+2, false, color.Black, color.Black)
+	drawHVLine(canvas, leftmargin, margin+h+2, 'e', ln+2, false, colorBlack, colorBlack)
 
 	// X Axis
-	drawHVLine(canvas, leftmargin, margin+h+h+2, 'e', ln+5, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin-2, margin+h+h+2, 'e', ln+7, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin+ln+5, margin+h+h, 's', 5, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin+ln+6, margin+h+h+1, 's', 3, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin+ln+7, margin+h+h+2, 's', 1, false, colorBorder, colorBorder)
 
 	// Y Axis
-	drawHVLine(canvas, leftmargin, margin-3, 's', h+h+6, false, colorBorder, colorBorder)
+	drawHVLine(canvas, leftmargin, margin-3, 's', h+h+8, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin-2, margin-3, 'e', 5, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin-1, margin-4, 'e', 3, false, colorBorder, colorBorder)
 	drawHVLine(canvas, leftmargin, margin-5, 'e', 1, false, colorBorder, colorBorder)
