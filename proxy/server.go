@@ -52,6 +52,7 @@ type ProxyUpstream struct {
 	}
 
 	Localaddr string
+	Listener  net.Listener
 
 	*ServerConfig
 }
@@ -217,7 +218,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		downstreamConn.Write(p.Bytes())
-		go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
+
+		if cr.Opt.IsSet(doMuxWS) {
+			logg.D("downstream connection is being upgraded to multiplexer stream")
+			proxy.Listener.(*tcpmux.ListenPool).Upgrade(downstreamConn)
+		} else {
+			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
+		}
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
 
@@ -351,13 +358,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (proxy *ProxyUpstream) Start() error {
-	ln, err := tcpmux.Listen(proxy.Localaddr, true)
+func (proxy *ProxyUpstream) Start() (err error) {
+	proxy.Listener, err = tcpmux.Listen(proxy.Localaddr, true)
 	if err != nil {
-		return err
+		return
 	}
 
-	proxy.Cipher.IO.Ob = ln.(*tcpmux.ListenPool)
+	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
 	go func() {
 		for tick := range time.Tick(time.Second) {
@@ -373,7 +380,7 @@ func (proxy *ProxyUpstream) Start() error {
 		}
 	}()
 
-	return http.Serve(ln, proxy)
+	return http.Serve(proxy.Listener, proxy)
 }
 
 func NewServer(addr string, config *ServerConfig) *ProxyUpstream {

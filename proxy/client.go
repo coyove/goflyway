@@ -61,16 +61,17 @@ type ProxyClient struct {
 	Listener  *listenerWrapper
 }
 
-func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
+func (proxy *ProxyClient) dialUpstream(forceDirectDial bool) (conn net.Conn, err error) {
 	lat := time.Now().UnixNano()
 	if proxy.Connect2 == "" {
-		upstreamConn, err := proxy.pool.DialTimeout(timeoutDial)
-		if err != nil {
-			return nil, err
+		if forceDirectDial {
+			conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
+		} else {
+			conn, err = proxy.pool.DialTimeout(timeoutDial)
 		}
 
 		proxy.IO.Tr.Latency(time.Now().UnixNano() - lat)
-		return upstreamConn, nil
+		return
 	}
 
 	connectConn, err := net.DialTimeout("tcp", proxy.Connect2, timeoutDial)
@@ -189,7 +190,7 @@ func (proxy *ProxyClient) dialUpstream() (net.Conn, error) {
 }
 
 func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream()
+	upstreamConn, err := proxy.dialUpstream(false)
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -236,7 +237,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 }
 
 func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream()
+	upstreamConn, err := proxy.dialUpstream(extra == doMuxWS)
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -259,9 +260,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	}
 
 	wsKey := [20]byte{}
-	for i := 0; i < 20; i++ {
-		wsKey[i] = byte(proxy.Cipher.Rand.Intn(256))
-	}
+	proxy.Cipher.Rand.Read(wsKey[:])
 
 	pl.Writes("Upgrade: websocket\r\nConnection: Upgrade\r\n",
 		"Sec-WebSocket-Key: ", base64.StdEncoding.EncodeToString(wsKey[:]), "\r\nSec-WebSocket-Version: 13\r\n\r\n")
@@ -275,8 +274,15 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		}
 
 		upstreamConn.Close()
-		downstreamConn.Close()
+		if downstreamConn != nil {
+			downstreamConn.Close()
+		}
 		return nil
+	}
+
+	if extra == doMuxWS {
+		// we return here and handle the connection to tcpmux
+		return upstreamConn
 	}
 
 	if resp != nil {
@@ -526,13 +532,26 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if config.Mux > 0 {
 		proxy.Cipher.IO.Ob = proxy.pool
+
+		if config.Policy.IsSet(PolicyWebSocket) {
+			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
+				// dialUpstreamAndBridgeWS will call dialUpstream,
+				// and dialUpstream will call OnDial again,
+				// pass doMuxWS to it to avoid infinite loop.
+				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS)
+				if conn == nil {
+					err = fmt.Errorf("ws error")
+				}
+				return
+			}
+		}
 	}
 
 	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
-		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream() }
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream(false) }
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 

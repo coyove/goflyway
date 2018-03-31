@@ -33,9 +33,10 @@ const (
 	doConnect   = 1 << iota // Establish TCP tunnel
 	doForward               // Forward plain HTTP request
 	doWebSocket             // Use WebSocket protocol
-	doDNS                   // DNS query request
-	doPartial               // Partial encryption
-	doUDPRelay              // UDP relay request
+	doMuxWS
+	doDNS      // DNS query request
+	doPartial  // Partial encryption
+	doUDPRelay // UDP relay request
 )
 
 const (
