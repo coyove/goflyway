@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/aclrouter"
@@ -87,8 +88,9 @@ func loadConfig() {
 
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
-		if strings.HasPrefix(*cmdUpstream, "_cf_") {
-			*cmdUpstream = "cf://" + (*cmdUpstream)[4:]
+		if port, _ := strconv.Atoi(cmds["server_port"].(string)); port == 50080 || port == 58080 || port == 58880 ||
+			port == 52052 || port == 52082 || port == 52086 || port == 52095 {
+			*cmdUpstream = fmt.Sprintf("cf://%v:%v", cmds["server"], port-50000)
 		}
 		*cmdMux = 10
 		*cmdLogLevel = "dbg"

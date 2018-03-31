@@ -51,22 +51,26 @@ type ClientConfig struct {
 type ProxyClient struct {
 	*ClientConfig
 
-	tp      *http.Transport // to upstream
-	tpq     *http.Transport // to upstream used for dns query
-	tpd     *http.Transport // to host directly
-	dummies *lru.Cache
-	pool    *tcpmux.DialPool
+	tp        *http.Transport // to upstream
+	tpq       *http.Transport // to upstream used for dns query
+	tpd       *http.Transport // to host directly
+	dummies   *lru.Cache
+	pool      *tcpmux.DialPool
+	dialStyle byte
 
 	Localaddr string
 	Listener  *listenerWrapper
 }
 
-func (proxy *ProxyClient) dialUpstream(forceDirectDial bool) (conn net.Conn, err error) {
+func (proxy *ProxyClient) dialUpstream() (conn net.Conn, err error) {
 	lat := time.Now().UnixNano()
 	if proxy.Connect2 == "" {
-		if forceDirectDial {
+		switch proxy.dialStyle {
+		case 'd':
 			conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
-		} else {
+		case 'v':
+			conn, err = vpnDial(proxy.Upstream)
+		default:
 			conn, err = proxy.pool.DialTimeout(timeoutDial)
 		}
 
@@ -190,7 +194,7 @@ func (proxy *ProxyClient) dialUpstream(forceDirectDial bool) (conn net.Conn, err
 }
 
 func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream(false)
+	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -237,7 +241,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 }
 
 func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream(extra == doMuxWS)
+	upstreamConn, err := proxy.dialUpstream()
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -535,15 +539,18 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 		if config.Policy.IsSet(PolicyWebSocket) {
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
-				// dialUpstreamAndBridgeWS will call dialUpstream,
-				// and dialUpstream will call OnDial again,
-				// pass doMuxWS to it to avoid infinite loop.
 				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS)
 				if conn == nil {
 					err = fmt.Errorf("ws error")
 				}
 				return
 			}
+
+			// dialUpstreamAndBridgeWS will call dialUpstream,
+			// and dialUpstream will call OnDial again,
+			// so we set dial style to "direct" to avoid infinite loop
+			// If we are in VPN mode, this value will be later set to 'v'
+			proxy.dialStyle = 'd'
 		}
 	}
 
@@ -551,7 +558,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
-		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream(false) }
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream() }
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
@@ -585,13 +592,13 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	proxy.Localaddr = localaddr
 
 	if proxy.Policy.IsSet(PolicyVPN) {
-		proxy.pool.OnDial = vpnDial
-		proxy.IO.sendStat = true
-		// proxy.tp.MaxIdleConns = 2
-		// proxy.tpd.MaxIdleConns = 2
-		// proxy.tpq.MaxIdleConns = 2
-		// proxy.tpd.Dial = func(network, address string) (net.Conn, error) { return vpnDial(address) }
+		if config.Policy.IsSet(PolicyWebSocket) {
+			proxy.dialStyle = 'v'
+		} else {
+			proxy.pool.OnDial = vpnDial
+		}
 
+		proxy.IO.sendStat = true
 		proxy.pool.DialTimeout(time.Second)
 	}
 
