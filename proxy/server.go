@@ -28,6 +28,7 @@ type ServerConfig struct {
 	WSCBTimeout   int64
 	DisableUDP    bool
 	ProxyPassAddr string
+	ClientAnswer  string
 
 	Users map[string]UserConfig
 
@@ -147,14 +148,18 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if cr.Opt.IsSet(doDNS) {
 		host := cr.Query
-		ip, err := net.ResolveIPAddr("ip4", host)
-		if err != nil {
-			logg.W(err)
-			ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
-		}
+		if host == "~" {
+			w.Header().Add(dnsRespHeader, proxy.Encrypt(proxy.ClientAnswer, &cr.iv))
+		} else {
+			ip, err := net.ResolveIPAddr("ip4", host)
+			if err != nil {
+				logg.W(err)
+				ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
+			}
 
-		logg.D("DNS: ", host, " ", ip.String())
-		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
+			logg.D("DNS: ", host, " ", ip.String())
+			w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
+		}
 		w.WriteHeader(200)
 
 	} else if cr.Opt.IsSet(doConnect) {

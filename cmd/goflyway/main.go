@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/aclrouter"
@@ -41,6 +40,7 @@ var (
 	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] disable UDP relay")
 	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
 	cmdWSCBClose = flag.Int64("wscb-timeout", 200, "[S] timeout for WebSocket callback")
+	cmdAnswer    = flag.String("answer", "", "[S] answer client config setup")
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[C] global proxy")
@@ -54,6 +54,7 @@ var (
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
 	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
+	cmdRemote     = flag.Bool("remote", false, "[C] get config setup from the upstream")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -88,9 +89,9 @@ func loadConfig() {
 
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
-		if port, _ := strconv.Atoi(cmds["server_port"].(string)); port == 50080 || port == 58080 || port == 58880 ||
-			port == 52052 || port == 52082 || port == 52086 || port == 52095 {
-			*cmdUpstream = fmt.Sprintf("cf://%v:%v", cmds["server"], port-50000)
+		if port := int(cmds["server_port"].(float64)); port > 50000 {
+			*cmdRemote = true
+			*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], port-50000)
 		}
 		*cmdMux = 10
 		*cmdLogLevel = "dbg"
@@ -185,49 +186,15 @@ func main() {
 			fmt.Println("* ACL omit rule:", r)
 		}
 
-		cc = &proxy.ClientConfig{
-			UserAuth:       *cmdAuth,
-			Upstream:       *cmdUpstream,
-			UDPRelayCoconn: int(*cmdUDPonTCP),
-			Cipher:         cipher,
-			DNSCache:       lru.NewCache(*cmdDNSCache),
-			CACache:        lru.NewCache(256),
-			ACL:            acl,
-			Mux:            int(*cmdMux),
-		}
-
-		if is := func(in string) bool { return strings.HasPrefix(*cmdUpstream, in) }; is("https://") {
-			cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(*cmdUpstream)
-			fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
-		} else if gfw, http, ws, cf, fwd, fwdws :=
-			is("gfw://"), is("http://"), is("ws://"), is("cf://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || fwd || fwdws {
-
-			cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(*cmdUpstream)
-
-			switch true {
-			case cf:
-				fmt.Println("* connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
-				cc.DummyDomain = cc.Upstream
-			case fwdws, fwd:
-				if cc.URLHeader == "" {
-					cc.URLHeader = "X-Forwarded-Url"
-				}
-				fmt.Println("* forward request to [", cc.Upstream, "], store the true URL in [",
-					cc.URLHeader+": http://"+cc.DummyDomain+"/... ]")
-			case cc.DummyDomain != "":
-				fmt.Println("* use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
-			}
-
-			switch true {
-			case fwdws, cf, ws:
-				cc.Policy.Set(proxy.PolicyWebSocket)
-				fmt.Println("* use WebSocket protocol to transfer data")
-			case fwd, http:
-				cc.Policy.Set(proxy.PolicyManInTheMiddle)
-				fmt.Println("* use MITM to intercept HTTPS (HTTP proxy mode only)")
-				cc.CA = lib.TryLoadCert()
-			}
-		}
+		cc = &proxy.ClientConfig{}
+		cc.Cipher = cipher
+		cc.DNSCache = lru.NewCache(*cmdDNSCache)
+		cc.CACache = lru.NewCache(256)
+		cc.ACL = acl
+		cc.UserAuth = *cmdAuth
+		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
+		cc.Mux = int(*cmdMux)
+		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
 			fmt.Println("* global proxy: goflyway will proxy everything except private IPs")
@@ -255,6 +222,7 @@ func main() {
 			ProxyPassAddr: *cmdProxyPass,
 			DisableUDP:    *cmdDiableUDP,
 			WSCBTimeout:   *cmdWSCBClose,
+			ClientAnswer:  *cmdAnswer,
 		}
 
 		if *cmdAuth != "" {
@@ -301,6 +269,18 @@ func main() {
 	if *cmdUpstream != "" {
 		client := proxy.NewClient(localaddr, cc)
 
+		if *cmdRemote {
+			fmt.Println("* get config from the upstream")
+			cm := client.GetRemoteConfig()
+			if cm == "" {
+				logg.F("can't get remote config")
+			}
+
+			client.Listener.Close()
+			parseUpstream(cc, cm)
+			client = proxy.NewClient(localaddr, cc)
+		}
+
 		if *cmdWebConPort != 0 {
 			go func() {
 				addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
@@ -326,6 +306,47 @@ func main() {
 			fmt.Println("* alternatively act as a file server:", sc.ProxyPassAddr)
 		}
 		logg.F(server.Start())
+	}
+}
+
+func parseUpstream(cc *proxy.ClientConfig, upstream string) {
+	if is := func(in string) bool { return strings.HasPrefix(upstream, in) }; is("https://") {
+		cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(upstream)
+		fmt.Println("* use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
+
+		if cc.Mux > 0 {
+			logg.F("can't use an HTTPS proxy with TCP multiplexer")
+		}
+
+	} else if gfw, http, ws, cf, fwd, fwdws :=
+		is("gfw://"), is("http://"), is("ws://"),
+		is("cf://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || fwd || fwdws {
+
+		cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(upstream)
+
+		switch true {
+		case cf:
+			fmt.Println("* connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
+			cc.DummyDomain = cc.Upstream
+		case fwdws, fwd:
+			if cc.URLHeader == "" {
+				cc.URLHeader = "X-Forwarded-Url"
+			}
+			fmt.Println("* forward request to [", cc.Upstream, "], store the true URL in [",
+				cc.URLHeader+": http://"+cc.DummyDomain+"/... ]")
+		case cc.DummyDomain != "":
+			fmt.Println("* use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
+		}
+
+		switch true {
+		case fwdws, cf, ws:
+			cc.Policy.Set(proxy.PolicyWebSocket)
+			fmt.Println("* use WebSocket protocol to transfer data")
+		case fwd, http:
+			cc.Policy.Set(proxy.PolicyManInTheMiddle)
+			fmt.Println("* use MITM to intercept HTTPS (HTTP proxy mode only)")
+			cc.CA = lib.TryLoadCert()
+		}
 	}
 }
 

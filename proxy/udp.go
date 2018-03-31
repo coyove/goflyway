@@ -357,9 +357,9 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		}
 
 		if proxy.Policy.IsSet(PolicyWebSocket) {
-			conns[i] = proxy.dialUpstreamAndBridgeWS(srcs[i], dst.String(), nil, doUDPRelay)
+			conns[i] = proxy.dialUpstreamAndBridgeWS(srcs[i], dst.String(), nil, doUDPRelay, 0)
 		} else {
-			conns[i] = proxy.dialUpstreamAndBridge(srcs[i], dst.String(), nil, doUDPRelay)
+			conns[i] = proxy.dialUpstreamAndBridge(srcs[i], dst.String(), nil, doUDPRelay, 0)
 		}
 	}
 

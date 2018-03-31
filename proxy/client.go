@@ -24,22 +24,24 @@ import (
 	"time"
 )
 
+type ClientConfigMarshal struct {
+	Upstream       string  `json:"u"`
+	Policy         Options `json:"p"`
+	UserAuth       string  `json:"a"`
+	UDPRelayCoconn int     `json:"r"`
+	Mux            int     `json:"m"`
+
+	// Upstream params
+	Connect2     string `json:"c"`
+	Connect2Auth string `json:"t"`
+	DummyDomain  string `json:"d"`
+	URLHeader    string `json:"h"`
+}
+
 type ClientConfig struct {
-	Upstream string
-	Policy   Options
-	UserAuth string
+	ClientConfigMarshal
 
 	MITMDump *os.File
-
-	Connect2     string
-	Connect2Auth string
-	DummyDomain  string
-	URLHeader    string
-
-	UDPRelayCoconn int
-
-	Mux int
-
 	DNSCache *lru.Cache
 	CA       tls.Certificate
 	CACache  *lru.Cache
@@ -51,21 +53,20 @@ type ClientConfig struct {
 type ProxyClient struct {
 	*ClientConfig
 
-	tp        *http.Transport // to upstream
-	tpq       *http.Transport // to upstream used for dns query
-	tpd       *http.Transport // to host directly
-	dummies   *lru.Cache
-	pool      *tcpmux.DialPool
-	dialStyle byte
+	tp      *http.Transport // to upstream
+	tpq     *http.Transport // to upstream used for dns query
+	tpd     *http.Transport // to host directly
+	dummies *lru.Cache
+	pool    *tcpmux.DialPool
 
 	Localaddr string
 	Listener  *listenerWrapper
 }
 
-func (proxy *ProxyClient) dialUpstream() (conn net.Conn, err error) {
+func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error) {
 	lat := time.Now().UnixNano()
 	if proxy.Connect2 == "" {
-		switch proxy.dialStyle {
+		switch dialStyle {
 		case 'd':
 			conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
 		case 'v':
@@ -193,8 +194,8 @@ func (proxy *ProxyClient) dialUpstream() (conn net.Conn, err error) {
 	return connectConn, nil
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream()
+func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
+	upstreamConn, err := proxy.dialUpstream(0)
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -240,8 +241,8 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	return upstreamConn
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream()
+func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
+	upstreamConn, err := proxy.dialUpstream(dialStyle)
 	if err != nil {
 		logg.E(err)
 		downstreamConn.Close()
@@ -350,10 +351,10 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", r.RequestURI, ext)
-			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP, 0)
+			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP, 0, 0)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI, ext)
-			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP, 0)
+			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP, 0, 0)
 		}
 	} else {
 		// normal http requests
@@ -491,10 +492,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", host, ext)
-			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS, 0)
+			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS, 0, 0)
 		} else {
 			logg.D("SOCKS^ ", host, ext)
-			proxy.dialUpstreamAndBridge(conn, host, okSOCKS, 0)
+			proxy.dialUpstreamAndBridge(conn, host, okSOCKS, 0, 0)
 		}
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
@@ -538,19 +539,18 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.Cipher.IO.Ob = proxy.pool
 
 		if config.Policy.IsSet(PolicyWebSocket) {
+			// dialUpstreamAndBridgeWS will call dialUpstream,
+			// and dialUpstream will call OnDial again,
+			// so we set dial style to 'd' (direct) to avoid infinite loop
+			// If we are in VPN mode, this value will be later set to 'v' (vpn)
+
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
-				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS)
+				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS, 'd')
 				if conn == nil {
 					err = fmt.Errorf("ws error")
 				}
 				return
 			}
-
-			// dialUpstreamAndBridgeWS will call dialUpstream,
-			// and dialUpstream will call OnDial again,
-			// so we set dial style to "direct" to avoid infinite loop
-			// If we are in VPN mode, this value will be later set to 'v'
-			proxy.dialStyle = 'd'
 		}
 	}
 
@@ -558,7 +558,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
-		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream() }
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream(0) }
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
@@ -593,7 +593,13 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.Policy.IsSet(PolicyVPN) {
 		if config.Policy.IsSet(PolicyWebSocket) {
-			proxy.dialStyle = 'v'
+			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
+				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS, 'v')
+				if conn == nil {
+					err = fmt.Errorf("ws error")
+				}
+				return
+			}
 		} else {
 			proxy.pool.OnDial = vpnDial
 		}

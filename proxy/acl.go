@@ -118,3 +118,33 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 		return ruleProxy, " (remote-unknown)"
 	}
 }
+
+func (proxy *ProxyClient) GetRemoteConfig() string {
+	cr := proxy.Cipher.newRequest()
+	cr.Opt.Set(doDNS)
+	cr.Auth = proxy.UserAuth
+	cr.Query = "~"
+
+	dnsloc := "http://" + proxy.Upstream
+	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptHost("config", cr)
+
+	if proxy.URLHeader == "" {
+		dnsloc = trueloc
+	}
+
+	req, _ := http.NewRequest("GET", dnsloc, nil)
+
+	if proxy.URLHeader != "" {
+		req.Header.Add(proxy.URLHeader, trueloc)
+	}
+
+	resp, err := proxy.tpq.RoundTrip(req)
+	if err != nil {
+		logg.E(err)
+		return ""
+	}
+
+	tryClose(resp.Body)
+
+	return proxy.Cipher.Decrypt(resp.Header.Get(dnsRespHeader), &cr.iv)
+}
