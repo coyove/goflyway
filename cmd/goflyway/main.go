@@ -87,6 +87,9 @@ func loadConfig() {
 
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
+		if strings.HasPrefix(*cmdUpstream, "_cf_") {
+			*cmdUpstream = "cf://" + (*cmdUpstream)[4:]
+		}
 		*cmdMux = 10
 		*cmdLogLevel = "dbg"
 		*cmdVPN = true
@@ -166,7 +169,7 @@ func main() {
 	var sc *proxy.ServerConfig
 
 	if *cmdMux > 0 {
-		fmt.Println("* TCP multiplexer enabled, limit:", *cmdMux, ", note that you must directly connect to the upstream")
+		fmt.Println("* TCP multiplexer enabled, limit:", *cmdMux)
 	}
 
 	if *cmdUpstream != "" || *cmdDebug {
