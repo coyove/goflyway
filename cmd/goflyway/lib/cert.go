@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"fmt"
 	"io/ioutil"
 	"math/big"
 	"time"
@@ -65,16 +64,16 @@ func TryLoadCert() tls.Certificate {
 
 	if cert, err := ioutil.ReadFile("ca.pem"); err == nil {
 		caCert = cert
-		fmt.Println("* ca.pem loaded, read", len(cert), "bytes")
+		Println("* ca.pem loaded, read", len(cert), "bytes")
 	} else {
-		fmt.Println("* ca.pem not found, using the default one")
+		Println("* ca.pem not found, using the default one")
 	}
 
 	if key, err := ioutil.ReadFile("key.pem"); err == nil {
 		caKey = key
-		fmt.Println("* key.pem loaded, read", len(key), "bytes")
+		Println("* key.pem loaded, read", len(key), "bytes")
 	} else {
-		fmt.Println("* key.pem not found, using the default one")
+		Println("* key.pem not found, using the default one")
 	}
 
 	ca, err := tls.X509KeyPair(caCert, caKey)

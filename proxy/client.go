@@ -24,6 +24,10 @@ import (
 	"time"
 )
 
+type ResponseHook interface {
+	SetBody(r io.ReadCloser)
+}
+
 type ClientConfigMarshal struct {
 	Upstream       string  `json:"u"`
 	Policy         Options `json:"p"`
@@ -406,14 +410,18 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, iv)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{
-			Partial: false,
-			Role:    roleRecv,
-		}); err != nil {
-			logg.E("copy ", nr, " bytes: ", err)
-		}
+		if h, ok := w.(ResponseHook); ok {
+			h.SetBody(proxy.Cipher.IO.NewReadCloser(resp.Body, iv))
+		} else {
+			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{
+				Partial: false,
+				Role:    roleRecv,
+			}); err != nil {
+				logg.E("copy ", nr, " bytes: ", err)
+			}
 
-		tryClose(resp.Body)
+			tryClose(resp.Body)
+		}
 	}
 }
 
