@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	_url "net/url"
 	"os"
 
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
@@ -55,6 +58,9 @@ var (
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
 	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
 	cmdRemote     = flag.Bool("remote", false, "[C] get config setup from the upstream")
+	cmdForm       = flag.String("F", "", "[Cu] post form")
+	cmdCookie     = flag.String("C", "", "[Cu] cookies")
+	cmdMultipart  = flag.Bool("M", false, "[Cu] multipart")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -131,7 +137,7 @@ func loadConfig() {
 
 func main() {
 	fmt.Println("goflyway (build " + version + ")")
-
+	method, url := lib.ParseExtendedOSArgs()
 	loadConfig()
 
 	if *cmdGenCA {
@@ -194,6 +200,7 @@ func main() {
 		cc.UserAuth = *cmdAuth
 		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
 		cc.Mux = int(*cmdMux)
+		cc.Upstream = *cmdUpstream
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -281,22 +288,26 @@ func main() {
 			client = proxy.NewClient(localaddr, cc)
 		}
 
-		if *cmdWebConPort != 0 {
-			go func() {
-				addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
-				if *cmdWebConPort == 65536 {
-					addr_, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
-					addr = fmt.Sprintf("127.0.0.1:%d", addr_.Port+10)
-				}
+		if method != "" {
+			curl(client, method, url, nil)
+		} else {
+			if *cmdWebConPort != 0 {
+				go func() {
+					addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
+					if *cmdWebConPort == 65536 {
+						addr_, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
+						addr = fmt.Sprintf("127.0.0.1:%d", addr_.Port+10)
+					}
 
-				http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
-				fmt.Println("* access client web console at [", addr, "]")
-				logg.F(http.ListenAndServe(addr, nil))
-			}()
+					http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
+					fmt.Println("* access client web console at [", addr, "]")
+					logg.F(http.ListenAndServe(addr, nil))
+				}()
+			}
+
+			fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
+			logg.F(client.Start())
 		}
-
-		fmt.Println("* proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
-		logg.F(client.Start())
 	} else {
 		server := proxy.NewServer(localaddr, sc)
 		fmt.Println("* upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
@@ -377,4 +388,67 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 	}
 
 	return
+}
+
+func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.Cookie) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		fmt.Println("* can't create the request:", err)
+		return
+	}
+
+	if err := lib.ParseHeaders(*cmdForm, *cmdMultipart, req); err != nil {
+		fmt.Println("* invalid headers:", err)
+		return
+	}
+
+	if len(cookies) > 0 {
+		cs := make([]string, len(cookies))
+		for i, cookie := range cookies {
+			cs[i] = cookie.Name + "=" + cookie.Value
+			fmt.Println("* cookie:", cookie.String())
+		}
+
+		oc := req.Header.Get("Cookie")
+		if oc != "" {
+			oc += ";" + strings.Join(cs, ";")
+		} else {
+			oc = strings.Join(cs, ";")
+		}
+
+		req.Header.Set("Cookie", oc)
+	}
+
+	reqbuf, _ := httputil.DumpRequest(req, false)
+	fmt.Println("*", string(reqbuf))
+
+	buf := &bytes.Buffer{}
+
+	r := lib.NewRecorder(buf)
+	client.ServeHTTP(r, req)
+	r.Close()
+	cookies = lib.ParseSetCookies(r.HeaderMap)
+
+	if r.Code > 300 && r.Code < 400 {
+		location := r.Header().Get("Location")
+		if location == "" {
+			fmt.Println("* invalid redirection location")
+			return
+		}
+
+		if !strings.HasPrefix(location, "http") {
+			if strings.HasPrefix(location, "/") {
+				u, _ := _url.Parse(url)
+				location = u.Scheme + "://" + u.Host + location
+			} else {
+				idx := strings.LastIndex(url, "/")
+				location = url[:idx+1] + location
+			}
+		}
+
+		fmt.Println("* redirect:", location)
+		curl(client, method, location, cookies)
+	} else {
+		fmt.Println("*", buf.String())
+	}
 }

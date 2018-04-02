@@ -58,6 +58,7 @@ type ProxyClient struct {
 	tpd     *http.Transport // to host directly
 	dummies *lru.Cache
 	pool    *tcpmux.DialPool
+	addr    *net.TCPAddr
 
 	Localaddr string
 	Listener  *listenerWrapper
@@ -245,7 +246,9 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	upstreamConn, err := proxy.dialUpstream(dialStyle)
 	if err != nil {
 		logg.E(err)
-		downstreamConn.Close()
+		if downstreamConn != nil {
+			downstreamConn.Close()
+		}
 		return nil
 	}
 
@@ -509,11 +512,16 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 }
 
 func (proxy *ProxyClient) Start() error {
+	mux, err := net.ListenTCP("tcp", proxy.addr)
+	if err != nil {
+		return err
+	}
+
+	proxy.Listener = &listenerWrapper{mux, proxy}
 	return http.Serve(proxy.Listener, proxy)
 }
 
 func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
-	var mux net.Listener
 	var err error
 
 	upURL, err := url.Parse("http://" + config.Upstream)
@@ -574,21 +582,20 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	}
 
 	if port, lerr := strconv.Atoi(localaddr); lerr == nil {
-		mux, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv6zero, Port: port})
-		localaddr = "127.0.0.1:" + localaddr
+		proxy.addr = &net.TCPAddr{IP: net.IPv6zero, Port: port}
+		localaddr = "0.0.0.0:" + localaddr
 	} else {
-		mux, err = net.Listen("tcp", localaddr)
+		proxy.addr, err = net.ResolveTCPAddr("tcp", localaddr)
+		if err != nil {
+			logg.F(err)
+			return nil
+		}
+
 		if localaddr[0] == ':' {
-			localaddr = "127.0.0.1" + localaddr
+			localaddr = "0.0.0.0" + localaddr
 		}
 	}
 
-	if err != nil {
-		logg.F(err)
-		return nil
-	}
-
-	proxy.Listener = &listenerWrapper{mux, proxy}
 	proxy.Localaddr = localaddr
 
 	if proxy.Policy.IsSet(PolicyVPN) {
