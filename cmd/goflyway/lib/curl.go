@@ -30,6 +30,10 @@ func ParseExtendedOSArgs() (method string, url string) {
 		url = "http://" + url
 	}
 
+	if _, err := _url.Parse(url); err != nil {
+		method, url = "", ""
+	}
+
 	return
 }
 

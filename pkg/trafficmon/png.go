@@ -23,8 +23,24 @@ func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool
 		return
 	}
 
+	set := func(x, y int, clr color.Color) {
+		rgba := canvas.At(x, y).(color.RGBA)
+		n := clr.(color.RGBA)
+		r, g, b := int(n.R)*int(n.A)/255, int(n.G)*int(n.A)/255, int(n.B)*int(n.A)/255
+		r0, g0, b0 := int(rgba.R)*int(255-n.A)/255, int(rgba.G)*int(255-n.A)/255, int(rgba.B)*int(255-n.A)/255
+		c := func(a, b int) uint8 {
+			if a+b > 255 {
+				return 255
+			}
+			return uint8(a + b)
+		}
+
+		rgba.R, rgba.G, rgba.B = c(r, r0), c(g, g0), c(b, b0)
+		canvas.Set(x, y, rgba)
+	}
+
 	if length == 1 {
-		canvas.Set(x0, y0, startColor)
+		set(x0, y0, startColor)
 		return
 	}
 
@@ -44,21 +60,6 @@ func drawHVLine(canvas draw.Image, x0, y0 int, dir byte, length int, dotted bool
 			clr.R, clr.G, clr.B = ici(int(sr)+dr*k/(length-1)), ici(int(sg)+dg*k/(length-1)), ici(int(sb)+db*k/(length-1))
 		}
 		k++
-	}
-
-	set := func(x, y int, clr color.Color) {
-		rgba := canvas.At(x, y).(color.RGBA)
-		n := clr.(color.RGBA)
-		r, g, b := int(n.R)*int(n.A)/255, int(n.G)*int(n.A)/255, int(n.B)*int(n.A)/255
-		r0, g0, b0 := int(rgba.R)*int(255-n.A)/255, int(rgba.G)*int(255-n.A)/255, int(rgba.B)*int(255-n.A)/255
-		c := func(a, b int) uint8 {
-			if a+b > 255 {
-				return 255
-			}
-			return uint8(a + b)
-		}
-		rgba.R, rgba.G, rgba.B = c(r, r0), c(g, g0), c(b, b0)
-		canvas.Set(x, y, rgba)
 	}
 
 	switch dir {
@@ -240,12 +241,12 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 		for i := 0; i < minutes; i++ {
 			x, h2 := leftmargin+1+ln-fm-i*tick, 1+h+1+h+1
 			if i%xTickMinute != 0 && sub {
-				drawHVLine(canvas, x, margin-3, 's', h2+3, true, colorLightGray, colorLightGray)
+				drawHVLine(canvas, x, margin-2, 's', h2+2, true, colorLightGray, colorLightGray)
 				drawHVLine(canvas, x, margin+h2, 's', 1, false, colorLightGray, colorLightGray)
 			}
 
 			if i%xTickMinute == 0 && !sub {
-				drawHVLine(canvas, x, margin-3, 's', h2+3, true, colorGrid, colorGrid)
+				drawHVLine(canvas, x, margin-2, 's', h2+2, true, colorGrid, colorGrid)
 				drawHVLine(canvas, x, margin+h2, 's', 2, false, colorGrid, colorGrid)
 			}
 		}

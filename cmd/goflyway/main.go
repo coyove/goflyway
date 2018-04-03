@@ -471,6 +471,6 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 			lib.PrintInErr("\n")
 		}
 		lib.PrintInErr("* completed in ",
-			strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64), "s")
+			strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64), "s\n")
 	}
 }

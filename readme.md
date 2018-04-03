@@ -1,15 +1,14 @@
-# goflyway, HTTP tunnel in Go
+# goflyway, transferring data via remote server
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
 goflyway is an end-to-end encrypted HTTP/SOCKS5 proxy client/server written in golang, featuring:
 
-1. TCP tunneling (opt. WebSocket relay)
-2. TCP multiplexer
-3. Man-in-the-middle proxy
-4. UDP over TCP
-5. Shadowsocks ACL rules compatibility
-6. Server-side HTTP reverse proxy
+1. TCP tunneling / UDP over TCP tunneling
+2. Websocket relay and/or TCP multiplexer
+3. Man-in-the-middle proxy and traffic logger
+4. Client-side simple curl-like commands for testing
+5. Server-side HTTP reverse proxy
 
 For more info, please refer to the following links.
 
@@ -17,4 +16,4 @@ For more info, please refer to the following links.
 
 ## Android Client
 
-[shadowsocks-android](https://github.com/shadowsocks/shadowsocks-android/) is an Android client for shadowsocks. By replacing the native libss-local.so in /lib with goflyway's executable, we borrow its frontend to run our proxy on Android. Check this [wiki](https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF) for details.
+Check this [wiki](https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF) for details.
