@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	_url "net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -32,13 +33,14 @@ var (
 	cmdDebug = flag.Bool("debug", false, "turn on debug mode")
 
 	// General flags
-	cmdConfig    = flag.String("c", "", "[SC] config file path")
-	cmdLogLevel  = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
-	cmdLogFile   = flag.String("lf", "", "[SC] log to file")
-	cmdAuth      = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
-	cmdKey       = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
-	cmdLocal     = flag.String("l", ":8100", "[SC] local listening address")
-	cmdCloseConn = flag.Int64("t", 20, "[SC] close connections when they go idle for at least N sec")
+	cmdConfig   = flag.String("c", "", "[SC] config file path")
+	cmdLogLevel = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
+	cmdLogFile  = flag.String("lf", "", "[SC] log to file")
+	cmdAuth     = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
+	cmdKey      = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
+	cmdLocal    = flag.String("l", ":8100", "[SC] local listening address")
+	cmdTimeout  = flag.Int64("t", 20, "[SC] close connections when they go idle for at least N sec")
+	cmdSection  = flag.String("y", "default", "[SC] section to read in the config")
 
 	// Server flags
 	cmdThrot     = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
@@ -61,11 +63,13 @@ var (
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
 	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
 	cmdRemote     = flag.Bool("remote", false, "[C] get config setup from the upstream")
-	cmdVerbose    = flag.Bool("v", false, "[Cu] verbose output")
-	cmdForm       = flag.String("F", "", "[Cu] post form")
-	cmdHeaders    = flag.String("H", "", "[Cu] headers")
-	cmdCookie     = flag.String("C", "", "[Cu] cookies")
-	cmdMultipart  = flag.Bool("M", false, "[Cu] multipart")
+
+	// curl flags
+	cmdVerbose   = flag.Bool("v", false, "[Cu] verbose output")
+	cmdForm      = flag.String("F", "", "[Cu] post form")
+	cmdHeaders   = flag.String("H", "", "[Cu] headers")
+	cmdCookie    = flag.String("C", "", "[Cu] cookies")
+	cmdMultipart = flag.Bool("M", false, "[Cu] multipart")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -80,6 +84,14 @@ var (
 func loadConfig() {
 	path := *cmdConfig
 	if path == "" {
+		if runtime.GOOS == "windows" {
+			path = os.Getenv("USERPROFILE") + "/gfw.conf"
+		} else {
+			path = os.Getenv("HOME") + "/gfw.conf"
+		}
+	}
+
+	if _, err := os.Stat(path); err != nil {
 		return
 	}
 
@@ -115,27 +127,40 @@ func loadConfig() {
 		return
 	}
 
-	*cmdKey = cf.GetString("default", "password", *cmdKey)
-	*cmdAuth = cf.GetString("default", "auth", *cmdAuth)
-	*cmdLocal = cf.GetString("default", "listen", *cmdLocal)
-	*cmdUpstream = cf.GetString("default", "upstream", *cmdUpstream)
-	*cmdDiableUDP = cf.GetBool("default", "disableudp", *cmdDiableUDP)
-	*cmdUDPonTCP = cf.GetInt("default", "udptcp", *cmdUDPonTCP)
-	*cmdGlobal = cf.GetBool("default", "global", *cmdGlobal)
-	*cmdACL = cf.GetString("default", "acl", *cmdACL)
-	*cmdPartial = cf.GetBool("default", "partial", *cmdPartial)
-
-	*cmdProxyPass = cf.GetString("misc", "proxypass", *cmdProxyPass)
-	*cmdWebConPort = cf.GetInt("misc", "webconport", *cmdWebConPort)
-	*cmdDNSCache = cf.GetInt("misc", "dnscache", *cmdDNSCache)
-	*cmdWSCBClose = cf.GetInt("misc", "wscbtimeout", *cmdWSCBClose)
-	*cmdMux = cf.GetInt("misc", "mux", *cmdMux)
-	*cmdLogLevel = cf.GetString("misc", "loglevel", *cmdLogLevel)
-	*cmdLogFile = cf.GetString("misc", "logfile", *cmdLogFile)
-	*cmdThrot = cf.GetInt("misc", "throt", *cmdThrot)
-	*cmdThrotMax = cf.GetInt("misc", "throtmax", *cmdThrotMax)
-	*cmdWSCB = cf.GetBool("misc", "wscb", *cmdWSCB)
-	*cmdCloseConn = cf.GetInt("misc", "closeconn", *cmdCloseConn)
+	lib.Println("* reading config section:", *cmdSection)
+	func(args ...interface{}) {
+		for i := 0; i < len(args); i += 2 {
+			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f.(type) {
+			case *string:
+				*f.(*string) = cf.GetString(*cmdSection, name, *f.(*string))
+			case *int64:
+				*f.(*int64) = cf.GetInt(*cmdSection, name, *f.(*int64))
+			case *bool:
+				*f.(*bool) = cf.GetBool(*cmdSection, name, *f.(*bool))
+			}
+		}
+	}(
+		"password   ", cmdKey,
+		"auth       ", cmdAuth,
+		"listen     ", cmdLocal,
+		"upstream   ", cmdUpstream,
+		"disableudp ", cmdDiableUDP,
+		"udptcp     ", cmdUDPonTCP,
+		"global     ", cmdGlobal,
+		"acl        ", cmdACL,
+		"partial    ", cmdPartial,
+		"wscb       ", cmdWSCB,
+		"timeout    ", cmdTimeout,
+		"mux        ", cmdMux,
+		"proxypass  ", cmdProxyPass,
+		"webconport ", cmdWebConPort,
+		"dnscache   ", cmdDNSCache,
+		"wscbtimeout", cmdWSCBClose,
+		"loglevel   ", cmdLogLevel,
+		"logfile    ", cmdLogFile,
+		"throt      ", cmdThrot,
+		"throtmax   ", cmdThrotMax,
+	)
 }
 
 func main() {
@@ -266,8 +291,8 @@ func main() {
 		return
 	}
 
-	if *cmdCloseConn > 0 {
-		cipher.IO.StartPurgeConns(int(*cmdCloseConn))
+	if *cmdTimeout > 0 {
+		cipher.IO.StartPurgeConns(int(*cmdTimeout))
 	}
 
 	var localaddr string
@@ -466,6 +491,9 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		lib.Println("* redirect:", location)
 		curl(client, method, location, cookies)
 	} else {
+		respbuf, _ := httputil.DumpResponse(r.Result(), false)
+		lib.Println("*", string(respbuf), "\n")
+
 		io.Copy(os.Stdout, r.Body)
 		if totalBytes > 0 {
 			lib.PrintInErr("\n")

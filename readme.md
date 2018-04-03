@@ -2,11 +2,11 @@
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
-goflyway is an end-to-end encrypted HTTP/SOCKS5 proxy client/server written in golang, featuring:
+goflyway is a handy tool that uses remote servers to transfer data with encryption, featuring:
 
 1. TCP tunneling / UDP over TCP tunneling
 2. Websocket relay and/or TCP multiplexer
-3. Man-in-the-middle proxy and traffic logger
+3. MITM proxy and traffic logger
 4. Client-side simple curl-like commands for testing
 5. Server-side HTTP reverse proxy
 
