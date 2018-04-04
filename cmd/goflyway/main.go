@@ -313,7 +313,6 @@ func main() {
 				logg.F("can't get remote config")
 			}
 
-			client.Listener.Close()
 			parseUpstream(cc, cm)
 			client = proxy.NewClient(localaddr, cc)
 		}
