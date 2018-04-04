@@ -3,7 +3,6 @@ package main
 import (
 	"compress/gzip"
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -65,11 +64,12 @@ var (
 	cmdRemote     = flag.Bool("remote", false, "[C] get config setup from the upstream")
 
 	// curl flags
-	cmdVerbose   = flag.Bool("v", false, "[Cu] verbose output")
-	cmdForm      = flag.String("F", "", "[Cu] post form")
-	cmdHeaders   = flag.String("H", "", "[Cu] headers")
-	cmdCookie    = flag.String("C", "", "[Cu] cookies")
-	cmdMultipart = flag.Bool("M", false, "[Cu] multipart")
+	cmdVerbose    = flag.Bool("v", false, "[Cu] verbose output")
+	cmdForm       = flag.String("F", "", "[Cu] post form")
+	cmdHeaders    = flag.String("H", "", "[Cu] headers")
+	cmdCookie     = flag.String("C", "", "[Cu] cookies")
+	cmdMultipart  = flag.Bool("M", false, "[Cu] multipart")
+	cmdPrettyJSON = flag.Bool("pj", true, "[Cu] JSON pretty output")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "server listening address")
@@ -458,7 +458,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	r = lib.NewRecorder(func(bytes int64) {
 		totalBytes += bytes
 		length, _ := strconv.ParseInt(r.HeaderMap.Get("Content-Length"), 10, 64)
-		lib.PrintInErr("\r* copy body: ", lib.PrettySize(totalBytes), " / ", lib.PrettySize(length))
+		lib.PrintInErr("\r* copy body: ", lib.PrettySize(totalBytes), " / ", lib.PrettySize(length), " ")
 	})
 
 	client.ServeHTTP(r, req)
@@ -494,10 +494,12 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		respbuf, _ := httputil.DumpResponse(r.Result(), false)
 		lib.Println("*", string(respbuf), "\n")
 
-		io.Copy(os.Stdout, r.Body)
+		lib.IOCopy(os.Stdout, r, *cmdPrettyJSON)
+
 		if totalBytes > 0 {
 			lib.PrintInErr("\n")
 		}
+
 		lib.PrintInErr("* completed in ",
 			strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64), "s\n")
 	}

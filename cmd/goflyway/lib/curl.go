@@ -1,7 +1,9 @@
 package lib
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -90,6 +92,26 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		return pairs, nil
 	}
 
+	if strings.HasPrefix(post, "@@") {
+		f, err := os.Open(post[2:])
+		if err != nil {
+			return err
+		}
+
+		buf := bufio.NewReader(f)
+		line, _ := buf.Peek(256)
+
+		if multipartPOST {
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+
+		} else if req.Method == "POST" {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+
+		req.Body = ioutil.NopCloser(buf)
+		return nil
+	}
+
 	ppost, err := parse(post)
 	if err != nil {
 		return err
@@ -123,12 +145,21 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Body = ioutil.NopCloser(buf)
 	} else {
-		form := _url.Values{}
-		for _, kv := range ppost {
-			form.Add(kv[0], kv[1])
+		if req.Method == "POST" {
+			form := _url.Values{}
+			for _, kv := range ppost {
+				form.Add(kv[0], kv[1])
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Body = ioutil.NopCloser(strings.NewReader(form.Encode()))
+		} else {
+			form := req.URL.Query()
+			for _, kv := range ppost {
+				form.Add(kv[0], kv[1])
+			}
+			req.URL.RawQuery = form.Encode()
+			req.RequestURI = req.URL.String()
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Body = ioutil.NopCloser(strings.NewReader(form.Encode()))
 	}
 
 	pform, err := parse(headers)
@@ -147,6 +178,17 @@ func ParseSetCookies(headers http.Header) []*http.Cookie {
 	var dummy http.Response
 	dummy.Header = headers
 	return dummy.Cookies()
+}
+
+func IOCopy(w io.Writer, r *ResponseRecorder, reformatJSON bool) {
+	if r.HeaderMap.Get("Content-Type") == "application/json" || reformatJSON {
+		buf, bufsrc := &bytes.Buffer{}, &bytes.Buffer{}
+		io.Copy(bufsrc, r.Body)
+		json.Indent(buf, bufsrc.Bytes(), "", "  ")
+		w.Write(buf.Bytes())
+	} else {
+		io.Copy(w, r.Body)
+	}
 }
 
 type readerProgress struct {
