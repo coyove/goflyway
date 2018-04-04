@@ -1,6 +1,7 @@
 # goflyway, transferring data via remote server
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
+[![Gitter chat](https://badges.gitter.im/gitterHQ/gitter.png)](https://gitter.im/goflyway/Lobby)
 
 goflyway is a handy tool that uses remote servers to transfer data with encryption, featuring:
 

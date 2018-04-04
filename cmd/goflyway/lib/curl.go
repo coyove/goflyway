@@ -99,13 +99,17 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		}
 
 		buf := bufio.NewReader(f)
-		line, _ := buf.Peek(256)
 
 		if multipartPOST {
-			req.Header.Set("Content-Type", mw.FormDataContentType())
-
+			line, _ := buf.Peek(256)
+			if idx := bytes.IndexByte(line, '\n'); idx > -1 {
+				ct := strings.Replace(string(line[:idx]), "\r", "", -1)
+				req.Header.Set("Content-Type", ct)
+			}
+			req.Header.Set("Content-Length", "0")
 		} else if req.Method == "POST" {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Content-Length", "0")
 		}
 
 		req.Body = ioutil.NopCloser(buf)
@@ -143,6 +147,7 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 
 		mw.Close()
 		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.Header.Set("Content-Length", "0")
 		req.Body = ioutil.NopCloser(buf)
 	} else {
 		if req.Method == "POST" {
@@ -150,8 +155,11 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 			for _, kv := range ppost {
 				form.Add(kv[0], kv[1])
 			}
+
+			x := form.Encode()
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.Body = ioutil.NopCloser(strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Length", strconv.Itoa(len(x)))
+			req.Body = ioutil.NopCloser(strings.NewReader(x))
 		} else {
 			form := req.URL.Query()
 			for _, kv := range ppost {
@@ -162,12 +170,12 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		}
 	}
 
-	pform, err := parse(headers)
+	pheader, err := parse(headers)
 	if err != nil {
 		return err
 	}
 
-	for _, kv := range pform {
+	for _, kv := range pheader {
 		req.Header.Add(kv[0], kv[1])
 	}
 
@@ -190,6 +198,12 @@ func IOCopy(w io.Writer, r *ResponseRecorder, reformatJSON bool) {
 		io.Copy(w, r.Body)
 	}
 }
+
+type NullReader struct{}
+
+func (r *NullReader) Read(p []byte) (int, error) { return 0, io.EOF }
+
+func (r *NullReader) Close() error { return nil }
 
 type readerProgress struct {
 	r        io.ReadCloser
