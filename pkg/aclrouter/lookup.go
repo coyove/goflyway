@@ -141,7 +141,14 @@ func loadChinaList(buf []byte) (*ACL, error) {
 				// end
 				top[subs[0]] = 0
 			} else {
-				top = top[subs[i]].(matchTree)
+				it := top[subs[i]]
+				switch it.(type) {
+				case int:
+					top[subs[i]] = make(matchTree)
+					top = top[subs[i]].(matchTree)
+				case matchTree:
+					top = it.(matchTree)
+				}
 			}
 		}
 	}

@@ -4,6 +4,7 @@ launch.json
 *.exe
 *.dll
 *.a
+.vscode
 build/
 .DS_Store
 
