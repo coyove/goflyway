@@ -519,6 +519,14 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	}
 }
 
+func (proxy *ProxyClient) Bridge(down net.Conn, host string) {
+	if proxy.Policy.IsSet(PolicyWebSocket) {
+		proxy.dialUpstreamAndBridgeWS(down, host, nil, 0, 0)
+	} else {
+		proxy.dialUpstreamAndBridge(down, host, nil, 0, 0)
+	}
+}
+
 func (proxy *ProxyClient) Start() error {
 	mux, err := net.ListenTCP("tcp", proxy.addr)
 	if err != nil {

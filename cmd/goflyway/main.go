@@ -57,7 +57,8 @@ var (
 	cmdWebConPort = flag.Int64("web-port", 65536, "[C] web console listening port, 0 to disable, 65536 to auto select")
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
-	cmdVPN        = flag.Bool("vpn", false, "[C] vpn mode, used on Android only")
+	cmdVPN        = flag.Bool("vpn", false, "[C] VPN mode, used on Android only")
+	cmdBind       = flag.String("bind", "", "[C] bind to address")
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
 	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
@@ -160,6 +161,7 @@ func loadConfig() {
 		"logfile    ", cmdLogFile,
 		"throt      ", cmdThrot,
 		"throtmax   ", cmdThrotMax,
+		"bind       ", cmdBind,
 	)
 }
 
@@ -319,6 +321,21 @@ func main() {
 
 		if method != "" {
 			curl(client, method, url, nil)
+		} else if *cmdBind != "" {
+			lib.Println("bind", localaddr, "to", *cmdBind)
+			ln, err := net.Listen("tcp", localaddr)
+			if err != nil {
+				logg.F(err)
+			}
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					logg.E(err)
+					continue
+				}
+				logg.L("bridge ", conn.LocalAddr().String(), " to ", *cmdBind)
+				client.Bridge(conn, *cmdBind)
+			}
 		} else {
 			if *cmdWebConPort != 0 {
 				go func() {
