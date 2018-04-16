@@ -38,7 +38,7 @@ var (
 	cmdAuth     = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
 	cmdKey      = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
 	cmdLocal    = flag.String("l", ":8100", "[SC] local listening address")
-	cmdTimeout  = flag.Int64("t", 20, "[SC] close connections when they go idle for at least N sec")
+	cmdTimeout  = flag.Int64("t", 20, "[SC] connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "default", "[SC] section to read in the config")
 
 	// Server flags
