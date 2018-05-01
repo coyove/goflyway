@@ -3,9 +3,9 @@ package proxy
 import (
 	"fmt"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/rand"
 	"github.com/coyove/goflyway/pkg/msg64"
-	"github.com/coyove/goflyway/pkg/rand"
 
 	"crypto/aes"
 	"crypto/cipher"

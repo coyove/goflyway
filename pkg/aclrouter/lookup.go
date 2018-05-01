@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/coyove/goflyway/pkg/config"
+	"github.com/coyove/common/config"
 )
 
 type matchTree map[string]interface{}

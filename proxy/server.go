@@ -8,8 +8,8 @@ import (
 	"encoding/base64"
 	"sync"
 
-	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lru"
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/lru"
 	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/tcpmux"
 

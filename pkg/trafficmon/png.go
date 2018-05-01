@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coyove/goflyway/pkg/dejavu"
+	"github.com/coyove/common/dejavu"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/coyove/goflyway/pkg/rand"
+	"github.com/coyove/common/rand"
 )
 
 var crc16Table [256]uint16

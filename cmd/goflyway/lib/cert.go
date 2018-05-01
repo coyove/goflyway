@@ -11,7 +11,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
 )
 
 var caCert = []byte(`-----BEGIN CERTIFICATE-----

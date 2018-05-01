@@ -5,7 +5,7 @@ import (
 
 	"github.com/coyove/goflyway/pkg/aclrouter"
 
-	"github.com/coyove/goflyway/pkg/lru"
+	"github.com/coyove/common/lru"
 	pp "github.com/coyove/goflyway/proxy"
 
 	"bytes"

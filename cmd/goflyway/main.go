@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/coyove/common/config"
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/lru"
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/aclrouter"
-	"github.com/coyove/goflyway/pkg/config"
-	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/goflyway/proxy"
 
 	"flag"

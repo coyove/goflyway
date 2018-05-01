@@ -3,7 +3,7 @@ package proxy
 import (
 	"time"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
 	"github.com/coyove/tcpmux"
 
 	"io"

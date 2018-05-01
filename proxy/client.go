@@ -6,9 +6,9 @@ import (
 
 	"github.com/coyove/goflyway/pkg/msg64"
 
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/lru"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
-	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/lru"
 	"github.com/coyove/tcpmux"
 
 	"bytes"

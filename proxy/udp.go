@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
 
 	"encoding/binary"
 	"io"

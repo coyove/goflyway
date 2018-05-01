@@ -5,8 +5,8 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/coyove/common/logg"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
-	"github.com/coyove/goflyway/pkg/logg"
 )
 
 const (

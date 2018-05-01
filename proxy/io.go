@@ -12,8 +12,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/coyove/goflyway/pkg/logg"
-	"github.com/coyove/goflyway/pkg/rand"
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/rand"
 	"github.com/coyove/goflyway/pkg/trafficmon"
 	"github.com/coyove/tcpmux"
 )

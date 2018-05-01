@@ -8,7 +8,7 @@ import (
 	"net/http/httputil"
 	"sync/atomic"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
 
 	"bufio"
 	"crypto/ecdsa"

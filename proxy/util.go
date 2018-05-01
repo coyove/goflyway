@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/coyove/goflyway/pkg/logg"
+	"github.com/coyove/common/logg"
 	"github.com/coyove/goflyway/pkg/msg64"
 
 	"crypto/tls"
