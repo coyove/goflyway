@@ -129,7 +129,7 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.RGBA{0xf3, 0xf3, 0xf3, 0xff}), image.Point{0, 0}, draw.Over)
-	draw.Draw(canvas, image.Rect(leftmargin, margin, leftmargin+1+ln, margin+h*2+3), image.White, image.Point{0, 0}, draw.Over)
+	draw.Draw(canvas, image.Rect(leftmargin, margin+1+1, leftmargin+1+ln, margin+1+h+1+h+1), image.White, image.Point{0, 0}, draw.Over)
 
 	drawYLabel := func(text string, y int) {
 		dejavu.DrawText(canvas, text, leftmargin-5-len(text)*dejavu.Width, y+dejavu.Height/2, image.Black)
@@ -176,11 +176,11 @@ func (s *Survey) PNG(h int, wScale int, xTickMinute int, extra string) *bytes.Bu
 				sh := int(data[i] * k)
 
 				for s := 0; s < wScale; s++ {
-					dir := byte('n')
 					if reverse {
-						dir = 's'
+						drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1+1, 's', sh, false, clr2, clr)
+					} else {
+						drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1, 'n', sh, false, clr2, clr)
 					}
-					drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h+1+1, dir, sh, false, clr2, clr)
 				}
 			}
 		}
