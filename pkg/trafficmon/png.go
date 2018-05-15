@@ -109,7 +109,8 @@ var (
 	colorGrid      = color.RGBA{207, 0, 0, 64}
 )
 
-func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.Buffer {
+// PNG xScale should be an even number
+func (s *Survey) PNG(h0 int, xScale int, xTickMinute int, xTickSubMinute int, extra string) *bytes.Buffer {
 	_, savg, smax := s.sent.Range()
 	_, ravg, rmax := s.recved.Range()
 
@@ -119,7 +120,7 @@ func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.B
 	}
 	leftmargin += margin / 2
 
-	ln := len(s.sent.data) * wScale
+	ln := len(s.sent.data) * xScale
 	width := leftmargin + 1 + ln + 1 + margin
 	lineHeight := dejavu.FullHeight + 2
 	height := margin + 1 + h0 + 1 + 1 + margin + 5*lineHeight + margin
@@ -161,7 +162,7 @@ func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.B
 	formatTime := func(minute int) string { return time.Unix(now.Unix()-int64(minute)*60, 0).Format("15:04") }
 	fm := int(float64(tick*now.Second()) / 60)
 
-	for i := xTickMinute * wScale; i < minutes-xTickMinute; i += xTickMinute * wScale {
+	for i := xTickMinute * xScale; i < minutes-xTickMinute; i += xTickMinute * xScale {
 		x := leftmargin + 1 + ln - fm - i*tick
 		t := formatTime(i)
 		if x < leftmargin+1+len(t)*dejavu.Width*3/2 {
@@ -187,11 +188,11 @@ func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.B
 			for i := 0; i < len(data); i++ {
 				sh := int(data[i] * k)
 
-				for s := 0; s < wScale; s++ {
+				for s := 0; s < xScale; s++ {
 					if reverse {
-						drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h1+1+1, 's', sh, false, clr2, clr)
+						drawHVLine(canvas, leftmargin+ln-i*xScale-s, margin+h1+1+1, 's', sh, false, clr2, clr)
 					} else {
-						drawHVLine(canvas, leftmargin+ln-i*wScale-s, margin+h1+1, 'n', sh, false, clr2, clr)
+						drawHVLine(canvas, leftmargin+ln-i*xScale-s, margin+h1+1, 'n', sh, false, clr2, clr)
 					}
 				}
 			}
@@ -250,10 +251,12 @@ func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.B
 	}
 
 	_drawVGrid := func(sub bool) {
-		xt := xTickMinute * wScale
+		xt := xTickMinute * xScale
+		xst := xTickSubMinute * xScale
+
 		for i := 0; i < minutes; i++ {
 			x, h2 := leftmargin+1+ln-fm-i*tick, 1+h0+1+1
-			if i%xt != 0 && sub {
+			if i%xt != 0 && i%xst == 0 && sub {
 				drawHVLine(canvas, x, margin-1, 's', h2+2, true, colorLightGray, colorLightGray)
 				drawHVLine(canvas, x, margin+h2, 's', 1, false, colorLightGray, colorLightGray)
 			}
