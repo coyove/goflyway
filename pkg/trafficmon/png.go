@@ -152,7 +152,7 @@ func (s *Survey) PNG(h0 int, wScale int, xTickMinute int, extra string) *bytes.B
 		dejavu.DrawText(canvas, text, x, y, image.Black)
 	}
 
-	minutes := len(s.sent.data) / (60 / s.sent.interval)
+	minutes := len(s.sent.data) * s.sent.interval / 60
 	tick := ln / minutes
 
 	now := time.Now()
