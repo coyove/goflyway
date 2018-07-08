@@ -18,3 +18,4 @@ For more info, please refer to the following links.
 ## Android Client
 
 Check this [wiki](https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF) for details.
+Here is also [another android client](https://github.com/koolwiki/goflyway_android).
