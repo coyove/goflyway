@@ -364,7 +364,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 
 		cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(upstream)
 
-		switch true {
+		switch {
 		case cf:
 			lib.Println("connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
 			cc.DummyDomain = cc.Upstream
@@ -378,7 +378,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 			lib.Println("use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
 		}
 
-		switch true {
+		switch {
 		case fwdws, cf, ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
 			lib.Println("use WebSocket protocol to transfer data")
