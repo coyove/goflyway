@@ -55,11 +55,10 @@ func GetLevel() int {
 }
 
 func Redirect(dst interface{}) {
-	switch dst.(type) {
+	switch fn := dst.(type) {
 	case func(int64, string):
-		logCallback = dst.(func(int64, string))
+		logCallback = fn
 	case string:
-		fn := dst.(string)
 		if fn[0] == '*' {
 			fn = fn[1:]
 			logFileOnly = false
@@ -134,22 +133,18 @@ func print(l string, params ...interface{}) {
 	m := msg_t{lead: fmt.Sprintf("[%s%s:%s(%d)] ", l, timestamp(), trunc(fn), line), ts: time.Now().UnixNano()}
 
 	for _, p := range params {
-		switch p.(type) {
+		switch op := p.(type) {
 		case *net.OpError:
-			op := p.(*net.OpError)
-
 			if op.Source == nil && op.Addr == nil {
-				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(p))
+				m.message += fmt.Sprintf("%s, %s", op.Op, tryShortenWSAError(op))
 			} else {
-				m.message += fmt.Sprintf("%s %v, %s", op.Op, op.Addr, tryShortenWSAError(p))
+				m.message += fmt.Sprintf("%s %v, %s", op.Op, op.Addr, tryShortenWSAError(op))
 
 				if op.Source != nil && op.Addr != nil {
 					m.dst, _, _ = net.SplitHostPort(op.Addr.String())
 				}
 			}
 		case *net.DNSError:
-			op := p.(*net.DNSError)
-
 			if m.message += fmt.Sprintf("DNS lookup err"); op.IsTimeout {
 				m.message += ", timed out"
 			}
@@ -160,7 +155,7 @@ func print(l string, params ...interface{}) {
 				m.message += ", but with an empty name (?)"
 			}
 		default:
-			m.message += fmt.Sprintf("%+v", p)
+			m.message += fmt.Sprintf("%+v", op)
 		}
 	}
 

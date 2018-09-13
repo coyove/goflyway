@@ -146,11 +146,11 @@ func (lk *lookup) Match(domain string) bool {
 			return slowMatch()
 		}
 
-		switch top[sub].(type) {
+		switch sub := top[sub].(type) {
 		case matchTree:
-			top = top[sub].(matchTree)
+			top = sub
 		case int:
-			return top[sub].(int) == 0
+			return sub == 0
 		default:
 			return slowMatch()
 		}

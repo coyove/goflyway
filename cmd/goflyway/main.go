@@ -130,13 +130,13 @@ func loadConfig() {
 	lib.Println("reading config section:", *cmdSection)
 	func(args ...interface{}) {
 		for i := 0; i < len(args); i += 2 {
-			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f.(type) {
+			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f := f.(type) {
 			case *string:
-				*f.(*string) = cf.GetString(*cmdSection, name, *f.(*string))
+				*f = cf.GetString(*cmdSection, name, *f)
 			case *int64:
-				*f.(*int64) = cf.GetInt(*cmdSection, name, *f.(*int64))
+				*f = cf.GetInt(*cmdSection, name, *f)
 			case *bool:
-				*f.(*bool) = cf.GetBool(*cmdSection, name, *f.(*bool))
+				*f = cf.GetBool(*cmdSection, name, *f)
 			}
 		}
 	}(
