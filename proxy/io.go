@@ -160,6 +160,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	iot.started = true
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.idleTime = int64(maxIdleTime)
+	tcpmux.MasterTimeout = uint32(maxIdleTime)
 	iot.Tr.Init(20*60, trafficSurveyinterval) // 20 mins
 
 	go func() {
