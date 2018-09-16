@@ -50,8 +50,8 @@ const (
 const (
 	timeoutUDP          = 30 * time.Second
 	timeoutTCP          = 60 * time.Second
-	timeoutDial         = 5 * time.Second
-	timeoutOp           = 20 * time.Second
+	timeoutDial         = 60 * time.Second
+	timeoutOp           = 60 * time.Second
 	invalidRequestRetry = 10
 	dnsRespHeader       = "ETag"
 	errConnClosedMsg    = "use of closed network connection"

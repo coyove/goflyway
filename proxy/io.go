@@ -52,11 +52,11 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 	o.Role = roleRecv
 
 	if s, _ := target.(*tcpmux.Stream); s != nil {
-		s.SetTimeout(iot.idleTime)
+		s.SetInactiveTimeout(uint32(iot.idleTime))
 	}
 
 	if s, _ := source.(*tcpmux.Stream); s != nil {
-		s.SetTimeout(iot.idleTime)
+		s.SetInactiveTimeout(uint32(iot.idleTime))
 	}
 
 	exit := make(chan bool)

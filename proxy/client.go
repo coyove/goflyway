@@ -4,8 +4,6 @@ import (
 	"crypto/tls"
 	"os"
 
-	"github.com/coyove/goflyway/pkg/msg64"
-
 	"github.com/coyove/common/logg"
 	"github.com/coyove/common/lru"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
@@ -546,6 +544,8 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
+	tcpmux.HashSeed = config.Cipher.keyBuf
+
 	proxyURL := http.ProxyURL(upURL)
 	proxy := &ProxyClient{
 		pool: tcpmux.NewDialer(config.Upstream, config.Mux),
@@ -577,8 +577,6 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 			}
 		}
 	}
-
-	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil

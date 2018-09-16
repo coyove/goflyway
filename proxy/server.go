@@ -10,7 +10,6 @@ import (
 
 	"github.com/coyove/common/logg"
 	"github.com/coyove/common/lru"
-	"github.com/coyove/goflyway/pkg/msg64"
 	"github.com/coyove/tcpmux"
 
 	"net"
@@ -398,7 +397,7 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 
 	proxy.wsMapping.m = make(map[[ivLen]byte]*wsCallback)
 
-	tcpmux.Version = byte(msg64.Crc16b(0, []byte(config.Cipher.Alias))) | 0x80
+	tcpmux.HashSeed = config.Cipher.keyBuf
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
