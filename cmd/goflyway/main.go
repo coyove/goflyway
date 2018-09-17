@@ -28,25 +28,22 @@ import (
 var version = "__devel__"
 
 var (
-	cmdGenCA = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
-	cmdDebug = flag.Bool("debug", false, "Turn on debug mode")
 
 	// General flags
-	cmdConfig   = flag.String("c", "", "[SC] Config file path")
-	cmdLogLevel = flag.String("lv", "log", "[SC] Logging level: {dbg, log, warn, err, off}")
-	cmdLogFile  = flag.String("lf", "", "[SC] Log to file")
-	cmdAuth     = flag.String("a", "", "[SC] Proxy authentication, form: username:password (remember the colon)")
-	cmdKey      = flag.String("k", "0123456789abcdef", "[SC] Password, do not use the default one")
-	cmdLocal    = flag.String("l", ":8100", "[SC] Local listening address")
-	cmdTimeout  = flag.Int64("t", 20, "[SC] Connection timeout in seconds, 0 to disable")
-	cmdSection  = flag.String("y", "default", "[SC] Section to read in the config")
+	cmdConfig   = flag.String("c", "", "Config file path")
+	cmdLogLevel = flag.String("lv", "log", "Logging level: {dbg, log, warn, err, off}")
+	cmdLogFile  = flag.String("lf", "", "Log to file")
+	cmdAuth     = flag.String("a", "", "Proxy authentication, form: username:password (remember the colon)")
+	cmdKey      = flag.String("k", "0123456789abcdef", "Password, do not use the default one")
+	cmdLocal    = flag.String("l", ":8100", "Listening address")
+	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
+	cmdSection  = flag.String("y", "default", "Section to read in the config, 'cli' to disable")
 
 	// Server flags
 	cmdThrot     = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
 	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
 	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
 	cmdProxyPass = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
-	cmdWSCBClose = flag.Int64("wscb-timeout", 200, "[S] Timeout for WebSocket callback")
 	cmdAnswer    = flag.String("answer", "", "[S] Answer client config setup")
 
 	// Client flags
@@ -60,10 +57,10 @@ var (
 	cmdVPN        = flag.Bool("vpn", false, "[C] VPN mode, used on Android only")
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] Load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] Dump HTTPS requests to file")
-	cmdWSCB       = flag.Bool("wscb", false, "[C] Enable WebSocket callback in MITM")
 	cmdRemote     = flag.Bool("remote", false, "[C] Get config setup from the upstream")
 	cmdBind       = flag.String("bind", "", "[C] Bind to the address at server")
 	cmdLBind      = flag.String("lbind", "", "[C] Bind the local address to server")
+	cmdGenCA      = flag.Bool("gen-ca", false, "[C] Generate certificate (ca.pem) and private key (key.pem)")
 
 	// curl flags
 	cmdVerbose    = flag.Bool("v", false, "[Cu] verbose output")
@@ -103,14 +100,16 @@ func loadConfig() {
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		lib.Println("can't load config file:", err)
+		lib.Println("Can't load config file:", err)
 		return
 	}
 
 	if strings.Contains(path, "shadowsocks.conf") {
+		lib.Println("Read shadowsocks config")
+
 		cmds := make(map[string]interface{})
 		if err := json.Unmarshal(buf, &cmds); err != nil {
-			lib.Println("can't parse config file:", err)
+			lib.Println("Can't parse config file:", err)
 			return
 		}
 
@@ -129,7 +128,7 @@ func loadConfig() {
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		lib.Println("can't parse config file:", err)
+		lib.Println("Can't parse config file:", err)
 		return
 	}
 
@@ -155,18 +154,17 @@ func loadConfig() {
 		"global     ", cmdGlobal,
 		"acl        ", cmdACL,
 		"partial    ", cmdPartial,
-		"wscb       ", cmdWSCB,
 		"timeout    ", cmdTimeout,
 		"mux        ", cmdMux,
 		"proxypass  ", cmdProxyPass,
 		"webconport ", cmdWebConPort,
 		"dnscache   ", cmdDNSCache,
-		"wscbtimeout", cmdWSCBClose,
 		"loglevel   ", cmdLogLevel,
 		"logfile    ", cmdLogFile,
 		"throt      ", cmdThrot,
 		"throtmax   ", cmdThrotMax,
 		"bind       ", cmdBind,
+		"lbind      ", cmdLBind,
 	)
 }
 
@@ -178,7 +176,7 @@ func main() {
 	loadConfig()
 
 	if *cmdGenCA {
-		lib.Println("generating CA...")
+		lib.Println("Generating CA...")
 
 		cert, key, err := lib.GenCA("goflyway")
 		if err != nil {
@@ -188,24 +186,24 @@ func main() {
 
 		err1, err2 := ioutil.WriteFile("ca.pem", cert, 0755), ioutil.WriteFile("key.pem", key, 0755)
 		if err1 != nil || err2 != nil {
-			lib.Println("error ca.pem:", err1)
-			lib.Println("error key.pem:", err2)
+			lib.Println("Error ca.pem:", err1)
+			lib.Println("Error key.pem:", err2)
 			return
 		}
 
-		lib.Println("successfully generated ca.pem/key.pem, please leave them in the same directory with goflyway")
-		lib.Println("goflyway will automatically read them when launched")
+		lib.Println("Successfully generated ca.pem/key.pem, please leave them in the same directory with goflyway")
+		lib.Println("They will be automatically read when goflyway launched as client")
 		return
 	}
 
 	if *cmdUpstream != "" {
-		lib.Println("launched as client")
+		lib.Println("Launched as client")
 	} else {
-		lib.Println("launched as server (aka upstream)")
+		lib.Println("Launched as server (aka upstream)")
 	}
 
 	if *cmdKey == "0123456789abcdef" {
-		lib.Println("you are using the default password, it is recommended to change it: -k=<NEW PASSWORD>")
+		lib.Println("You are using the default password, please change it: -k=<NEW PASSWORD>")
 	}
 
 	cipher := &proxy.Cipher{Partial: *cmdPartial}
@@ -218,11 +216,11 @@ func main() {
 		lib.Println("TCP multiplexer enabled, limit:", *cmdMux)
 	}
 
-	if *cmdUpstream != "" || *cmdDebug {
+	if *cmdUpstream != "" {
 		acl, err := aclrouter.LoadACL(*cmdACL)
 		if err != nil {
-			lib.Println("failed to read ACL config (but it's fine, you can ignore this message)")
-			lib.Println("  err:", err)
+			lib.Println("Failed to read ACL config (but it's fine, you can ignore this message)")
+			lib.Println("  Err:", err)
 		}
 
 		for _, r := range acl.OmitRules {
@@ -242,12 +240,8 @@ func main() {
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
-			lib.Println("global proxy: goflyway will proxy everything except private IPs")
+			lib.Println("Global proxy: goflyway will proxy everything except private IPs")
 			cc.Policy.Set(proxy.PolicyGlobal)
-		}
-
-		if *cmdWSCB {
-			cc.Policy.Set(proxy.PolicyWSCB)
 		}
 
 		if *cmdVPN {
@@ -259,14 +253,13 @@ func main() {
 		}
 	}
 
-	if *cmdUpstream == "" || *cmdDebug {
+	if *cmdUpstream == "" {
 		sc = &proxy.ServerConfig{
 			Cipher:        cipher,
 			Throttling:    *cmdThrot,
 			ThrottlingMax: *cmdThrotMax,
 			ProxyPassAddr: *cmdProxyPass,
 			DisableUDP:    *cmdDiableUDP,
-			WSCBTimeout:   *cmdWSCBClose,
 			ClientAnswer:  *cmdAnswer,
 		}
 
@@ -279,25 +272,11 @@ func main() {
 
 	if *cmdLogFile != "" {
 		logg.Redirect(*cmdLogFile)
-		lib.Println("redirect log to", *cmdLogFile)
+		lib.Println("Redirect log to", *cmdLogFile)
 	}
 
 	logg.SetLevel(*cmdLogLevel)
 	logg.Start()
-
-	if *cmdDebug {
-		lib.Println("debug mode on")
-
-		cc.Upstream = "127.0.0.1:8101"
-		client := proxy.NewClient(":8100", cc)
-		go func() {
-			logg.F(client.Start())
-		}()
-
-		server := proxy.NewServer(":8101", sc)
-		logg.F(server.Start())
-		return
-	}
 
 	if *cmdTimeout > 0 {
 		cipher.IO.StartPurgeConns(int(*cmdTimeout))
@@ -315,10 +294,10 @@ func main() {
 		client := proxy.NewClient(localaddr, cc)
 
 		if *cmdRemote {
-			lib.Println("get config from the upstream")
+			lib.Println("Get config from the upstream")
 			cm := client.GetRemoteConfig()
 			if cm == "" {
-				logg.F("can't get remote config")
+				logg.F("Can't get remote config")
 			}
 
 			parseUpstream(cc, cm)
@@ -328,7 +307,7 @@ func main() {
 		if method != "" {
 			curl(client, method, url, nil)
 		} else if *cmdBind != "" {
-			lib.Println("bind", localaddr, "to", *cmdBind)
+			lib.Println("Bind", localaddr, "to", *cmdBind)
 			ln, err := net.Listen("tcp", localaddr)
 			if err != nil {
 				logg.F(err)
@@ -339,39 +318,38 @@ func main() {
 					logg.E(err)
 					continue
 				}
-				logg.L("bridge ", conn.LocalAddr().String(), " to ", *cmdBind)
+				logg.L("Bridge ", conn.LocalAddr().String(), " to ", *cmdBind)
 				client.Bridge(conn, *cmdBind)
 			}
 		} else {
-			if *cmdWebConPort != 0 {
-				go func() {
-					addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
-					if *cmdWebConPort == 65536 {
-						_addr, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
-						addr = fmt.Sprintf("127.0.0.1:%d", _addr.Port+10)
-					}
-
-					http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
-					lib.Println("access client web console at [", addr, "]")
-					logg.F(http.ListenAndServe(addr, nil))
-				}()
-			}
-
 			if *cmdLBind != "" {
 				lib.Println("Local reverse proxy", client.Cipher.Alias, "bind [", client.ClientConfig.LocalRPBind, "], upstream: [", client.Upstream, "]")
 				logg.F(client.StartLocalRP())
 			} else {
+				if *cmdWebConPort != 0 {
+					go func() {
+						addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
+						if *cmdWebConPort == 65536 {
+							_addr, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
+							addr = fmt.Sprintf("127.0.0.1:%d", _addr.Port+10)
+						}
+
+						http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
+						lib.Println("Access client web console at [", addr, "]")
+						logg.F(http.ListenAndServe(addr, nil))
+					}()
+				}
 				lib.Println("Proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
 				logg.F(client.Start())
 			}
 		}
 	} else {
 		server := proxy.NewServer(localaddr, sc)
-		lib.Println("upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
+		lib.Println("Upstream", server.Cipher.Alias, "started at [", server.Localaddr, "]")
 		if strings.HasPrefix(sc.ProxyPassAddr, "http") {
-			lib.Println("alternatively act as a reverse proxy:", sc.ProxyPassAddr)
+			lib.Println("Alternatively act as a reverse proxy:", sc.ProxyPassAddr)
 		} else if sc.ProxyPassAddr != "" {
-			lib.Println("alternatively act as a file server:", sc.ProxyPassAddr)
+			lib.Println("Alternatively act as a file server:", sc.ProxyPassAddr)
 		}
 		logg.F(server.Start())
 	}
@@ -380,10 +358,10 @@ func main() {
 func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 	if is := func(in string) bool { return strings.HasPrefix(upstream, in) }; is("https://") {
 		cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(upstream)
-		lib.Println("use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
+		lib.Println("Use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
 
 		if cc.Mux > 0 {
-			logg.F("can't use an HTTPS proxy with TCP multiplexer")
+			logg.F("Can't use an HTTPS proxy with TCP multiplexer")
 		}
 
 	} else if gfw, http, ws, cf, fwd, fwdws :=
@@ -394,25 +372,25 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 
 		switch true {
 		case cf:
-			lib.Println("connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
+			lib.Println("Connect to the upstream [", cc.Upstream, "] hosted on cloudflare")
 			cc.DummyDomain = cc.Upstream
 		case fwdws, fwd:
 			if cc.URLHeader == "" {
 				cc.URLHeader = "X-Forwarded-Url"
 			}
-			lib.Println("forward request to [", cc.Upstream, "], store the true URL in [",
+			lib.Println("Forward request to [", cc.Upstream, "], store the true URL in [",
 				cc.URLHeader+": http://"+cc.DummyDomain+"/... ]")
 		case cc.DummyDomain != "":
-			lib.Println("use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
+			lib.Println("Use dummy host [", cc.DummyDomain, "] to connect [", cc.Upstream, "]")
 		}
 
 		switch true {
 		case fwdws, cf, ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
-			lib.Println("use WebSocket protocol to transfer data")
+			lib.Println("Use WebSocket protocol to transfer data")
 		case fwd, http:
 			cc.Policy.Set(proxy.PolicyMITM)
-			lib.Println("use MITM to intercept HTTPS (HTTP proxy mode only)")
+			lib.Println("Use MITM to intercept HTTPS (HTTP proxy mode only)")
 			cc.CA = lib.TryLoadCert()
 		}
 	}

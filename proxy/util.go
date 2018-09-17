@@ -45,7 +45,6 @@ const (
 	PolicyGlobal
 	PolicyVPN
 	PolicyWebSocket
-	PolicyWSCB
 )
 
 const (

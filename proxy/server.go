@@ -1,10 +1,7 @@
 package proxy
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/sha1"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -61,10 +58,6 @@ type ProxyUpstream struct {
 	tp        *http.Transport
 	rp        http.Handler
 	blacklist *lru.Cache
-	wsMapping struct {
-		sync.RWMutex
-		m map[[ivLen]byte]*wsCallback
-	}
 
 	localRP struct {
 		sync.Mutex
@@ -239,22 +232,22 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 
 	} else if cr.Opt.IsSet(doLocalRP) {
-		downstreamConn := proxy.hijack(w)
-		if downstreamConn == nil {
-			return
-		}
 		ioc := proxy.getIOConfig(cr.Auth)
 		ioc.Partial = cr.Opt.IsSet(doPartial)
+
 		if dst == "a" {
-			proxy.startLocalRPControlServer(downstreamConn, cr, ioc)
+			proxy.startLocalRPControlServer(proxy.hijack(w), cr, ioc)
 		} else if proxy.localRP.waiting != nil {
 			resp, ok := proxy.localRP.waiting[dst]
 			if !ok {
 				return
 			}
+
+			downstreamConn := proxy.hijack(w)
 			proxy.replyGood(downstreamConn, cr, ioc, r)
 			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, &cr.iv, ioc)
 			resp.req.callback <- resp
+			return
 		}
 	} else if cr.Opt.IsSet(doConnect) {
 		host := dst
@@ -313,39 +306,6 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
 
-		if cr.WSToken != "" {
-			token, _ := base64.StdEncoding.DecodeString(cr.WSToken)
-			tokenIV := [ivLen]byte{}
-			copy(tokenIV[:], token)
-
-			proxy.wsMapping.RLock()
-			m := proxy.wsMapping.m[tokenIV]
-			proxy.wsMapping.RUnlock()
-
-			// logg.E(cr.WSToken, " ", m)
-			if m != nil {
-				switch cr.WSCallback {
-				case 'b':
-					m.Lock()
-					w.WriteHeader(200)
-					if nr, err := proxy.Cipher.IO.Copy(w, bytes.NewReader(m.rBuf), &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-						logg.E("copy ", nr, " bytes: ", err)
-					}
-					m.rBuf = m.rBuf[0:0]
-					m.Unlock()
-				case 'c':
-					w.WriteHeader(200)
-					if nr, err := proxy.Cipher.IO.Copy(m.conn, r.Body, &cr.iv, IOConfig{}); err != nil {
-						logg.E("copy ", nr, " bytes: ", err)
-					}
-				}
-			} else {
-				w.WriteHeader(404)
-			}
-
-			return
-		}
-
 		r.URL, err = url.Parse(dst)
 		if err != nil {
 			replySomething()
@@ -357,86 +317,25 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		logg.D(r.Method, " ", r.URL.String())
 
-		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
-			respErr := func(err error) {
-				logg.E(err)
-				proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
-			}
-
-			reqbuf, err := httputil.DumpRequestOut(r, false)
-			if err != nil {
-				respErr(err)
-				return
-			}
-
-			host, port := splitHostPort(r.Host)
-			if port == "" {
-				port = ":443"
-			}
-
-			conn, err := tls.Dial("tcp", host+port, tlsSkip)
-			if err != nil {
-				respErr(err)
-				return
-			}
-
-			rd := bufio.NewReader(conn)
-			conn.Write(reqbuf)
-			resp, err := http.ReadResponse(rd, r)
-			if err != nil {
-				respErr(err)
-				return
-			}
-
-			copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
-			w.WriteHeader(resp.StatusCode)
-
-			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-				logg.E("copy ", nr, " bytes: ", err)
-			}
-
-			tryClose(resp.Body)
-
-			proxy.wsMapping.Lock()
-			proxy.wsMapping.m[cr.iv] = &wsCallback{conn: conn}
-			proxy.wsMapping.Unlock()
-
-			go func() {
-				for {
-					frame, err := wsReadFrame(conn)
-					if err != nil {
-						if !isClosedConnErr(err) {
-							logg.E(err)
-						}
-						break
-					}
-
-					proxy.wsMapping.RLock()
-					proxy.wsMapping.m[cr.iv].Write(frame)
-					proxy.wsMapping.RUnlock()
-				}
-			}()
-		} else {
-			resp, err := proxy.tp.RoundTrip(r)
-			if err != nil {
-				logg.E("HTTP forward: ", r.URL, ", ", err)
-				proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
-				return
-			}
-
-			if resp.StatusCode >= 400 {
-				logg.D("[", resp.Status, "] - ", r.URL)
-			}
-
-			copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
-			w.WriteHeader(resp.StatusCode)
-
-			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-				logg.E("copy ", nr, " bytes: ", err)
-			}
-
-			tryClose(resp.Body)
+		resp, err := proxy.tp.RoundTrip(r)
+		if err != nil {
+			logg.E("HTTP forward: ", r.URL, ", ", err)
+			proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
+			return
 		}
+
+		if resp.StatusCode >= 400 {
+			logg.D("[", resp.Status, "] - ", r.URL)
+		}
+
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
+		w.WriteHeader(resp.StatusCode)
+
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
+			logg.E("copy ", nr, " bytes: ", err)
+		}
+
+		tryClose(resp.Body)
 	} else {
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
@@ -451,20 +350,6 @@ func (proxy *ProxyUpstream) Start() (err error) {
 
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
-	go func() {
-		for tick := range time.Tick(time.Second) {
-			proxy.wsMapping.Lock()
-			ts := tick.UnixNano()
-			for k, ws := range proxy.wsMapping.m {
-				if ws.last != 0 && (ts-ws.last)/1e9 > proxy.WSCBTimeout {
-					ws.conn.Close()
-					delete(proxy.wsMapping.m, k)
-				}
-			}
-			proxy.wsMapping.Unlock()
-		}
-	}()
-
 	return http.Serve(proxy.Listener, proxy)
 }
 
@@ -475,8 +360,6 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 		ServerConfig: config,
 		blacklist:    lru.NewCache(128),
 	}
-
-	proxy.wsMapping.m = make(map[[ivLen]byte]*wsCallback)
 
 	tcpmux.HashSeed = config.Cipher.keyBuf
 
@@ -568,23 +451,9 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 		proxy.localRP.Lock()
 		if proxy.localRP.downstream == downstream {
 			proxy.localRP.downstream = nil
+			proxy.localRP.waiting = nil
 		}
 		proxy.localRP.Unlock()
 		downstream.Close()
 	}()
-}
-
-type wsCallback struct {
-	sync.Mutex
-	last int64
-	conn net.Conn
-	rBuf []byte
-}
-
-func (w *wsCallback) Write(buf []byte) (n int, err error) {
-	w.last = time.Now().UnixNano()
-	w.Lock()
-	w.rBuf = append(w.rBuf, buf...)
-	w.Unlock()
-	return len(buf), nil
 }

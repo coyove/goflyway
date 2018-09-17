@@ -1,8 +1,6 @@
 package proxy
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net/http/httputil"
@@ -122,52 +120,8 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 		bufTLSClient := bufio.NewReader(tlsClient)
 
-		var wsToken string
-		var wsCallQueue *bytes.Buffer
-		var wsLastSend int64
-
 		for {
 			proxy.Cipher.IO.markActive(tlsClient, 0)
-
-			if wsToken != "" {
-				tlsClient.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-				frame, err := wsReadFrame(tlsClient)
-				tlsClient.SetReadDeadline(time.Time{})
-
-				if err != nil {
-					if ne, ok := err.(net.Error); ok && ne.Timeout() {
-						// Since we are (almostly) reading from a local connection,
-						// a timeout doesn't 100% mean we lost the client, we will keep
-						// trying until other errors occurred.
-						continue
-					} else {
-						if !isClosedConnErr(err) {
-							logg.E(err)
-						}
-						break
-					}
-				}
-
-				wsCallQueue.Write(frame)
-				if time.Now().UnixNano()-wsLastSend > 1e9 && wsCallQueue.Len() > 0 {
-					req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, wsCallQueue)
-					cr := proxy.newRequest()
-					cr.Opt.Set(doForward)
-					cr.WSCallback = 'c'
-					cr.WSToken = wsToken
-					proxy.encryptRequest(req, cr)
-					if _, err = proxy.tp.RoundTrip(req); err != nil {
-						logg.E(err)
-						tlsClient.Write([]byte{0x88, 0}) // close frame
-						break
-					}
-
-					wsCallQueue.Reset()
-					wsLastSend = time.Now().UnixNano()
-				}
-
-				continue
-			}
 
 			var err error
 			var rURL string
@@ -237,47 +191,6 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 
 			if strings.ToLower(resp.Header.Get("Connection")) != "upgrade" {
 				resp.Header.Set("Connection", "close")
-			} else if proxy.Policy.IsSet(PolicyWSCB) {
-				wsToken = base64.StdEncoding.EncodeToString(rkeybuf[:])
-				wsCallQueue = &bytes.Buffer{}
-				wsLastSend = time.Now().UnixNano()
-
-				go func() {
-					// Now let's start a goroutine which will query the upstream in every 1 second
-					// to see if there are any new WS frames sent from the host.
-					// If yes, it sends frames back to the browser, if upstream returns code other than 200, it exits
-					logg.D("WebSocket remote callback new token: ", wsToken)
-					for {
-						req, _ := http.NewRequest("GET", "http://"+proxy.Upstream, nil)
-						cr := proxy.newRequest()
-						cr.Opt.Set(doForward)
-						cr.WSCallback = 'b'
-						cr.WSToken = wsToken
-
-						iv := proxy.encryptRequest(req, cr)
-						resp, err := proxy.tp.RoundTrip(req)
-						if err != nil {
-							logg.E(err)
-							break
-						} else if resp.StatusCode != 200 {
-							logg.L("remote callback exited with code: ", resp.StatusCode)
-							break
-						} else if _, err := proxy.Cipher.IO.Copy(tlsClient, resp.Body, iv, IOConfig{Role: roleRecv}); err != nil {
-							if !isClosedConnErr(err) {
-								logg.E(err)
-							}
-							break
-						} else {
-							tryClose(resp.Body)
-						}
-
-						time.Sleep(time.Second)
-					}
-
-					tlsClient.Write([]byte{0x88, 0})
-					tlsClient.Close()
-					logg.D("WebSocket remote callback finished: ", wsToken)
-				}()
 			} else {
 				tlsClient.Write(respBuf.R().Writes("HTTP/1.1 403 Forbidden\r\n\r\n").Bytes())
 				break
@@ -311,16 +224,13 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				clientWriter = &dumpReadWriteWrapper{writer: tlsClient, counter: counter, file: proxy.MITMDump}
 			}
 
-			if wsToken == "" {
-				// Chunked encoding will ruin the handshake of WS
-				nr, err := proxy.Cipher.IO.Copy(clientWriter, resp.Body, rkeybuf, IOConfig{
-					Partial: false,
-					Chunked: true,
-					Role:    roleRecv,
-				})
-				if err != nil {
-					logg.E("copy ", nr, " bytes: ", err)
-				}
+			nr, err := proxy.Cipher.IO.Copy(clientWriter, resp.Body, rkeybuf, IOConfig{
+				Partial: false,
+				Chunked: true,
+				Role:    roleRecv,
+			})
+			if err != nil {
+				logg.E("copy ", nr, " bytes: ", err)
 			}
 
 			tryClose(resp.Body)
