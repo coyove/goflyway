@@ -11,7 +11,7 @@ func (proxy *ProxyClient) servePACFile(w http.ResponseWriter, r *http.Request) {
 	table, _ := json.Marshal(proxy.ACL.White.DomainFastMatch)
 	table2 := proxy.ACL.White.DomainSlowMatch
 	t := "SOCKS5"
-	if proxy.Policy.IsSet(PolicyManInTheMiddle) {
+	if proxy.Policy.IsSet(PolicyMITM) {
 		t = "PROXY"
 	}
 

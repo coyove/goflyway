@@ -28,41 +28,42 @@ import (
 var version = "__devel__"
 
 var (
-	cmdGenCA = flag.Bool("gen-ca", false, "generate certificate (ca.pem) and private key (key.pem)")
-	cmdDebug = flag.Bool("debug", false, "turn on debug mode")
+	cmdGenCA = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
+	cmdDebug = flag.Bool("debug", false, "Turn on debug mode")
 
 	// General flags
-	cmdConfig   = flag.String("c", "", "[SC] config file path")
-	cmdLogLevel = flag.String("lv", "log", "[SC] logging level: {dbg, log, warn, err, off}")
-	cmdLogFile  = flag.String("lf", "", "[SC] log to file")
-	cmdAuth     = flag.String("a", "", "[SC] proxy authentication, form: username:password (remember the colon)")
-	cmdKey      = flag.String("k", "0123456789abcdef", "[SC] password, do not use the default one")
-	cmdLocal    = flag.String("l", ":8100", "[SC] local listening address")
-	cmdTimeout  = flag.Int64("t", 20, "[SC] connection timeout in seconds, 0 to disable")
-	cmdSection  = flag.String("y", "default", "[SC] section to read in the config")
+	cmdConfig   = flag.String("c", "", "[SC] Config file path")
+	cmdLogLevel = flag.String("lv", "log", "[SC] Logging level: {dbg, log, warn, err, off}")
+	cmdLogFile  = flag.String("lf", "", "[SC] Log to file")
+	cmdAuth     = flag.String("a", "", "[SC] Proxy authentication, form: username:password (remember the colon)")
+	cmdKey      = flag.String("k", "0123456789abcdef", "[SC] Password, do not use the default one")
+	cmdLocal    = flag.String("l", ":8100", "[SC] Local listening address")
+	cmdTimeout  = flag.Int64("t", 20, "[SC] Connection timeout in seconds, 0 to disable")
+	cmdSection  = flag.String("y", "default", "[SC] Section to read in the config")
 
 	// Server flags
-	cmdThrot     = flag.Int64("throt", 0, "[S] traffic throttling in bytes")
-	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] traffic throttling token bucket max capacity")
-	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] disable UDP relay")
-	cmdProxyPass = flag.String("proxy-pass", "", "[S] use goflyway as a reverse HTTP proxy")
-	cmdWSCBClose = flag.Int64("wscb-timeout", 200, "[S] timeout for WebSocket callback")
-	cmdAnswer    = flag.String("answer", "", "[S] answer client config setup")
+	cmdThrot     = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
+	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
+	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
+	cmdProxyPass = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
+	cmdWSCBClose = flag.Int64("wscb-timeout", 200, "[S] Timeout for WebSocket callback")
+	cmdAnswer    = flag.String("answer", "", "[S] Answer client config setup")
 
 	// Client flags
-	cmdGlobal     = flag.Bool("g", false, "[C] global proxy")
-	cmdUpstream   = flag.String("up", "", "[C] upstream server address")
-	cmdPartial    = flag.Bool("partial", false, "[C] partially encrypt the tunnel traffic")
-	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] use N TCP connections to relay UDP")
-	cmdWebConPort = flag.Int64("web-port", 65536, "[C] web console listening port, 0 to disable, 65536 to auto select")
+	cmdGlobal     = flag.Bool("g", false, "[C] Global proxy")
+	cmdUpstream   = flag.String("up", "", "[C] Upstream server address")
+	cmdPartial    = flag.Bool("partial", false, "[C] Partially encrypt the tunnel traffic")
+	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] Use N TCP connections to relay UDP")
+	cmdWebConPort = flag.Int64("web-port", 65536, "[C] Web console listening port, 0 to disable, 65536 to auto select")
 	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
 	cmdVPN        = flag.Bool("vpn", false, "[C] VPN mode, used on Android only")
-	cmdBind       = flag.String("bind", "", "[C] bind to address")
-	cmdACL        = flag.String("acl", "chinalist.txt", "[C] load ACL file")
-	cmdMITMDump   = flag.String("mitm-dump", "", "[C] dump HTTPS requests to file")
-	cmdWSCB       = flag.Bool("wscb", false, "[C] enable WebSocket callback in MITM")
-	cmdRemote     = flag.Bool("remote", false, "[C] get config setup from the upstream")
+	cmdACL        = flag.String("acl", "chinalist.txt", "[C] Load ACL file")
+	cmdMITMDump   = flag.String("mitm-dump", "", "[C] Dump HTTPS requests to file")
+	cmdWSCB       = flag.Bool("wscb", false, "[C] Enable WebSocket callback in MITM")
+	cmdRemote     = flag.Bool("remote", false, "[C] Get config setup from the upstream")
+	cmdBind       = flag.String("bind", "", "[C] Bind to the address at server")
+	cmdLBind      = flag.String("lbind", "", "[C] Bind the local address to server")
 
 	// curl flags
 	cmdVerbose    = flag.Bool("v", false, "[Cu] verbose output")
@@ -83,6 +84,10 @@ var (
 )
 
 func loadConfig() {
+	if *cmdSection == "cli" {
+		return
+	}
+
 	path := *cmdConfig
 	if path == "" {
 		if runtime.GOOS == "windows" {
@@ -233,6 +238,7 @@ func main() {
 		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
 		cc.Mux = int(*cmdMux)
 		cc.Upstream = *cmdUpstream
+		cc.LocalRPBind = *cmdLBind
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -341,8 +347,8 @@ func main() {
 				go func() {
 					addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
 					if *cmdWebConPort == 65536 {
-						addr_, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
-						addr = fmt.Sprintf("127.0.0.1:%d", addr_.Port+10)
+						_addr, _ := net.ResolveTCPAddr("tcp", client.Localaddr)
+						addr = fmt.Sprintf("127.0.0.1:%d", _addr.Port+10)
 					}
 
 					http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
@@ -351,8 +357,13 @@ func main() {
 				}()
 			}
 
-			lib.Println("proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
-			logg.F(client.Start())
+			if *cmdLBind != "" {
+				lib.Println("Local reverse proxy", client.Cipher.Alias, "bind [", client.ClientConfig.LocalRPBind, "], upstream: [", client.Upstream, "]")
+				logg.F(client.StartLocalRP())
+			} else {
+				lib.Println("Proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
+				logg.F(client.Start())
+			}
 		}
 	} else {
 		server := proxy.NewServer(localaddr, sc)
@@ -400,7 +411,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 			cc.Policy.Set(proxy.PolicyWebSocket)
 			lib.Println("use WebSocket protocol to transfer data")
 		case fwd, http:
-			cc.Policy.Set(proxy.PolicyManInTheMiddle)
+			cc.Policy.Set(proxy.PolicyMITM)
 			lib.Println("use MITM to intercept HTTPS (HTTP proxy mode only)")
 			cc.CA = lib.TryLoadCert()
 		}

@@ -43,11 +43,12 @@ type ClientConfigMarshal struct {
 type ClientConfig struct {
 	ClientConfigMarshal
 
-	MITMDump *os.File
-	DNSCache *lru.Cache
-	CA       tls.Certificate
-	CACache  *lru.Cache
-	ACL      *acr.ACL
+	LocalRPBind string
+	MITMDump    *os.File
+	DNSCache    *lru.Cache
+	CA          tls.Certificate
+	CACache     *lru.Cache
+	ACL         *acr.ACL
 
 	*Cipher
 }
@@ -197,6 +198,13 @@ func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error
 	return connectConn, nil
 }
 
+func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
+	if proxy.Policy.IsSet(PolicyWebSocket) {
+		return proxy.dialUpstreamAndBridgeWS(conn, host, resp, extra, dialStyle)
+	}
+	return proxy.dialUpstreamAndBridge(conn, host, resp, extra, dialStyle)
+}
+
 func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream(0)
 	if err != nil {
@@ -222,7 +230,6 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	}
 
 	upstreamConn.Write(pl.Writes("\r\n").Bytes())
-
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
 	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
@@ -352,14 +359,14 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if ans == rulePass {
 			logg.D("CONNECT ", r.RequestURI, ext)
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
-		} else if proxy.Policy.IsSet(PolicyManInTheMiddle) {
+		} else if proxy.Policy.IsSet(PolicyMITM) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", r.RequestURI, ext)
-			proxy.dialUpstreamAndBridgeWS(proxyClient, host, okHTTP, 0, 0)
+			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		} else {
 			logg.D("CONNECT^ ", r.RequestURI, ext)
-			proxy.dialUpstreamAndBridge(proxyClient, host, okHTTP, 0, 0)
+			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		}
 	} else {
 		// normal http requests
@@ -501,10 +508,10 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
 			logg.D("WS^ ", host, ext)
-			proxy.dialUpstreamAndBridgeWS(conn, host, okSOCKS, 0, 0)
+			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		} else {
 			logg.D("SOCKS^ ", host, ext)
-			proxy.dialUpstreamAndBridge(conn, host, okSOCKS, 0, 0)
+			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		}
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
@@ -519,9 +526,9 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 func (proxy *ProxyClient) Bridge(down net.Conn, host string) {
 	if proxy.Policy.IsSet(PolicyWebSocket) {
-		proxy.dialUpstreamAndBridgeWS(down, host, nil, 0, 0)
+		proxy.DialUpstream(down, host, nil, 0, 0)
 	} else {
-		proxy.dialUpstreamAndBridge(down, host, nil, 0, 0)
+		proxy.DialUpstream(down, host, nil, 0, 0)
 	}
 }
 
@@ -584,7 +591,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
-	if config.Policy.IsSet(PolicyManInTheMiddle) {
+	if config.Policy.IsSet(PolicyMITM) {
 		// plus other fds, we should have a number smaller than 100
 		proxy.tp.MaxIdleConns = 20
 		proxy.tpd.MaxIdleConns = 20

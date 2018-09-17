@@ -6,6 +6,8 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"sync"
 
 	"github.com/coyove/common/logg"
@@ -41,6 +43,19 @@ type UserConfig struct {
 	ThrottlingMax int64
 }
 
+type localRPCtrlSrvReq struct {
+	dst      string
+	conn     net.Conn
+	callback chan localRPCtrlSrvResp
+	rawReq   []byte
+}
+
+type localRPCtrlSrvResp struct {
+	err      error
+	localrpr string
+	req      localRPCtrlSrvReq
+}
+
 // ProxyUpstream is the main struct for upstream server
 type ProxyUpstream struct {
 	tp        *http.Transport
@@ -49,6 +64,13 @@ type ProxyUpstream struct {
 	wsMapping struct {
 		sync.RWMutex
 		m map[[ivLen]byte]*wsCallback
+	}
+
+	localRP struct {
+		sync.Mutex
+		downstream net.Conn
+		requests   chan localRPCtrlSrvReq
+		waiting    map[string]localRPCtrlSrvResp
 	}
 
 	Localaddr string
@@ -99,6 +121,24 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 	return conn
 }
 
+func (proxy *ProxyUpstream) replyGood(downstreamConn net.Conn, cr *clientRequest, ioc IOConfig, r *http.Request) {
+	var p buffer
+	if cr.Opt.IsSet(doWebSocket) {
+		ioc.WSCtrl = wsServer
+
+		var accept buffer
+		accept.Writes(r.Header.Get("Sec-WebSocket-Key"), "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+
+		ans := sha1.Sum(accept.Bytes())
+		p.Writes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: ",
+			base64.StdEncoding.EncodeToString(ans[:]), "\r\n\r\n")
+	} else {
+		p.Writes("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: ", time.Now().UTC().Format(time.RFC1123), "\r\n\r\n")
+	}
+
+	downstreamConn.Write(p.Bytes())
+}
+
 func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	replySomething := func() {
 		if proxy.rp == nil {
@@ -122,9 +162,46 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var rawReq []byte
+	if proxy.localRP.waiting != nil {
+		rawReq, _ = httputil.DumpRequest(r, true)
+	}
+
 	dst, cr := proxy.decryptHost(stripURI(r.RequestURI))
 
 	if dst == "" || cr == nil {
+		if proxy.localRP.waiting != nil {
+			userConn := proxy.hijack(w)
+			cb := make(chan localRPCtrlSrvResp, 1)
+
+			proxy.localRP.requests <- localRPCtrlSrvReq{
+				dst:      dst,
+				conn:     userConn,
+				callback: cb,
+				rawReq:   rawReq,
+			}
+
+			logg.D("LocalRP: wait client to response")
+			select {
+			case resp := <-cb:
+				if resp.err != nil {
+					userConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n" + resp.err.Error()))
+					return
+				}
+			case <-time.After(5 * time.Second):
+				logg.E("LocalRP: client didn't response")
+				userConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError: localrp timed out"))
+			}
+			proxy.localRP.Lock()
+			for k, resp := range proxy.localRP.waiting {
+				if resp.req.conn == userConn {
+					delete(proxy.localRP.waiting, k)
+					break
+				}
+			}
+			proxy.localRP.Unlock()
+			return
+		}
 		logg.D("invalid request from: ", addr)
 		logg.D(stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
@@ -161,6 +238,24 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(200)
 
+	} else if cr.Opt.IsSet(doLocalRP) {
+		downstreamConn := proxy.hijack(w)
+		if downstreamConn == nil {
+			return
+		}
+		ioc := proxy.getIOConfig(cr.Auth)
+		ioc.Partial = cr.Opt.IsSet(doPartial)
+		if dst == "a" {
+			proxy.startLocalRPControlServer(downstreamConn, cr, ioc)
+		} else if proxy.localRP.waiting != nil {
+			resp, ok := proxy.localRP.waiting[dst]
+			if !ok {
+				return
+			}
+			proxy.replyGood(downstreamConn, cr, ioc, r)
+			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, &cr.iv, ioc)
+			resp.req.callback <- resp
+		}
 	} else if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
@@ -207,21 +302,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var p buffer
-		if cr.Opt.IsSet(doWebSocket) {
-			ioc.WSCtrl = wsServer
-
-			var accept buffer
-			accept.Writes(r.Header.Get("Sec-WebSocket-Key"), "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-
-			ans := sha1.Sum(accept.Bytes())
-			p.Writes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: ",
-				base64.StdEncoding.EncodeToString(ans[:]), "\r\n\r\n")
-		} else {
-			p.Writes("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: ", time.Now().UTC().Format(time.RFC1123), "\r\n\r\n")
-		}
-
-		downstreamConn.Write(p.Bytes())
+		proxy.replyGood(downstreamConn, cr, ioc, r)
 
 		if cr.Opt.IsSet(doMuxWS) {
 			logg.D("downstream connection is being upgraded to multiplexer stream")
@@ -419,6 +500,78 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 
 	proxy.Localaddr = addr
 	return proxy
+}
+
+func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *clientRequest, ioc IOConfig) {
+	if _, err := downstream.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
+		logg.E(err)
+		downstream.Close()
+		return
+	}
+
+	proxy.localRP.Lock()
+	if proxy.localRP.downstream != nil {
+		proxy.localRP.Unlock()
+		return
+	}
+	proxy.localRP.downstream = downstream
+	proxy.localRP.requests = make(chan localRPCtrlSrvReq, 100)
+	proxy.localRP.waiting = make(map[string]localRPCtrlSrvResp)
+	proxy.localRP.Unlock()
+
+	conn := &DummyConn{}
+	conn.Init()
+	connw := DummyConnWrapper{conn}
+
+	go func() {
+		go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
+		go func() {
+			for {
+				select {
+				case req := <-proxy.localRP.requests:
+					if len(req.dst) >= 65535 {
+						req.callback <- localRPCtrlSrvResp{
+							err: fmt.Errorf("request too long"),
+						}
+						continue
+					}
+
+					buf := make([]byte, 16+4+len(req.rawReq))
+					proxy.Cipher.Rand.Read(buf[:16])
+
+					localrpr := fmt.Sprintf("%x", buf[:16])
+					binary.BigEndian.PutUint32(buf[16:20], uint32(len(req.rawReq)))
+					copy(buf[20:], req.rawReq)
+
+					proxy.localRP.waiting[localrpr] = localRPCtrlSrvResp{
+						localrpr: localrpr,
+						req:      req,
+					}
+
+					go connw.Write(buf)
+				}
+			}
+		}()
+
+		for {
+			buf := make([]byte, 16)
+			if _, err := connw.Write(buf); err != nil {
+				break
+			}
+			if _, err := connw.Read(buf); err != nil {
+				break
+			}
+			// logg.D("LocalRP: pong")
+			time.Sleep(localRPPingInterval)
+		}
+
+		proxy.localRP.Lock()
+		if proxy.localRP.downstream == downstream {
+			proxy.localRP.downstream = nil
+		}
+		proxy.localRP.Unlock()
+		downstream.Close()
+	}()
 }
 
 type wsCallback struct {

@@ -33,14 +33,15 @@ const (
 	doConnect   = 1 << iota // Establish TCP tunnel
 	doForward               // Forward plain HTTP request
 	doWebSocket             // Use WebSocket protocol
-	doMuxWS
-	doDNS      // DNS query request
-	doPartial  // Partial encryption
-	doUDPRelay // UDP relay request
+	doMuxWS                 // WS over mux
+	doDNS                   // DNS query request
+	doPartial               // Partial encryption
+	doUDPRelay              // UDP relay request
+	doLocalRP
 )
 
 const (
-	PolicyManInTheMiddle = 1 << iota
+	PolicyMITM = 1 << iota
 	PolicyGlobal
 	PolicyVPN
 	PolicyWebSocket
@@ -58,8 +59,11 @@ const (
 )
 
 var (
-	okHTTP          = []byte("HTTP/1.0 200 Connection Established\r\n\r\n")
-	okSOCKS         = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	okHTTP  = []byte("HTTP/1.0 200 Connection Established\r\n\r\n")
+	okSOCKS = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+)
+
+var (
 	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	socksHandshake  = []byte{socksVersion5, 1, 0}
@@ -152,7 +156,7 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[
 		req.URL, _ = urlBuf.R().Writes("http://", req.Host, "/", proxy.encryptHost(req.URL.String(), r)).ToURL()
 	}
 
-	if proxy.Policy.IsSet(PolicyManInTheMiddle) && proxy.Connect2Auth != "" {
+	if proxy.Policy.IsSet(PolicyMITM) && proxy.Connect2Auth != "" {
 		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
 		req.Header.Add("Proxy-Authorization", x)
 		req.Header.Add("Authorization", x)

@@ -333,7 +333,6 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		default:
 			nr, er = src.Read(buf)
 		}
-
 		if nr > 0 {
 			xbuf := buf[0:nr]
 			if config.Role == roleSend {
