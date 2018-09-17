@@ -114,7 +114,7 @@ func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 	return conn
 }
 
-func (proxy *ProxyUpstream) replyGood(downstreamConn net.Conn, cr *clientRequest, ioc IOConfig, r *http.Request) {
+func (proxy *ProxyUpstream) replyGood(downstreamConn net.Conn, cr *clientRequest, ioc *IOConfig, r *http.Request) {
 	var p buffer
 	if cr.Opt.IsSet(doWebSocket) {
 		ioc.WSCtrl = wsServer
@@ -244,7 +244,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			downstreamConn := proxy.hijack(w)
-			proxy.replyGood(downstreamConn, cr, ioc, r)
+			proxy.replyGood(downstreamConn, cr, &ioc, r)
 			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, &cr.iv, ioc)
 			resp.req.callback <- resp
 			return
@@ -295,7 +295,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		proxy.replyGood(downstreamConn, cr, ioc, r)
+		proxy.replyGood(downstreamConn, cr, &ioc, r)
 
 		if cr.Opt.IsSet(doMuxWS) {
 			logg.D("downstream connection is being upgraded to multiplexer stream")
