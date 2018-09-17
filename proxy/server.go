@@ -23,7 +23,7 @@ import (
 type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
-	WSCBTimeout   int64
+	LBindTimeout  int64
 	DisableUDP    bool
 	ProxyPassAddr string
 	ClientAnswer  string
@@ -101,13 +101,13 @@ func (proxy *ProxyUpstream) Write(w http.ResponseWriter, key *[ivLen]byte, p []b
 func (proxy *ProxyUpstream) hijack(w http.ResponseWriter) net.Conn {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
-		logg.E("webserver doesn't support hijacking")
+		logg.E("Webserver doesn't support hijacking")
 		return nil
 	}
 
 	conn, _, err := hij.Hijack()
 	if err != nil {
-		logg.E("hijacking: ", err.Error())
+		logg.E("Hijacking: ", err.Error())
 		return nil
 	}
 
@@ -150,7 +150,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		logg.W("unknown address: ", r.RemoteAddr)
+		logg.W("Unknown address: ", r.RemoteAddr)
 		replySomething()
 		return
 	}
@@ -181,7 +181,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					userConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n" + resp.err.Error()))
 					return
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
 				logg.E("LocalRP: client didn't response")
 				userConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError: localrp timed out"))
 			}
@@ -195,8 +195,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.localRP.Unlock()
 			return
 		}
-		logg.D("invalid request from: ", addr)
-		logg.D(stripURI(r.RequestURI))
+		logg.D("Invalid request from: ", addr, ", ", stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
@@ -204,13 +203,13 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if proxy.Users != nil {
 		if !proxy.auth(cr.Auth) {
-			logg.W("user auth failed, from: ", addr)
+			logg.W("User auth failed, from: ", addr)
 			return
 		}
 	}
 
 	if h, _, _ := proxy.blacklist.GetEx(addr); h > invalidRequestRetry {
-		logg.D("repeated access using invalid key from: ", addr)
+		logg.D("Repeated access using invalid key from: ", addr)
 		// replySomething()
 		// return
 	}
@@ -252,7 +251,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
-			logg.W("we had a valid rkey, but invalid host, from: ", addr)
+			logg.W("We had a valid rkey, but invalid host, from: ", addr)
 			replySomething()
 			return
 		}
@@ -271,7 +270,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if cr.Opt.IsSet(doUDPRelay) {
 			if proxy.DisableUDP {
-				logg.W("client is trying to send UDP data but we disabled it")
+				logg.W("Client is trying to send UDP data but we disabled it")
 				downstreamConn.Close()
 				return
 			}
@@ -298,8 +297,8 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		proxy.replyGood(downstreamConn, cr, &ioc, r)
 
 		if cr.Opt.IsSet(doMuxWS) {
-			logg.D("downstream connection is being upgraded to multiplexer stream")
 			proxy.Listener.(*tcpmux.ListenPool).Upgrade(downstreamConn)
+			logg.D("Downstream connection has been upgraded to multiplexer stream")
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
 		}
@@ -332,7 +331,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(resp.StatusCode)
 
 		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-			logg.E("copy ", nr, " bytes: ", err)
+			logg.E("Copy ", nr, " bytes: ", err)
 		}
 
 		tryClose(resp.Body)
@@ -361,7 +360,7 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 		blacklist:    lru.NewCache(128),
 	}
 
-	tcpmux.HashSeed = config.Cipher.keyBuf
+	// tcpmux.HashSeed = config.Cipher.keyBuf
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {

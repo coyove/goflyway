@@ -327,7 +327,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 	buf := make([]byte, 2048)
 	n, src, err := relay.ReadFrom(buf)
 	if err != nil {
-		logg.E("can't read initial packet: ", err)
+		logg.E("Can't read initial packet: ", err)
 		return
 	}
 

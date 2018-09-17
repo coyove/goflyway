@@ -63,7 +63,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 	go func(config IOConfig) {
 		ts := time.Now()
 		if _, err := iot.Copy(target, source, key, config); err != nil {
-			logg.E("bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+			logg.E("Bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 		}
 		exit <- true
 	}(o)
@@ -80,7 +80,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 	o.Role = roleSend
 	ts := time.Now()
 	if _, err := iot.Copy(source, target, key, o); err != nil {
-		logg.E("bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+		logg.E("Bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
 	}
 
 	select {
@@ -188,12 +188,12 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			if count == 60 {
 				count = 0
 				if len(iot.mconns) > 0 {
-					logg.D("active connections: ", len(iot.mconns))
+					logg.D("Active connections: ", len(iot.mconns))
 				}
 
 				if iot.Ob != nil {
 					c, s := iot.Ob.Count()
-					logg.D("multiplexer state: ", c, "/", s)
+					logg.D("Multiplexer state: ", c, "/", s)
 				}
 			}
 
@@ -265,7 +265,7 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 	}
 
 	if buf[0] != 2 {
-		logg.W("goflyway doesn't accept opcode other than 2, please check")
+		logg.W("Invalid opcode: ", buf[0], ", goflyway only accept opcode 2")
 	}
 
 	mask := (buf[1] & 0x80) > 0
@@ -278,7 +278,7 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 		}
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
 	case 127:
-		logg.E("goflyway doesn't accept payload longer than 65535, please check")
+		logg.E("Payload too large")
 		return
 	default:
 	}
@@ -309,7 +309,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 	if logg.GetLevel() == logg.LvDebug {
 		defer func() {
 			if r := recover(); r != nil {
-				logg.E("wtf, ", r)
+				logg.E("Debug panic: ", r)
 			}
 		}()
 	}

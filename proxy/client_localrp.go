@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -12,6 +13,11 @@ import (
 
 const (
 	localRPPingInterval = 1 * time.Second
+	pingScale           = 10
+)
+
+var (
+	pingSignal = make([]byte, 16)
 )
 
 type DummyConn struct {
@@ -48,10 +54,9 @@ func (d *DummyConnWrapper) Read(b []byte) (n int, err error) {
 	select {
 	case <-ok:
 		return
-	case <-time.After(localRPPingInterval * 10):
+	case <-time.After(localRPPingInterval * pingScale):
 		return 0, io.EOF
 	}
-	return
 }
 func (d *DummyConnWrapper) Write(b []byte) (n int, err error) {
 	ok := make(chan bool, 1)
@@ -62,10 +67,9 @@ func (d *DummyConnWrapper) Write(b []byte) (n int, err error) {
 	select {
 	case <-ok:
 		return
-	case <-time.After(localRPPingInterval * 10):
+	case <-time.After(localRPPingInterval * pingScale):
 		return 0, io.EOF
 	}
-	return
 }
 
 func (proxy *ProxyClient) StartLocalRP() error {
@@ -92,7 +96,7 @@ func (proxy *ProxyClient) StartLocalRP() error {
 				}
 
 				localrpr := fmt.Sprintf("%x", buf)
-				if localrpr == "00000000000000000000000000000000" {
+				if bytes.Equal(buf, pingSignal) {
 					// ping
 					// logg.D("LocalRP: ping")
 					_, err := connw.Write(buf)
@@ -142,5 +146,4 @@ func (proxy *ProxyClient) StartLocalRP() error {
 			}
 		}
 	}
-	return nil
 }

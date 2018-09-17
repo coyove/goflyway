@@ -371,7 +371,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
-			http.Error(w, "request URI must be absolute", http.StatusInternalServerError)
+			http.Error(w, "Request URI must be absolute", http.StatusInternalServerError)
 			return
 		}
 
@@ -422,7 +422,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Partial: false,
 				Role:    roleRecv,
 			}); err != nil {
-				logg.E("copy ", nr, " bytes: ", err)
+				logg.E("Copy ", nr, " bytes: ", err)
 			}
 
 			tryClose(resp.Body)
@@ -480,7 +480,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 		if !proxy.authSocks(conn) {
 			conn.Write([]byte{1, 1})
-			logClose("invalid auth data from: ", conn.RemoteAddr)
+			logClose("Invalid auth data from: ", conn.RemoteAddr)
 			return
 		}
 
@@ -516,7 +516,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
-			logClose("can't create UDP relay server: ", err)
+			logClose("Can't create UDP relay server: ", err)
 			return
 		}
 
@@ -551,7 +551,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		return nil
 	}
 
-	tcpmux.HashSeed = config.Cipher.keyBuf
+	// tcpmux.HashSeed = config.Cipher.keyBuf
 
 	proxyURL := http.ProxyURL(upURL)
 	proxy := &ProxyClient{
@@ -578,7 +578,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
 				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS, 'd')
 				if conn == nil {
-					err = fmt.Errorf("ws error")
+					err = fmt.Errorf("mux: ws error")
 				}
 				return
 			}

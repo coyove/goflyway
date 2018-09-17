@@ -190,7 +190,7 @@ func stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			logg.W("unexpected URI: ", uri)
+			logg.W("Unexpected URI: ", uri)
 		}
 	} else {
 		uri = uri[1:]
@@ -310,7 +310,7 @@ func (proxy *ProxyClient) basicAuth(token string) string {
 
 func tryClose(b io.ReadCloser) {
 	if err := b.Close(); err != nil {
-		logg.W("cannot close: ", err)
+		logg.W("Can't close: ", err)
 	}
 }
 

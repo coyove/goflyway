@@ -79,7 +79,7 @@ func (proxy *ProxyClient) sign(host string) *tls.Certificate {
 	pubKey := publicKey(proxy.CA.PrivateKey)
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, x509ca, pubKey, proxy.CA.PrivateKey)
 	if err != nil {
-		logg.E("create certificate: ", err)
+		logg.E("Create certificate: ", err)
 		return nil
 	}
 
@@ -133,7 +133,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
 				if !isClosedConnErr(err) && buf[0] != ')' {
-					logg.E("cannot read request: ", err)
+					logg.E("Cannot read request: ", err)
 				}
 				break
 			}
@@ -230,7 +230,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				Role:    roleRecv,
 			})
 			if err != nil {
-				logg.E("copy ", nr, " bytes: ", err)
+				logg.E("Copy ", nr, " bytes: ", err)
 			}
 
 			tryClose(resp.Body)

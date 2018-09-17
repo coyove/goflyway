@@ -20,7 +20,7 @@ func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
-		logg.E("listener: ", err)
+		logg.E("HTTP Listener: ", err)
 
 		if isClosedConnErr(err) {
 			return nil, err
@@ -37,7 +37,7 @@ CONTINUE:
 
 	if err != nil {
 		if err != io.EOF {
-			logg.E("prefetch err: ", err)
+			logg.E("Prefetch err: ", err)
 		}
 
 		wrapper.Close()

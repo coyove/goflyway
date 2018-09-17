@@ -28,8 +28,9 @@ import (
 var version = "__devel__"
 
 var (
-
 	// General flags
+	cmdHelp     = flag.Bool("h", false, "Display help message")
+	cmdHelp2    = flag.Bool("help", false, "Display detailed help message")
 	cmdConfig   = flag.String("c", "", "Config file path")
 	cmdLogLevel = flag.String("lv", "log", "Logging level: {dbg, log, warn, err, off}")
 	cmdLogFile  = flag.String("lf", "", "Log to file")
@@ -40,11 +41,12 @@ var (
 	cmdSection  = flag.String("y", "default", "Section to read in the config, 'cli' to disable")
 
 	// Server flags
-	cmdThrot     = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
-	cmdThrotMax  = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
-	cmdDiableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
-	cmdProxyPass = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
-	cmdAnswer    = flag.String("answer", "", "[S] Answer client config setup")
+	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
+	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
+	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
+	cmdProxyPass  = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
+	cmdAnswer     = flag.String("answer", "", "[S] Answer client config setup")
+	cmdLBindWaits = flag.Int64("lbind-timeout", 5, "[S] Local bind timeout in seconds")
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[C] Global proxy")
@@ -58,26 +60,27 @@ var (
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] Load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] Dump HTTPS requests to file")
 	cmdRemote     = flag.Bool("remote", false, "[C] Get config setup from the upstream")
-	cmdBind       = flag.String("bind", "", "[C] Bind to the address at server")
-	cmdLBind      = flag.String("lbind", "", "[C] Bind the local address to server")
+	cmdBind       = flag.String("bind", "", "[C] Bind to an address at server")
+	cmdLBind      = flag.String("lbind", "", "[C] Bind a local address to server")
 	cmdGenCA      = flag.Bool("gen-ca", false, "[C] Generate certificate (ca.pem) and private key (key.pem)")
 
 	// curl flags
-	cmdVerbose    = flag.Bool("v", false, "[Cu] verbose output")
-	cmdForm       = flag.String("F", "", "[Cu] post form")
-	cmdHeaders    = flag.String("H", "", "[Cu] headers")
-	cmdCookie     = flag.String("C", "", "[Cu] cookies")
-	cmdMultipart  = flag.Bool("M", false, "[Cu] multipart")
+	cmdVerbose    = flag.Bool("v", false, "[Cu] Verbose output")
+	cmdForm       = flag.String("F", "", "[Cu] Post form")
+	cmdHeaders    = flag.String("H", "", "[Cu] Headers")
+	cmdCookie     = flag.String("C", "", "[Cu] Cookies")
+	cmdMultipart  = flag.Bool("M", false, "[Cu] Multipart")
 	cmdPrettyJSON = flag.Bool("pj", false, "[Cu] JSON pretty output")
 
 	// Shadowsocks compatible flags
-	cmdLocal2 = flag.String("p", "", "server listening address")
+	cmdLocal2 = flag.String("p", "", "Server listening address")
 
-	_ = flag.Bool("u", true, "placeholder")
-	_ = flag.String("m", "", "placeholder")
-	_ = flag.String("b", "", "placeholder")
-	_ = flag.Bool("V", true, "placeholder")
-	_ = flag.Bool("fast-open", true, "placeholder")
+	// Shadowsocks-android compatible flags, no meanings
+	_ = flag.Bool("u", true, "-- Placeholder --")
+	_ = flag.String("m", "", "-- Placeholder --")
+	_ = flag.String("b", "", "-- Placeholder --")
+	_ = flag.Bool("V", true, "-- Placeholder --")
+	_ = flag.Bool("fast-open", true, "-- Placeholder --")
 )
 
 func loadConfig() {
@@ -165,14 +168,29 @@ func loadConfig() {
 		"throtmax   ", cmdThrotMax,
 		"bind       ", cmdBind,
 		"lbind      ", cmdLBind,
+		"lbindwaits ", cmdLBindWaits,
+		"mitmdump   ", cmdMITMDump,
+		"remote     ", cmdRemote,
+		"answer     ", cmdAnswer,
 	)
 }
 
 func main() {
 	method, url := lib.ParseExtendedOSArgs()
 	flag.Parse()
+	if *cmdHelp2 {
+		flag.Usage()
+		return
+	}
+
+	if *cmdHelp {
+		fmt.Println("Client: \n\t./goflyway -up SERVER_IP:SERVER_PORT -k PASSWORD")
+		fmt.Println("Server: \n\t./goflyway -l :SERVER_PORT -k PASSWORD")
+		return
+	}
+
 	lib.Slient = (method != "" && !*cmdVerbose)
-	lib.Println("goflyway (build " + version + ")")
+	lib.Println("\rHTTP toolkit goflyway (build " + version + ")")
 	loadConfig()
 
 	if *cmdGenCA {
@@ -240,7 +258,7 @@ func main() {
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
-			lib.Println("Global proxy: goflyway will proxy everything except private IPs")
+			lib.Println("Global proxy enabled, ignore all private IPs")
 			cc.Policy.Set(proxy.PolicyGlobal)
 		}
 
@@ -261,6 +279,7 @@ func main() {
 			ProxyPassAddr: *cmdProxyPass,
 			DisableUDP:    *cmdDiableUDP,
 			ClientAnswer:  *cmdAnswer,
+			LBindTimeout:  *cmdLBindWaits,
 		}
 
 		if *cmdAuth != "" {
@@ -418,7 +437,7 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 	}
 
 	if _, _, err := net.SplitHostPort(upstream); err != nil {
-		lib.Println("invalid upstream destination:", upstream, err)
+		lib.Println("Invalid upstream destination:", upstream, err)
 		os.Exit(1)
 	}
 
@@ -428,12 +447,12 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.Cookie) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		lib.Println("can't create the request:", err)
+		lib.Println("Can't create the request:", err)
 		return
 	}
 
 	if err := lib.ParseHeadersAndPostBody(*cmdHeaders, *cmdForm, *cmdMultipart, req); err != nil {
-		lib.Println("invalid headers:", err)
+		lib.Println("Invalid headers:", err)
 		return
 	}
 
@@ -441,7 +460,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		cs := make([]string, len(cookies))
 		for i, cookie := range cookies {
 			cs[i] = cookie.Name + "=" + cookie.Value
-			lib.Println("cookie:", cookie.String())
+			lib.Println("Cookie:", cookie.String())
 		}
 
 		oc := req.Header.Get("Cookie")
@@ -463,7 +482,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	r = lib.NewRecorder(func(bytes int64) {
 		totalBytes += bytes
 		length, _ := strconv.ParseInt(r.HeaderMap.Get("Content-Length"), 10, 64)
-		x := "\r* copy body: " + lib.PrettySize(totalBytes) + " / " + lib.PrettySize(length) + " "
+		x := "\r* Copy body: " + lib.PrettySize(totalBytes) + " / " + lib.PrettySize(length) + " "
 		if len(x) < 36 {
 			x += strings.Repeat(" ", 36-len(x))
 		}
@@ -474,12 +493,12 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	cookies = append(cookies, lib.ParseSetCookies(r.HeaderMap)...)
 
 	if r.HeaderMap.Get("Content-Encoding") == "gzip" {
-		lib.Println("decoding gzip content")
+		lib.Println("Decoding gzip content")
 		r.Body, _ = gzip.NewReader(r.Body)
 	}
 
 	if r.Body == nil {
-		lib.Println("empty body")
+		lib.Println("Empty body")
 		r.Body = &lib.NullReader{}
 	}
 
@@ -488,7 +507,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	if r.IsRedir() {
 		location := r.Header().Get("Location")
 		if location == "" {
-			lib.Println("invalid redirection location")
+			lib.Println("Invalid redirection location")
 			return
 		}
 
@@ -502,7 +521,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 			}
 		}
 
-		lib.Println("redirect:", location)
+		lib.Println("Redirect:", location)
 		curl(client, method, location, cookies)
 	} else {
 		respbuf, _ := httputil.DumpResponse(r.Result(), false)
@@ -514,7 +533,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 			lib.PrintInErr("\n")
 		}
 
-		lib.PrintInErr("* completed in ",
+		lib.PrintInErr("* Completed in ",
 			strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64), "s\n")
 	}
 }
