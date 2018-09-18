@@ -3,7 +3,6 @@ package proxy
 import (
 	"time"
 
-	"github.com/coyove/common/logg"
 	"github.com/coyove/tcpmux"
 
 	"io"
@@ -20,7 +19,7 @@ func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
-		logg.E("HTTP Listener: ", err)
+		l.proxy.Logger.E("HTTP/SOCKS", "Listen", err)
 
 		if isClosedConnErr(err) {
 			return nil, err
@@ -37,7 +36,7 @@ CONTINUE:
 
 	if err != nil {
 		if err != io.EOF {
-			logg.E("Prefetch err: ", err)
+			l.proxy.Logger.E("HTTP/SOCKS", "Prefetch", err)
 		}
 
 		wrapper.Close()

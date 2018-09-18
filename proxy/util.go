@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/coyove/common/logg"
 	"github.com/coyove/goflyway/pkg/msg64"
 
 	"crypto/tls"
@@ -180,7 +179,7 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[
 	return &r.iv
 }
 
-func stripURI(uri string) string {
+func (proxy *ProxyUpstream) stripURI(uri string) string {
 	if len(uri) < 1 {
 		return uri
 	}
@@ -190,7 +189,7 @@ func stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			logg.W("Unexpected URI: ", uri)
+			proxy.Logger.W("Upstream", "Unexpected URI", uri)
 		}
 	} else {
 		uri = uri[1:]
@@ -310,7 +309,7 @@ func (proxy *ProxyClient) basicAuth(token string) string {
 
 func tryClose(b io.ReadCloser) {
 	if err := b.Close(); err != nil {
-		logg.W("Can't close: ", err)
+		// proxy.Logger.W("Can't close", err)
 	}
 }
 

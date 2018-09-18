@@ -10,8 +10,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"time"
-
-	"github.com/coyove/common/logg"
 )
 
 var caCert = []byte(`-----BEGIN CERTIFICATE-----
@@ -78,7 +76,7 @@ func TryLoadCert() tls.Certificate {
 
 	ca, err := tls.X509KeyPair(caCert, caKey)
 	if err != nil {
-		logg.F(err)
+		panic(err)
 	}
 
 	return ca

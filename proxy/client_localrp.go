@@ -7,8 +7,6 @@ import (
 	"io"
 	"net"
 	"time"
-
-	"github.com/coyove/common/logg"
 )
 
 const (
@@ -98,7 +96,7 @@ func (proxy *ProxyClient) StartLocalRP() error {
 				localrpr := fmt.Sprintf("%x", buf)
 				if bytes.Equal(buf, pingSignal) {
 					// ping
-					// logg.D("LocalRP: ping")
+					// proxy.Logger.D("Local RP","LocalRP: ping")
 					_, err := connw.Write(buf)
 					if err != nil {
 						signal <- redo
@@ -122,12 +120,12 @@ func (proxy *ProxyClient) StartLocalRP() error {
 				go func(buf []byte) {
 					conn, err := net.Dial("tcp", proxy.ClientConfig.LocalRPBind)
 					if err != nil {
-						logg.E(err)
+						proxy.Logger.E("Local RP", err)
 						return
 					}
 
 					if _, err := conn.Write(buf); err != nil {
-						logg.E(err)
+						proxy.Logger.E("Local RP", err)
 						return
 					}
 
@@ -139,7 +137,7 @@ func (proxy *ProxyClient) StartLocalRP() error {
 		select {
 		case x := <-signal:
 			if x == redo {
-				logg.D("Reconnect to the upstream for control messages")
+				proxy.Logger.D("Local RP", "Reconnect to the upstream for control messages")
 				upstream.Close()
 				// DummyConn: no need to close it
 				continue

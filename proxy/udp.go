@@ -120,20 +120,19 @@ func parseUDPHeader(conn net.Conn, buf []byte, omitCheck bool) (method byte, add
 type udpBridgeConn struct {
 	*net.UDPConn
 	udpSrc net.Addr
+	logger *logg.Logger
 
 	initBuf []byte
 
 	waitingMore struct {
-		incompleteLen bool
-
 		buf    []byte
 		remain int
 	}
 
-	socks bool
-	dst   *uAddr
-
-	closed bool
+	incompleteLen bool
+	socks         bool
+	closed        bool
+	dst           *uAddr
 }
 
 func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
@@ -168,7 +167,7 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 
 PUT_HEADER:
 	binary.BigEndian.PutUint16(b, uint16(n))
-	logg.D("UDP read ", n, " bytes")
+	c.logger.D("UDP", "Read", n)
 	return n + 2, err
 }
 
@@ -183,7 +182,7 @@ func (c *udpBridgeConn) write(b []byte) (n int, err error) {
 	}
 
 	if c.udpSrc == nil {
-		logg.W("UDP early write")
+		c.logger.W("UDP", "Early write")
 		return
 	}
 
@@ -231,9 +230,9 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	defer func() {
 		if err == nil {
 			n = len(b)
-			logg.D("UDP write ", n, " bytes")
+			c.logger.D("UDP", "Write", n)
 		} else {
-			logg.D("UDP write error: ", err)
+			c.logger.D("UDP", "Write error", err)
 		}
 	}()
 
@@ -244,8 +243,8 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	var ln int
 	var buf []byte
 
-	if c.waitingMore.incompleteLen {
-		c.waitingMore.incompleteLen = false
+	if c.incompleteLen {
+		c.incompleteLen = false
 
 		ln = int(binary.BigEndian.Uint16([]byte{c.waitingMore.buf[0], b[0]}))
 		buf = b[1:]
@@ -278,9 +277,9 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 1 {
-		logg.D("rare case: incomplete header")
+		c.logger.D("UDP", "Rare case: incomplete header")
 		c.waitingMore.buf = b
-		c.waitingMore.incompleteLen = true // "len" should have 2 bytes, we got 1
+		c.incompleteLen = true // "len" should have 2 bytes, we got 1
 		return 1, nil
 	}
 
@@ -289,7 +288,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 
 TEST:
 	if len(buf) < ln {
-		logg.D("rare case: incomplete buffer")
+		c.logger.D("UDP", "Rare case: incomplete buffer")
 		c.waitingMore.buf = buf
 		c.waitingMore.remain = ln - len(buf)
 		return len(b), nil
@@ -300,7 +299,7 @@ TEST:
 	}
 
 	// len(buf) > ln
-	logg.D("rare case: overflow buffer")
+	c.logger.D("UDP", "Rare case: overflow buffer")
 	if n, err = c.write(buf[:ln]); err != nil {
 		return
 	}
@@ -327,17 +326,18 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 	buf := make([]byte, 2048)
 	n, src, err := relay.ReadFrom(buf)
 	if err != nil {
-		logg.E("Can't read initial packet: ", err)
+		proxy.Logger.E("UDP", "Can't read initial packet", err)
 		return
 	}
 
 	_, dst, err := parseUDPHeader(nil, buf[:n], true)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("UDP", err)
 		return
 	}
 
-	logg.D("UDP relay listening port: ", port, ", destination: ", dst.String())
+	proxy.Logger.D("UDP", "Listening port", port)
+	proxy.Logger.D("UDP", "Destination", dst.String())
 
 	maxConns := proxy.UDPRelayCoconn
 	srcs := make([]*udpBridgeConn, maxConns)
@@ -349,6 +349,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 			socks:   true,
 			udpSrc:  src,
 			dst:     dst,
+			logger:  proxy.Logger,
 		}
 
 		if i == 0 {
@@ -379,5 +380,5 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		time.Sleep(time.Second)
 	}
 
-	logg.D("closing relay port: ", port)
+	proxy.Logger.D("UDP", "Closing relay port", port)
 }

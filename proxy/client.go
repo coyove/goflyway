@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/coyove/common/logg"
+
 	"github.com/coyove/common/lru"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/tcpmux"
@@ -49,6 +50,7 @@ type ClientConfig struct {
 	CA          tls.Certificate
 	CACache     *lru.Cache
 	ACL         *acr.ACL
+	Logger      *logg.Logger
 
 	*Cipher
 }
@@ -163,7 +165,7 @@ func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error
 		// 	return nil, err
 		// }
 
-		// logg.D("dial ", addr.String())
+		// proxy.Logger.D("Local","dial ", addr.String())
 		// return net.DialTimeout("tcp", addr.String(), timeoutDial)
 		// }
 
@@ -208,7 +210,7 @@ func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, 
 func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream(0)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("Local", err)
 		downstreamConn.Close()
 		return nil
 	}
@@ -234,7 +236,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
 	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
 		if err != nil {
-			logg.E(host, ": ", err)
+			proxy.Logger.E("Local", host, err)
 		}
 
 		upstreamConn.Close()
@@ -254,7 +256,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
 	upstreamConn, err := proxy.dialUpstream(dialStyle)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("Local", err)
 		if downstreamConn != nil {
 			downstreamConn.Close()
 		}
@@ -287,7 +289,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
 		if err != nil {
-			logg.E(host, ": ", err)
+			proxy.Logger.E("Local", host, err)
 		}
 
 		upstreamConn.Close()
@@ -316,7 +318,7 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, resp []byte) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("Local", err)
 		downstreamConn.Close()
 		return
 	}
@@ -354,18 +356,18 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			logg.D("BLACKLIST ", host, ext)
+			proxy.Logger.D("Local", "Blacklist", host, ext)
 			proxyClient.Close()
 		} else if ans == rulePass {
-			logg.D("CONNECT ", r.RequestURI, ext)
+			proxy.Logger.D("Local", "Connect", r.RequestURI, ext)
 			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyMITM) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			logg.D("WS^ ", r.RequestURI, ext)
+			proxy.Logger.D("Local", "Websocket", r.RequestURI, ext)
 			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		} else {
-			logg.D("CONNECT^ ", r.RequestURI, ext)
+			proxy.Logger.D("Local", "Gofw", r.RequestURI, ext)
 			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		}
 	} else {
@@ -388,14 +390,14 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var iv *[ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
-			logg.D("BLACKLIST ", r.Host, ext)
+			proxy.Logger.D("HTTP", "Blacklist", r.Host, ext)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		} else if ans == rulePass {
-			logg.D(r.Method, " ", r.Host, ext)
+			proxy.Logger.D("HTTP", r.Method, r.Host, ext)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			logg.D(r.Method, "^ ", r.Host, ext)
+			proxy.Logger.D("HTTP", r.Method+"^", r.Host, ext)
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
 			iv = proxy.encryptRequest(r, cr)
@@ -403,13 +405,13 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			logg.E("HTTP forward: ", rURL, ", ", err)
+			proxy.Logger.E("HTTP", "Forward", err, rURL)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if resp.StatusCode >= 400 {
-			logg.D("[", resp.Status, "] - ", rURL)
+			proxy.Logger.D("HTTP", "Forward", resp.Status, rURL)
 		}
 
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, iv)
@@ -422,7 +424,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Partial: false,
 				Role:    roleRecv,
 			}); err != nil {
-				logg.E("Copy ", nr, " bytes: ", err)
+				proxy.Logger.E("HTTP", "Copy bytes", nr, err)
 			}
 
 			tryClose(resp.Body)
@@ -434,7 +436,7 @@ func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
 	buf := make([]byte, 1+1+255+1+255)
 	n, err := io.ReadAtLeast(conn, buf, 2)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("SOCKS", err)
 		return false
 	}
 
@@ -455,23 +457,23 @@ func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
 
 func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	logClose := func(args ...interface{}) {
-		logg.E(args...)
+		proxy.Logger.E(args...)
 		conn.Close()
 	}
 
 	buf := make([]byte, 2)
 	if _, err := io.ReadAtLeast(conn, buf, 2); err != nil {
-		logClose(err)
+		logClose("SOCKS", err)
 		return
 	} else if buf[0] != socksVersion5 {
-		logClose(fmt.Sprintf(socksVersionErr, buf[0]))
+		logClose("SOCKS", fmt.Sprintf(socksVersionErr, buf[0]))
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err := io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		logClose(err)
+		logClose("SOCKS", err)
 		return
 	}
 
@@ -480,7 +482,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 
 		if !proxy.authSocks(conn) {
 			conn.Write([]byte{1, 1})
-			logClose("Invalid auth data from: ", conn.RemoteAddr)
+			logClose("SOCKS", "Invalid auth data from: ", conn.RemoteAddr)
 			return
 		}
 
@@ -493,7 +495,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	// tunneling start
 	method, addr, err := parseUDPHeader(conn, nil, false)
 	if err != nil {
-		logClose(err)
+		logClose("SOCKS", err)
 		return
 	}
 
@@ -501,22 +503,22 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	switch method {
 	case 1:
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			logg.D("BLACKLIST ", host, ext)
+			proxy.Logger.D("SOCKS", "Blacklist", host, ext)
 			conn.Close()
 		} else if ans == rulePass {
-			logg.D("SOCKS ", host, ext)
+			proxy.Logger.D("SOCKS", "Connect", host, ext)
 			proxy.dialHostAndBridge(conn, host, okSOCKS)
 		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			logg.D("WS^ ", host, ext)
+			proxy.Logger.D("SOCKS", "Websocket", host, ext)
 			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		} else {
-			logg.D("SOCKS^ ", host, ext)
+			proxy.Logger.D("SOCKS", "Gofw", host, ext)
 			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		}
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
-			logClose("Can't create UDP relay server: ", err)
+			logClose("SOCKS", "Can't create UDP relay server: ", err)
 			return
 		}
 
@@ -547,7 +549,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	upURL, err := url.Parse("http://" + config.Upstream)
 	if err != nil {
-		logg.F(err)
+		config.Logger.F("Local", err)
 		return nil
 	}
 
@@ -608,7 +610,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	} else {
 		proxy.addr, err = net.ResolveTCPAddr("tcp", localaddr)
 		if err != nil {
-			logg.F(err)
+			proxy.Logger.F("Local", err)
 			return nil
 		}
 

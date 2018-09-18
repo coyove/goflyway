@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/coyove/common/logg"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
 )
 
@@ -26,19 +25,19 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	host, _ = splitHostPort(host)
 
 	if c, ok := proxy.DNSCache.Get(host); ok && c.(*Rule) != nil {
-		return c.(*Rule).Ans, " (cached)"
+		return c.(*Rule).Ans, "Cached"
 	}
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("ACL", err)
 	}
 
 	priv := false
 	defer func() {
 		if proxy.Policy.IsSet(PolicyGlobal) && !priv {
 			r = ruleProxy
-			ext += " (global)"
+			ext += "Global"
 		} else {
 			proxy.DNSCache.Add(host, &Rule{ipstr, r, r, rule})
 		}
@@ -46,19 +45,19 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	switch rule {
 	case acr.RuleIPv6:
-		return ruleProxy, " (ipv6-proxy)" // By default we proxy IPv6 destination
+		return ruleProxy, "IPv6 Proxy" // By default we proxy IPv6 destination
 	case acr.RuleMatchedPass:
-		return rulePass, " (match-pass)"
+		return rulePass, "Pass Rule"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
-		return ruleProxy, " (match-proxy)"
+		return ruleProxy, "Proxy Rule"
 	case acr.RuleBlock:
-		return ruleBlock, " (match-block)"
+		return ruleBlock, "Block Rule"
 	case acr.RulePrivate:
 		priv = true
-		return rulePass, " (private-ip)"
+		return rulePass, "Private IP"
 	case acr.RulePass:
 		if !proxy.ACL.RemoteDNS {
-			return rulePass, " (trust-local-pass)"
+			return rulePass, "Pass Trust Local DNS"
 		}
 		r = rulePass
 	default:
@@ -93,29 +92,29 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 		if e, _ := err.(net.Error); e != nil && e.Timeout() {
 			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
 		} else {
-			logg.E(err)
+			proxy.Logger.E("ACL", err)
 		}
-		return r, " (network-err)"
+		return r, "Network Err"
 	}
 
 	tryClose(resp.Body)
 	ip, err := base64.StdEncoding.DecodeString(resp.Header.Get(dnsRespHeader))
 	if err != nil || ip == nil || len(ip) != net.IPv4len {
-		return r, " (remote-err)"
+		return r, "Remote Bad Resp"
 	}
 
 	ipstr = net.IP(ip).String()
 	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
-		return rulePass, " (remote-pass)"
+		return rulePass, "Pass Remote Rule"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
-		return ruleProxy, " (remote-proxy)"
+		return ruleProxy, "Proxy Remote Rule"
 	case acr.RuleBlock:
-		return ruleBlock, " (remote-block)"
+		return ruleBlock, "Block Remote Rule"
 	case acr.RulePrivate:
-		return ruleProxy, " (remote-private-ip)"
+		return ruleProxy, "Private IP Remote Rule"
 	default:
-		return ruleProxy, " (remote-unknown)"
+		return ruleProxy, "Unknown"
 	}
 }
 
@@ -140,7 +139,7 @@ func (proxy *ProxyClient) GetRemoteConfig() string {
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {
-		logg.E(err)
+		proxy.Logger.E("ACL", err)
 		return ""
 	}
 

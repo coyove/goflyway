@@ -175,6 +175,8 @@ func loadConfig() {
 	)
 }
 
+var logger *logg.Logger
+
 func main() {
 	method, url := lib.ParseExtendedOSArgs()
 	flag.Parse()
@@ -189,8 +191,15 @@ func main() {
 		return
 	}
 
+	logger = &logg.Logger{}
+	logger.SetLevel(*cmdLogLevel)
+
+	if *cmdLogFile != "" {
+		logger.LogFile(*cmdLogFile, 1024*1024*1)
+	}
+
 	lib.Slient = (method != "" && !*cmdVerbose)
-	lib.Println("\rHTTP toolkit goflyway (build " + version + ")")
+	logger.L("Start goflyway", "build "+version)
 	loadConfig()
 
 	if *cmdGenCA {
@@ -226,6 +235,7 @@ func main() {
 
 	cipher := &proxy.Cipher{Partial: *cmdPartial}
 	cipher.Init(*cmdKey)
+	cipher.IO.Logger =logger
 
 	var cc *proxy.ClientConfig
 	var sc *proxy.ServerConfig
@@ -255,6 +265,7 @@ func main() {
 		cc.Mux = int(*cmdMux)
 		cc.Upstream = *cmdUpstream
 		cc.LocalRPBind = *cmdLBind
+		cc.Logger = logger
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -280,6 +291,7 @@ func main() {
 			DisableUDP:    *cmdDiableUDP,
 			ClientAnswer:  *cmdAnswer,
 			LBindTimeout:  *cmdLBindWaits,
+			Logger:        logger,
 		}
 
 		if *cmdAuth != "" {
@@ -288,14 +300,6 @@ func main() {
 			}
 		}
 	}
-
-	if *cmdLogFile != "" {
-		logg.Redirect(*cmdLogFile)
-		lib.Println("Redirect log to", *cmdLogFile)
-	}
-
-	logg.SetLevel(*cmdLogLevel)
-	logg.Start()
 
 	if *cmdTimeout > 0 {
 		cipher.IO.StartPurgeConns(int(*cmdTimeout))
@@ -316,7 +320,7 @@ func main() {
 			lib.Println("Get config from the upstream")
 			cm := client.GetRemoteConfig()
 			if cm == "" {
-				logg.F("Can't get remote config")
+				logger.F("Can't get remote config")
 			}
 
 			parseUpstream(cc, cm)
@@ -329,21 +333,21 @@ func main() {
 			lib.Println("Bind", localaddr, "to", *cmdBind)
 			ln, err := net.Listen("tcp", localaddr)
 			if err != nil {
-				logg.F(err)
+				logger.F(err)
 			}
 			for {
 				conn, err := ln.Accept()
 				if err != nil {
-					logg.E(err)
+					logger.E(err)
 					continue
 				}
-				logg.L("Bridge ", conn.LocalAddr().String(), " to ", *cmdBind)
+				logger.L("Bridge", conn.LocalAddr().String(), *cmdBind)
 				client.Bridge(conn, *cmdBind)
 			}
 		} else {
 			if *cmdLBind != "" {
 				lib.Println("Local reverse proxy", client.Cipher.Alias, "bind [", client.ClientConfig.LocalRPBind, "], upstream: [", client.Upstream, "]")
-				logg.F(client.StartLocalRP())
+				logger.F(client.StartLocalRP())
 			} else {
 				if *cmdWebConPort != 0 {
 					go func() {
@@ -355,11 +359,11 @@ func main() {
 
 						http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
 						lib.Println("Access client web console at [", addr, "]")
-						logg.F(http.ListenAndServe(addr, nil))
+						logger.F(http.ListenAndServe(addr, nil))
 					}()
 				}
 				lib.Println("Proxy", client.Cipher.Alias, "started at [", client.Localaddr, "], upstream: [", client.Upstream, "]")
-				logg.F(client.Start())
+				logger.F(client.Start())
 			}
 		}
 	} else {
@@ -370,7 +374,7 @@ func main() {
 		} else if sc.ProxyPassAddr != "" {
 			lib.Println("Alternatively act as a file server:", sc.ProxyPassAddr)
 		}
-		logg.F(server.Start())
+		logger.F(server.Start())
 	}
 }
 
@@ -380,7 +384,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 		lib.Println("Use HTTPS proxy [", cc.Connect2, "] as the frontend, proxy auth: [", cc.Connect2Auth, "]")
 
 		if cc.Mux > 0 {
-			logg.F("Can't use an HTTPS proxy with TCP multiplexer")
+			logger.F("Can't use an HTTPS proxy with TCP multiplexer")
 		}
 
 	} else if gfw, http, ws, cf, fwd, fwdws :=

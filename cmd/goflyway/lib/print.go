@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -15,23 +16,26 @@ func Println(args ...interface{}) {
 		return
 	}
 
-	fmt.Print(Prefix + " ")
+	buf := bytes.Buffer{}
+	buf.WriteString(Prefix)
+	buf.WriteString(" ")
 
 	for _, arg := range args {
 		s := fmt.Sprintf("%v", arg)
 		p := strings.Split(s, "\n")
 
-		fmt.Print(p[0])
+		buf.WriteString(p[0])
 
 		for i := 1; i < len(p); i++ {
-			fmt.Println()
-			fmt.Print(Prefix + " ")
-			fmt.Print(p[i])
+			buf.WriteByte('\n')
+			buf.WriteString(Prefix)
+			buf.WriteByte(' ')
+			buf.WriteString(p[i])
 		}
 
-		fmt.Print(" ")
+		buf.WriteString(" ")
 	}
-	fmt.Println()
+	fmt.Println(buf.String())
 }
 
 func PrintInErr(args ...interface{}) {

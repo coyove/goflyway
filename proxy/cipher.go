@@ -3,7 +3,6 @@ package proxy
 import (
 	"fmt"
 
-	"github.com/coyove/common/logg"
 	"github.com/coyove/common/rand"
 	"github.com/coyove/goflyway/pkg/msg64"
 
@@ -184,7 +183,7 @@ func (gc *Cipher) Decrypt(text string, iv *[ivLen]byte) string {
 	sum := binary.BigEndian.Uint16(buf)
 
 	if msg64.Crc16b(0, buf[2:]) != sum {
-		logg.D("invalid checksum: ", text)
+		gc.IO.Logger.D("Cipher", "Invalid checksum", text)
 		return ""
 	}
 

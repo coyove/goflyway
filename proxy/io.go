@@ -13,6 +13,7 @@ import (
 	"unsafe"
 
 	"github.com/coyove/common/logg"
+
 	"github.com/coyove/common/rand"
 	"github.com/coyove/goflyway/pkg/trafficmon"
 	"github.com/coyove/tcpmux"
@@ -64,9 +65,8 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 
 	exit := make(chan bool)
 	go func(config IOConfig) {
-		ts := time.Now()
 		if _, err := iot.Copy(target, source, key, config); err != nil {
-			logg.E("Bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+			iot.Logger.E("Bridge", err)
 		}
 		exit <- true
 	}(o)
@@ -81,9 +81,8 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 	}
 
 	o.Role = roleSend
-	ts := time.Now()
 	if _, err := iot.Copy(source, target, key, o); err != nil {
-		logg.E("Bridge ", int(time.Now().Sub(ts).Seconds()), "s: ", err)
+		iot.Logger.E("Bridge", err)
 	}
 
 	select {
@@ -104,7 +103,8 @@ type io_t struct {
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
 
-	Ob tcpmux.Survey
+	Ob     tcpmux.Survey
+	Logger *logg.Logger
 }
 
 type conn_state_t struct {
@@ -176,7 +176,6 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 			for id, state := range iot.mconns {
 				if (ns - state.last) > int64(maxIdleTime)*1e9 {
-					//logg.D("closing ", state.conn.RemoteAddr(), " ", state.iid)
 					state.conn.Close()
 					delete(iot.mconns, id)
 				}
@@ -191,12 +190,12 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			if count == 60 {
 				count = 0
 				if len(iot.mconns) > 0 {
-					logg.D("Active connections: ", len(iot.mconns))
+					iot.Logger.D("Active Connections", len(iot.mconns))
 				}
 
 				if iot.Ob != nil {
 					c, s := iot.Ob.Count()
-					logg.D("Multiplexer state: ", c, "/", s)
+					iot.Logger.D("Multiplexer", c, "/", s)
 				}
 			}
 
@@ -261,14 +260,14 @@ func wsWrite(dst io.Writer, payload []byte, mask bool) (n int, err error) {
 	return dst.Write(payload)
 }
 
-func wsRead(src io.Reader) (payload []byte, n int, err error) {
+func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
 	buf := make([]byte, 4)
 	if n, err = io.ReadAtLeast(src, buf[:2], 2); err != nil {
 		return
 	}
 
 	if buf[0] != 2 {
-		logg.W("Invalid opcode: ", buf[0], ", goflyway only accept opcode 2")
+		iot.Logger.W("WS Read", "invalid ws opcode", buf[0])
 	}
 
 	mask := (buf[1] & 0x80) > 0
@@ -281,7 +280,7 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 		}
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
 	case 127:
-		logg.E("Payload too large")
+		iot.Logger.E("WS Read", "payload too large")
 		return
 	default:
 	}
@@ -309,10 +308,10 @@ func wsRead(src io.Reader) (payload []byte, n int, err error) {
 }
 
 func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOConfig) (written int64, err error) {
-	if logg.GetLevel() == logg.LvDebug {
+	if iot.Logger.GetLevel() == logg.LvDebug {
 		defer func() {
 			if r := recover(); r != nil {
-				logg.E("Debug panic: ", r)
+				iot.Logger.E("Copy Panic", r)
 			}
 		}()
 	}
@@ -332,7 +331,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		case wsClientSrcIsUpstream, wsServerSrcIsDownstream:
 			// we are client, reading from upstream, or
 			// we are server, reading from downstream
-			buf, nr, er = wsRead(src)
+			buf, nr, er = iot.wsRead(src)
 		default:
 			nr, er = src.Read(buf)
 		}
@@ -417,7 +416,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		dst.Write([]byte("0\r\n\r\n"))
 	}
 
-	// logg.D("close ", u)
+	// proxy.Logger.D("close ", u)
 	return written, err
 }
 
