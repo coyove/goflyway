@@ -397,7 +397,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.Logger.D("HTTP", r.Method, r.Host, ext)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			proxy.Logger.D("HTTP", r.Method+"^", r.Host, ext)
+			proxy.Logger.D("HTTP", "Gofw "+r.Method, r.Host, ext)
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
 			iv = proxy.encryptRequest(r, cr)

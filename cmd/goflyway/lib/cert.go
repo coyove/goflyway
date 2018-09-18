@@ -58,20 +58,16 @@ PhnS0Vmp6MHpXXDE3jbBprBvSZblhPODgq42OZWA1wfHag1WBvvPrGhhDNVhJcdT
 b8QbrT0oXmfbvU4hlFemLVNAmQcfKTZj4ECvEgEcx9h1KydouA==
 -----END RSA PRIVATE KEY-----`)
 
-func TryLoadCert() tls.Certificate {
-
+func TryLoadCert() (tls.Certificate, int, int) {
+	var certLen, keyLen int
 	if cert, err := ioutil.ReadFile("ca.pem"); err == nil {
 		caCert = cert
-		Println("* ca.pem loaded, read", len(cert), "bytes")
-	} else {
-		Println("* ca.pem not found, using the default one")
+		certLen = len(cert)
 	}
 
 	if key, err := ioutil.ReadFile("key.pem"); err == nil {
 		caKey = key
-		Println("* key.pem loaded, read", len(key), "bytes")
-	} else {
-		Println("* key.pem not found, using the default one")
+		keyLen = len(key)
 	}
 
 	ca, err := tls.X509KeyPair(caCert, caKey)
@@ -79,7 +75,7 @@ func TryLoadCert() tls.Certificate {
 		panic(err)
 	}
 
-	return ca
+	return ca, certLen, keyLen
 }
 
 func GenCA(name string) (certPEM, keyPEM []byte, err error) {
