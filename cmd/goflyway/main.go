@@ -30,7 +30,7 @@ var version = "__devel__"
 var (
 	// General flags
 	cmdHelp     = flag.Bool("h", false, "Display help message")
-	cmdHelp2    = flag.Bool("help", false, "Display detailed help message")
+	cmdHelp2    = flag.Bool("help", false, "Display long help message")
 	cmdConfig   = flag.String("c", "", "Config file path")
 	cmdLogLevel = flag.String("lv", "log", "Logging level: {dbg, log, warn, err, off}")
 	cmdLogFile  = flag.String("lf", "", "Log to file")
@@ -38,15 +38,17 @@ var (
 	cmdKey      = flag.String("k", "0123456789abcdef", "Password, do not use the default one")
 	cmdLocal    = flag.String("l", ":8100", "Listening address")
 	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
-	cmdSection  = flag.String("y", "default", "Section to read in the config, 'cli' to disable")
+	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
 	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
-	cmdDiableUDP  = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
+	cmdDisableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
+	cmdDisableLRP = flag.Bool("disable-localrp", false, "[S] Disable client localrp control request")
 	cmdProxyPass  = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
 	cmdAnswer     = flag.String("answer", "", "[S] Answer client config setup")
 	cmdLBindWaits = flag.Int64("lbind-timeout", 5, "[S] Local bind timeout in seconds")
+	cmdLBindCap   = flag.Int64("lbind-cap", 100, "[S] Local bind requests buffer")
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[C] Global proxy")
@@ -84,7 +86,7 @@ var (
 )
 
 func loadConfig() {
-	if *cmdSection == "cli" {
+	if *cmdSection == "" {
 		return
 	}
 
@@ -108,11 +110,11 @@ func loadConfig() {
 	}
 
 	if strings.Contains(path, "shadowsocks.conf") {
-		logger.L("Init", "Read shadowsocks config")
+		logger.L("Config", "Read shadowsocks config")
 
 		cmds := make(map[string]interface{})
 		if err := json.Unmarshal(buf, &cmds); err != nil {
-			logger.L("Init", "Can't parse config file", err)
+			logger.L("Config", "Can't parse config file", err)
 			return
 		}
 
@@ -131,11 +133,11 @@ func loadConfig() {
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		logger.L("Init", "Can't parse config file", err)
+		logger.L("Config", "Can't parse config file", err)
 		return
 	}
 
-	logger.L("Init", "Reading config section", *cmdSection)
+	logger.L("Config", "Reading config section", *cmdSection)
 	func(args ...interface{}) {
 		for i := 0; i < len(args); i += 2 {
 			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f.(type) {
@@ -152,7 +154,8 @@ func loadConfig() {
 		"auth       ", cmdAuth,
 		"listen     ", cmdLocal,
 		"upstream   ", cmdUpstream,
-		"disableudp ", cmdDiableUDP,
+		"disableudp ", cmdDisableUDP,
+		"disablelrp ", cmdDisableLRP,
 		"udptcp     ", cmdUDPonTCP,
 		"global     ", cmdGlobal,
 		"acl        ", cmdACL,
@@ -169,6 +172,7 @@ func loadConfig() {
 		"bind       ", cmdBind,
 		"lbind      ", cmdLBind,
 		"lbindwaits ", cmdLBindWaits,
+		"lbindcap   ", cmdLBindCap,
 		"mitmdump   ", cmdMITMDump,
 		"remote     ", cmdRemote,
 		"answer     ", cmdAnswer,
@@ -287,9 +291,11 @@ func main() {
 			Throttling:    *cmdThrot,
 			ThrottlingMax: *cmdThrotMax,
 			ProxyPassAddr: *cmdProxyPass,
-			DisableUDP:    *cmdDiableUDP,
+			DisableUDP:    *cmdDisableUDP,
+			DisableLRP:    *cmdDisableLRP,
 			ClientAnswer:  *cmdAnswer,
 			LBindTimeout:  *cmdLBindWaits,
+			LBindCap:      *cmdLBindCap,
 			Logger:        logger,
 		}
 
@@ -317,10 +323,10 @@ func main() {
 		client := proxy.NewClient(localaddr, cc)
 
 		if *cmdRemote {
-			logger.L("Init", "Get config from the upstream")
+			logger.L("Config", "Get config from the upstream")
 			cm := client.GetRemoteConfig()
 			if cm == "" {
-				logger.F("Init", "Can't get remote config")
+				logger.F("Config", "Can't get remote config")
 			}
 
 			parseUpstream(cc, cm)
@@ -461,12 +467,12 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.Cookie) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		logger.E("curl", "Can't create the request", err)
+		logger.E("CURL", "Can't create the request", err)
 		return
 	}
 
 	if err := lib.ParseHeadersAndPostBody(*cmdHeaders, *cmdForm, *cmdMultipart, req); err != nil {
-		logger.E("curl", "Invalid headers", err)
+		logger.E("CURL", "Invalid headers", err)
 		return
 	}
 
@@ -474,7 +480,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		cs := make([]string, len(cookies))
 		for i, cookie := range cookies {
 			cs[i] = cookie.Name + "=" + cookie.Value
-			logger.D("curl", "Cookie", cookie.String())
+			logger.D("CURL", "Cookie", cookie.String())
 		}
 
 		oc := req.Header.Get("Cookie")
@@ -488,7 +494,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	}
 
 	reqbuf, _ := httputil.DumpRequest(req, false)
-	logger.D("curl", string(reqbuf))
+	logger.D("CURL", string(reqbuf))
 
 	var totalBytes, counter int64
 	var startTime = time.Now().UnixNano()
@@ -505,12 +511,12 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	cookies = append(cookies, lib.ParseSetCookies(r.HeaderMap)...)
 
 	if r.HeaderMap.Get("Content-Encoding") == "gzip" {
-		logger.D("curl", "Decoding gzip content")
+		logger.D("CURL", "Decoding gzip content")
 		r.Body, _ = gzip.NewReader(r.Body)
 	}
 
 	if r.Body == nil {
-		logger.D("curl", "Empty body")
+		logger.D("CURL", "Empty body")
 		r.Body = &lib.NullReader{}
 	}
 
@@ -519,7 +525,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	if r.IsRedir() {
 		location := r.Header().Get("Location")
 		if location == "" {
-			logger.E("curl", "Invalid redirection")
+			logger.E("CURL", "Invalid redirection")
 			return
 		}
 
@@ -533,7 +539,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 			}
 		}
 
-		logger.L("curl", "Redirect", location)
+		logger.L("CURL", "Redirect", location)
 		curl(client, method, location, cookies)
 	} else {
 		respbuf, _ := httputil.DumpResponse(r.Result(), false)
@@ -541,6 +547,6 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 
 		lib.IOCopy(os.Stdout, r, *cmdPrettyJSON)
 
-		logger.L("curl", "Completed in "+strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64)+"s")
+		logger.L("CURL", "Completed in "+strconv.FormatFloat(float64(time.Now().UnixNano()-startTime)/1e9, 'f', 3, 64)+"s")
 	}
 }

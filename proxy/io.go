@@ -195,7 +195,8 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 				if iot.Ob != nil {
 					c, s := iot.Ob.Count()
-					iot.Logger.D("Multiplexer", c, "/", s)
+					iot.Logger.D("Mux Master", c)
+					iot.Logger.D("Mux Streams", s)
 				}
 			}
 

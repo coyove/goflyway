@@ -24,7 +24,9 @@ type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
 	LBindTimeout  int64
+	LBindCap      int64
 	DisableUDP    bool
+	DisableLRP    bool
 	ProxyPassAddr string
 	ClientAnswer  string
 	Logger        *logg.Logger
@@ -388,7 +390,13 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 
 func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *clientRequest, ioc IOConfig) {
 	if _, err := downstream.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-		proxy.Logger.E("Upstream", err)
+		proxy.Logger.E("LocalRP", err)
+		downstream.Close()
+		return
+	}
+
+	if proxy.DisableLRP {
+		proxy.Logger.W("LocalRP", "Reject client request")
 		downstream.Close()
 		return
 	}
@@ -400,7 +408,7 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 		return
 	}
 	proxy.localRP.downstream = downstream
-	proxy.localRP.requests = make(chan localRPCtrlSrvReq, 100)
+	proxy.localRP.requests = make(chan localRPCtrlSrvReq, proxy.LBindCap)
 	proxy.localRP.waiting = make(map[string]localRPCtrlSrvResp)
 	proxy.localRP.Unlock()
 
