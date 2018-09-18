@@ -178,7 +178,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			select {
 			case resp := <-cb:
 				if resp.err != nil {
-					userConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n" + resp.err.Error()))
+					userConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\nError: " + resp.err.Error()))
 					return
 				}
 			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
@@ -394,6 +394,7 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 	proxy.localRP.Lock()
 	if proxy.localRP.downstream != nil {
 		proxy.localRP.Unlock()
+		downstream.Close()
 		return
 	}
 	proxy.localRP.downstream = downstream

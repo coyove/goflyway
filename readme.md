@@ -28,3 +28,8 @@ Here is also [another android client](https://github.com/koolwiki/goflyway_andro
 ## iOS/macOS Client
 
 No plan yet.
+
+
+## Contribute
+
+Please file PRs to `gdev` branch.

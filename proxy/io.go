@@ -25,7 +25,10 @@ const (
 	wsServer
 	wsServerDstIsDownstream
 	wsServerSrcIsDownstream
-	roleSend
+)
+
+const (
+	roleSend = iota + 1
 	roleRecv
 )
 
