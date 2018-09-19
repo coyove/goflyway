@@ -33,7 +33,6 @@ var (
 	cmdHelp2    = flag.Bool("help", false, "Display long help message")
 	cmdConfig   = flag.String("c", "", "Config file path")
 	cmdLogLevel = flag.String("lv", "log", "Logging level: {dbg, log, warn, err, off}")
-	cmdLogFile  = flag.String("lf", "", "Log to file")
 	cmdAuth     = flag.String("a", "", "Proxy authentication, form: username:password (remember the colon)")
 	cmdKey      = flag.String("k", "0123456789abcdef", "Password, do not use the default one")
 	cmdLocal    = flag.String("l", ":8100", "Listening address")
@@ -67,6 +66,14 @@ var (
 	cmdGenCA      = flag.Bool("gen-ca", false, "[C] Generate certificate (ca.pem) and private key (key.pem)")
 
 	// curl flags
+	cmdGet        = flag.String("get", "", "[Cu] GET request")
+	cmdHead       = flag.String("head", "", "[Cu] HEAD request")
+	cmdPost       = flag.String("post", "", "[Cu] POST request")
+	cmdPut        = flag.String("put", "", "[Cu] PUT request")
+	cmdDelete     = flag.String("delete", "", "[Cu] DELETE request")
+	cmdOptions    = flag.String("options", "", "[Cu] OPTIONS request")
+	cmdTrace      = flag.String("trace", "", "[Cu] TRACE request")
+	cmdPatch      = flag.String("patch", "", "[Cu] PATCH request")
 	cmdVerbose    = flag.Bool("v", false, "[Cu] Verbose output")
 	cmdForm       = flag.String("F", "", "[Cu] Post form")
 	cmdHeaders    = flag.String("H", "", "[Cu] Headers")
@@ -166,7 +173,6 @@ func loadConfig() {
 		"webconport ", cmdWebConPort,
 		"dnscache   ", cmdDNSCache,
 		"loglevel   ", cmdLogLevel,
-		"logfile    ", cmdLogFile,
 		"throt      ", cmdThrot,
 		"throtmax   ", cmdThrotMax,
 		"bind       ", cmdBind,
@@ -182,16 +188,19 @@ func loadConfig() {
 var logger *logg.Logger
 
 func main() {
-	method, url := lib.ParseExtendedOSArgs()
+	method, url := "", ""
 	flag.Parse()
+
 	if *cmdHelp2 {
 		flag.Usage()
 		return
 	}
 
 	if *cmdHelp {
-		fmt.Println("Client: \n\t./goflyway -up SERVER_IP:SERVER_PORT -k PASSWORD")
-		fmt.Println("Server: \n\t./goflyway -l :SERVER_PORT -k PASSWORD")
+		fmt.Print("Launch as client: \n\n\t./goflyway -up SERVER_IP:SERVER_PORT -k PASSWORD\n\n")
+		fmt.Print("Launch as server: \n\n\t./goflyway -l :SERVER_PORT -k PASSWORD\n\n")
+		fmt.Print("Generate ca.pem and key.pem: \n\n\t./goflyway -gen-ca\n\n")
+		fmt.Print("POST request: \n\n\t./goflyway -post URL -up ... -H \"h1:v1\\r\\nh2:v2\" -F \"k1:v1\\r\\nk2:v2\"\n\n")
 		return
 	}
 
@@ -216,12 +225,30 @@ func main() {
 		return
 	}
 
-	logger = &logg.Logger{}
-	logger.SetLevel(*cmdLogLevel)
-
-	if *cmdLogFile != "" {
-		logger.LogFile(*cmdLogFile, 1024*1024*1)
+	switch {
+	case *cmdGet != "":
+		method, url = "GET", *cmdGet
+	case *cmdPost != "":
+		method, url = "POST", *cmdPost
+	case *cmdPut != "":
+		method, url = "PUT", *cmdPut
+	case *cmdDelete != "":
+		method, url = "DELETE", *cmdDelete
+	case *cmdHead != "":
+		method, url = "HEAD", *cmdHead
+	case *cmdOptions != "":
+		method, url = "OPTIONS", *cmdOptions
+	case *cmdTrace != "":
+		method, url = "TRACE", *cmdTrace
+	case *cmdPatch != "":
+		method, url = "PATCH", *cmdPatch
 	}
+
+	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
+
+	logger = &logg.Logger{}
+	logger.SetFormats(logg.FmtLongTime, logg.FmtGoroutine, logg.FmtShortFile, logg.FmtLevel)
+	logger.Parse(*cmdLogLevel)
 
 	logger.L("Init", "goflyway build "+version)
 	loadConfig()
@@ -375,6 +402,9 @@ func main() {
 			}
 		}
 	} else {
+		if method != "" {
+			logger.F("You are issuing an HTTP request without the upstream")
+		}
 		server := proxy.NewServer(localaddr, sc)
 		logger.L("Final Stage", "Upstream is up and running at", server.Localaddr)
 

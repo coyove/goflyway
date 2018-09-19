@@ -15,30 +15,6 @@ import (
 	"strings"
 )
 
-func ParseExtendedOSArgs() (method string, url string) {
-	if len(os.Args) <= 1 {
-		return
-	}
-
-	if strings.HasPrefix(os.Args[1], "-") {
-		return
-	}
-
-	method = strings.ToUpper(os.Args[1])
-	url = os.Args[len(os.Args)-1]
-	os.Args = append(os.Args[:1], os.Args[2:len(os.Args)-1]...)
-
-	if !strings.HasPrefix(url, "http") {
-		url = "http://" + url
-	}
-
-	if _, err := _url.Parse(url); err != nil {
-		method, url = "", ""
-	}
-
-	return
-}
-
 func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http.Request) (err error) {
 	buf := &bytes.Buffer{}
 	parse := func(in string) ([][2]string, error) {
