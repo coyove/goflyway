@@ -38,7 +38,7 @@ var (
 	cmdLocal    = flag.String("l", ":8100", "Listening address")
 	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
-	cmdKCP      = flag.Bool("kcp", false, "Use KCP")
+	cmdKCP      = flag.Bool("kcp", false, "Use KCP to transfer data, experimental feature")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
@@ -273,6 +273,10 @@ func main() {
 
 	if *cmdMux > 0 {
 		logger.L("Init", "TCP multiplexer", *cmdMux)
+	}
+
+	if *cmdKCP {
+		logger.L("Init", "Use KCP protocol")
 	}
 
 	if *cmdUpstream != "" {

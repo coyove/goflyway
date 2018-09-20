@@ -76,7 +76,11 @@ func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error
 	if proxy.Connect2 == "" {
 		switch dialStyle {
 		case 'd':
-			conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
+			if proxy.KCP.Enable {
+				conn, err = kcp.Dial(proxy.Upstream)
+			} else {
+				conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
+			}
 		case 'v':
 			conn, err = vpnDial(proxy.Upstream)
 		default:
@@ -572,6 +576,10 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 
 	if proxy.KCP.Enable {
 		proxy.pool.OnDial = kcp.Dial
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) {
+			return kcp.Dial(address)
+		}
+		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
 	if config.Mux > 0 {
