@@ -38,6 +38,7 @@ var (
 	cmdLocal    = flag.String("l", ":8100", "Listening address")
 	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
+	cmdKCP      = flag.Bool("kcp", false, "Use KCP")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
@@ -247,7 +248,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 
 	logger = &logg.Logger{}
-	logger.SetFormats(logg.FmtLongTime, logg.FmtGoroutine, logg.FmtShortFile, logg.FmtLevel)
+	logger.SetFormats(logg.FmtLongTime, logg.FmtShortFile, logg.FmtLevel)
 	logger.Parse(*cmdLogLevel)
 
 	logger.L("Init", "goflyway build "+version)
@@ -296,6 +297,7 @@ func main() {
 		cc.Upstream = *cmdUpstream
 		cc.LocalRPBind = *cmdLBind
 		cc.Logger = logger
+		cc.KCP.Enable = *cmdKCP
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -324,6 +326,9 @@ func main() {
 			LBindTimeout:  *cmdLBindWaits,
 			LBindCap:      *cmdLBindCap,
 			Logger:        logger,
+			KCP: proxy.KCPConfig{
+				Enable: *cmdKCP,
+			},
 		}
 
 		if *cmdAuth != "" {

@@ -5,10 +5,11 @@ import (
 	"os"
 
 	"github.com/coyove/common/logg"
-
 	"github.com/coyove/common/lru"
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/tcpmux"
+
+	"github.com/xtaci/kcp-go"
 
 	"bytes"
 	"encoding/base64"
@@ -50,6 +51,7 @@ type ClientConfig struct {
 	CA          tls.Certificate
 	CACache     *lru.Cache
 	ACL         *acr.ACL
+	KCP         KCPConfig
 	Logger      *logg.Logger
 
 	*Cipher
@@ -566,6 +568,10 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		dummies: lru.NewCache(int64(len(dummyHeaders))),
 
 		ClientConfig: config,
+	}
+
+	if proxy.KCP.Enable {
+		proxy.pool.OnDial = kcp.Dial
 	}
 
 	if config.Mux > 0 {

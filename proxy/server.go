@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/xtaci/kcp-go"
+
 	"github.com/coyove/common/logg"
 	"github.com/coyove/common/lru"
 	"github.com/coyove/tcpmux"
@@ -20,6 +22,10 @@ import (
 	"time"
 )
 
+type KCPConfig struct {
+	Enable bool
+}
+
 type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
@@ -30,6 +36,7 @@ type ServerConfig struct {
 	ProxyPassAddr string
 	ClientAnswer  string
 	Logger        *logg.Logger
+	KCP           KCPConfig
 
 	Users map[string]UserConfig
 
@@ -346,11 +353,18 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *ProxyUpstream) Start() (err error) {
-	proxy.Listener, err = tcpmux.Listen(proxy.Localaddr, true)
-	if err != nil {
-		return
+	if proxy.KCP.Enable {
+		ln, err := kcp.Listen(proxy.Localaddr)
+		if err != nil {
+			return err
+		}
+		proxy.Listener = tcpmux.Wrap(ln)
+	} else {
+		proxy.Listener, err = tcpmux.Listen(proxy.Localaddr, true)
+		if err != nil {
+			return
+		}
 	}
-
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
 	return http.Serve(proxy.Listener, proxy)
