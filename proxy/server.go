@@ -524,6 +524,8 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 		}
 		if len(proxy.localRP.downstreams) == 0 {
 			proxy.localRP.requests <- localRPCtrlSrvReq{end: true}
+			proxy.localRP.waiting = nil
+			proxy.localRP.requests = nil
 		}
 		proxy.localRP.Unlock()
 		downstream.Close()
