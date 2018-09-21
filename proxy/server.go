@@ -52,6 +52,7 @@ type UserConfig struct {
 
 type localRPCtrlSrvReq struct {
 	dst      string
+	end      bool
 	conn     net.Conn
 	callback chan localRPCtrlSrvResp
 	rawReq   []byte
@@ -378,7 +379,7 @@ func (proxy *ProxyUpstream) Start() (err error) {
 			for range time.Tick(time.Minute) {
 				proxy.localRP.Lock()
 				if proxy.localRP.waiting != nil {
-					proxy.Logger.D("Local RP", "Waiting", len(proxy.localRP.waiting))
+					proxy.Logger.D("Local RP", "Queue", len(proxy.localRP.waiting), len(proxy.localRP.downConns))
 				}
 				proxy.localRP.Unlock()
 			}
@@ -457,15 +458,16 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 
 	proxy.localRP.downstreams = append(proxy.localRP.downstreams, downstream)
 	proxy.localRP.downConns = append(proxy.localRP.downConns, connw)
-	proxy.localRP.Unlock()
 
-	go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
-
-	go func() {
+	if len(proxy.localRP.downConns) == 1 {
 		go func() {
 			for {
 				select {
 				case req := <-proxy.localRP.requests:
+					if req.end {
+						proxy.Logger.D("Local RP", "Request listening loop has ended")
+						return
+					}
 					if len(req.dst) >= 65535 {
 						req.callback <- localRPCtrlSrvResp{
 							err: fmt.Errorf("request too long"),
@@ -492,10 +494,16 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 				}
 			}
 		}()
+	}
+
+	proxy.localRP.Unlock()
+
+	go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
+
+	go func() {
 
 		for {
 			buf := make([]byte, 16)
-			connw := proxy.pickAControlConn()
 			if _, err := connw.Write(buf); err != nil {
 				break
 			}
@@ -507,12 +515,15 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 		}
 
 		proxy.localRP.Lock()
-		for i, d := range proxy.localRP.downstreams {
-			if d == downstream {
+		for i, d := range proxy.localRP.downConns {
+			if d == connw {
 				proxy.localRP.downstreams = append(proxy.localRP.downstreams[:i], proxy.localRP.downstreams[i+1:]...)
 				proxy.localRP.downConns = append(proxy.localRP.downConns[:i], proxy.localRP.downConns[i+1:]...)
 				break
 			}
+		}
+		if len(proxy.localRP.downstreams) == 0 {
+			proxy.localRP.requests <- localRPCtrlSrvReq{end: true}
 		}
 		proxy.localRP.Unlock()
 		downstream.Close()
