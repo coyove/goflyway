@@ -71,9 +71,10 @@ type ProxyUpstream struct {
 
 	localRP struct {
 		sync.Mutex
-		downstream net.Conn
-		requests   chan localRPCtrlSrvReq
-		waiting    map[string]localRPCtrlSrvResp
+		downstreams []net.Conn
+		downConns   []DummyConnWrapper
+		requests    chan localRPCtrlSrvReq
+		waiting     map[string]localRPCtrlSrvResp
 	}
 
 	Localaddr string
@@ -184,7 +185,7 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				rawReq:   rawReq,
 			}
 
-			proxy.Logger.D("Upstream", "LocalRP", "wait client to response")
+			proxy.Logger.D("Local RP", "Wait client to response")
 			select {
 			case resp := <-cb:
 				if resp.err != nil {
@@ -192,9 +193,11 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
-				proxy.Logger.E("Upstream", "LocalRP", "client didn't response")
+				proxy.Logger.E("Local RP", "client didn't response")
 				userConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError: localrp timed out"))
 			}
+			proxy.Logger.D("Local RP", "Client OK")
+
 			proxy.localRP.Lock()
 			for k, resp := range proxy.localRP.waiting {
 				if resp.req.conn == userConn {
@@ -244,13 +247,16 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ioc := proxy.getIOConfig(cr.Auth)
 		ioc.Partial = cr.Opt.IsSet(doPartial)
 
-		if dst == "a" {
+		if dst == "localrp" {
 			proxy.startLocalRPControlServer(proxy.hijack(w), cr, ioc)
 		} else if proxy.localRP.waiting != nil {
+			proxy.localRP.Lock()
 			resp, ok := proxy.localRP.waiting[dst]
 			if !ok {
+				proxy.localRP.Unlock()
 				return
 			}
+			proxy.localRP.Unlock()
 
 			downstreamConn := proxy.hijack(w)
 			proxy.replyGood(downstreamConn, cr, &ioc, r)
@@ -367,6 +373,18 @@ func (proxy *ProxyUpstream) Start() (err error) {
 	}
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
+	if proxy.Logger.GetLevel() == logg.LvDebug {
+		go func() {
+			for range time.Tick(time.Minute) {
+				proxy.localRP.Lock()
+				if proxy.localRP.waiting != nil {
+					proxy.Logger.D("Local RP", "Waiting", len(proxy.localRP.waiting))
+				}
+				proxy.localRP.Unlock()
+			}
+		}()
+	}
+
 	return http.Serve(proxy.Listener, proxy)
 }
 
@@ -402,36 +420,48 @@ func NewServer(addr string, config *ServerConfig) *ProxyUpstream {
 	return proxy
 }
 
+func (proxy *ProxyUpstream) pickAControlConn() DummyConnWrapper {
+	proxy.localRP.Lock()
+	defer proxy.localRP.Unlock()
+	return proxy.localRP.downConns[proxy.Cipher.Rand.Intn(len(proxy.localRP.downConns))]
+}
+
 func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *clientRequest, ioc IOConfig) {
 	if _, err := downstream.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-		proxy.Logger.E("LocalRP", err)
+		proxy.Logger.E("Local RP", err)
 		downstream.Close()
 		return
 	}
 
 	if proxy.DisableLRP {
-		proxy.Logger.W("LocalRP", "Reject client request")
+		proxy.Logger.W("Local RP", "Reject client request")
 		downstream.Close()
 		return
 	}
 
 	proxy.localRP.Lock()
-	if proxy.localRP.downstream != nil {
-		proxy.localRP.Unlock()
-		downstream.Close()
-		return
+	if proxy.localRP.downstreams == nil {
+		proxy.localRP.downstreams = make([]net.Conn, 0)
+		proxy.localRP.downConns = make([]DummyConnWrapper, 0)
 	}
-	proxy.localRP.downstream = downstream
-	proxy.localRP.requests = make(chan localRPCtrlSrvReq, proxy.LBindCap)
-	proxy.localRP.waiting = make(map[string]localRPCtrlSrvResp)
-	proxy.localRP.Unlock()
+	if proxy.localRP.requests == nil {
+		proxy.localRP.requests = make(chan localRPCtrlSrvReq, proxy.LBindCap)
+	}
+	if proxy.localRP.waiting == nil {
+		proxy.localRP.waiting = make(map[string]localRPCtrlSrvResp)
+	}
 
 	conn := &DummyConn{}
 	conn.Init()
 	connw := DummyConnWrapper{conn}
 
+	proxy.localRP.downstreams = append(proxy.localRP.downstreams, downstream)
+	proxy.localRP.downConns = append(proxy.localRP.downConns, connw)
+	proxy.localRP.Unlock()
+
+	go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
+
 	go func() {
-		go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
 		go func() {
 			for {
 				select {
@@ -450,11 +480,14 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 					binary.BigEndian.PutUint32(buf[16:20], uint32(len(req.rawReq)))
 					copy(buf[20:], req.rawReq)
 
+					proxy.localRP.Lock()
 					proxy.localRP.waiting[localrpr] = localRPCtrlSrvResp{
 						localrpr: localrpr,
 						req:      req,
 					}
+					proxy.localRP.Unlock()
 
+					connw := proxy.pickAControlConn()
 					go connw.Write(buf)
 				}
 			}
@@ -462,6 +495,7 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 
 		for {
 			buf := make([]byte, 16)
+			connw := proxy.pickAControlConn()
 			if _, err := connw.Write(buf); err != nil {
 				break
 			}
@@ -473,9 +507,12 @@ func (proxy *ProxyUpstream) startLocalRPControlServer(downstream net.Conn, cr *c
 		}
 
 		proxy.localRP.Lock()
-		if proxy.localRP.downstream == downstream {
-			proxy.localRP.downstream = nil
-			proxy.localRP.waiting = nil
+		for i, d := range proxy.localRP.downstreams {
+			if d == downstream {
+				proxy.localRP.downstreams = append(proxy.localRP.downstreams[:i], proxy.localRP.downstreams[i+1:]...)
+				proxy.localRP.downConns = append(proxy.localRP.downConns[:i], proxy.localRP.downConns[i+1:]...)
+				break
+			}
 		}
 		proxy.localRP.Unlock()
 		downstream.Close()

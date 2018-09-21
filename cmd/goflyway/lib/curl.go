@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	_url "net/url"
 	"os"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 
 func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http.Request) (err error) {
 	buf := &bytes.Buffer{}
-	parse := func(in string) ([][2]string, error) {
+	parse := func(in string, form bool) ([][2]string, error) {
 		if strings.HasPrefix(in, "@") {
 			buf, err := ioutil.ReadFile(in[1:])
 			if err != nil {
@@ -28,6 +29,21 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 			in, _ = strconv.Unquote(`"` + in + `"`)
 		}
 
+		if form {
+			values, err := url.ParseQuery(in)
+			if err != nil {
+				return nil, err
+			}
+
+			ret := make([][2]string, 0, len(values))
+			for k, v := range values {
+				if strings.HasPrefix(v[0], "@") {
+					multipartPOST = true
+				}
+				ret = append(ret, [2]string{k, v[0]})
+			}
+			return ret, nil
+		}
 		lines := strings.Split(in, "\n")
 		pairs := make([][2]string, 0, len(lines))
 
@@ -92,7 +108,7 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		return nil
 	}
 
-	ppost, err := parse(post)
+	ppost, err := parse(post, true)
 	if err != nil {
 		return err
 	}
@@ -146,7 +162,7 @@ func ParseHeadersAndPostBody(headers, post string, multipartPOST bool, req *http
 		}
 	}
 
-	pheader, err := parse(headers)
+	pheader, err := parse(headers, false)
 	if err != nil {
 		return err
 	}

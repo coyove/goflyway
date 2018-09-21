@@ -25,7 +25,16 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	host, _ = splitHostPort(host)
 
 	if c, ok := proxy.DNSCache.Get(host); ok && c.(*Rule) != nil {
-		return c.(*Rule).Ans, "Cached"
+		switch c.(*Rule).Ans {
+		case ruleProxy:
+			return ruleProxy, "Proxy (cached)"
+		case rulePass:
+			return rulePass, "Pass (cached)"
+		case ruleBlock:
+			return ruleBlock, "Block (cached)"
+		default:
+			panic("?")
+		}
 	}
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)
@@ -45,19 +54,19 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	switch rule {
 	case acr.RuleIPv6:
-		return ruleProxy, "IPv6 Proxy" // By default we proxy IPv6 destination
+		return ruleProxy, "Proxy (IPv6)" // By default we proxy IPv6 destination
 	case acr.RuleMatchedPass:
-		return rulePass, "Pass Rule"
+		return rulePass, "Pass"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
-		return ruleProxy, "Proxy Rule"
+		return ruleProxy, "Proxy"
 	case acr.RuleBlock:
-		return ruleBlock, "Block Rule"
+		return ruleBlock, "Block"
 	case acr.RulePrivate:
 		priv = true
 		return rulePass, "Private IP"
 	case acr.RulePass:
 		if !proxy.ACL.RemoteDNS {
-			return rulePass, "Pass Trust Local DNS"
+			return rulePass, "Pass (trust local DNS)"
 		}
 		r = rulePass
 	default:
@@ -89,30 +98,30 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {
-		if e, _ := err.(net.Error); e != nil && e.Timeout() {
-			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
-		} else {
-			proxy.Logger.E("ACL", err)
-		}
-		return r, "Network Err"
+		// if e, _ := err.(net.Error); e != nil && e.Timeout() {
+		// 	// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
+		// } else {
+		// 	proxy.Logger.E("ACL", err)
+		// }
+		return r, "Network error: " + err.Error()
 	}
 
 	tryClose(resp.Body)
 	ip, err := base64.StdEncoding.DecodeString(resp.Header.Get(dnsRespHeader))
 	if err != nil || ip == nil || len(ip) != net.IPv4len {
-		return r, "Remote Bad Resp"
+		return r, "Bad response"
 	}
 
 	ipstr = net.IP(ip).String()
 	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
-		return rulePass, "Pass Remote Rule"
+		return rulePass, "Pass (remote rule)"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
-		return ruleProxy, "Proxy Remote Rule"
+		return ruleProxy, "Proxy (remote rule)"
 	case acr.RuleBlock:
-		return ruleBlock, "Block Remote Rule"
+		return ruleBlock, "Block (remote rule)"
 	case acr.RulePrivate:
-		return ruleProxy, "Private IP Remote Rule"
+		return ruleProxy, "Private IP (remote rule)"
 	default:
 		return ruleProxy, "Unknown"
 	}

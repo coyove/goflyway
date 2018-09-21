@@ -64,6 +64,7 @@ var (
 	cmdRemote     = flag.Bool("remote", false, "[C] Get config setup from the upstream")
 	cmdBind       = flag.String("bind", "", "[C] Bind to an address at server")
 	cmdLBind      = flag.String("lbind", "", "[C] Bind a local address to server")
+	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[C] Local bind request connections")
 	cmdGenCA      = flag.Bool("gen-ca", false, "[C] Generate certificate (ca.pem) and private key (key.pem)")
 
 	// curl flags
@@ -180,6 +181,7 @@ func loadConfig() {
 		"lbind      ", cmdLBind,
 		"lbindwaits ", cmdLBindWaits,
 		"lbindcap   ", cmdLBindCap,
+		"lbindconns ", cmdLBindConn,
 		"mitmdump   ", cmdMITMDump,
 		"remote     ", cmdRemote,
 		"answer     ", cmdAnswer,
@@ -201,7 +203,7 @@ func main() {
 		fmt.Print("Launch as client: \n\n\t./goflyway -up SERVER_IP:SERVER_PORT -k PASSWORD\n\n")
 		fmt.Print("Launch as server: \n\n\t./goflyway -l :SERVER_PORT -k PASSWORD\n\n")
 		fmt.Print("Generate ca.pem and key.pem: \n\n\t./goflyway -gen-ca\n\n")
-		fmt.Print("POST request: \n\n\t./goflyway -post URL -up ... -H \"h1:v1\\r\\nh2:v2\" -F \"k1:v1\\r\\nk2:v2\"\n\n")
+		fmt.Print("POST request: \n\n\t./goflyway -post URL -up ... -H \"h1: v1 \\r\\n h2: v2\" -F \"k1=v1&k2=v2\"\n\n")
 		return
 	}
 
@@ -281,13 +283,18 @@ func main() {
 
 	if *cmdUpstream != "" {
 		acl, err := aclrouter.LoadACL(*cmdACL)
+		logger.L("ACL", *cmdACL)
+
 		if err != nil {
 			logger.L("ACL", "Failed to read ACL config (but it's fine, you can ignore this message)")
 			logger.L("ACL", err)
-		}
-
-		for _, r := range acl.OmitRules {
-			logger.L("ACL", "Omit rule", r)
+		} else {
+			logger.D("ACL", "Black rules", acl.Black.Size)
+			logger.D("ACL", "White rules", acl.White.Size)
+			logger.D("ACL", "Gray rules", acl.Gray.Size)
+			for _, r := range acl.OmitRules {
+				logger.L("ACL", "Omit rule", r)
+			}
 		}
 
 		cc = &proxy.ClientConfig{}
@@ -391,7 +398,7 @@ func main() {
 
 			if *cmdLBind != "" {
 				logger.L("Final Stage", "Local reverse proxy bind "+client.ClientConfig.LocalRPBind)
-				logger.F(client.StartLocalRP())
+				client.StartLocalRP(int(*cmdLBindConn))
 			} else {
 				if *cmdWebConPort != 0 {
 					go func() {

@@ -16,6 +16,7 @@ type ipRange struct{ start, end uint32 }
 
 type lookup struct {
 	Always          bool
+	Size            uint32
 	DomainFastMatch matchTree
 	DomainSlowMatch []*regexp.Regexp
 	IPv4Table       []ipRange

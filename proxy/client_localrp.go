@@ -70,7 +70,19 @@ func (d *DummyConnWrapper) Write(b []byte) (n int, err error) {
 	}
 }
 
-func (proxy *ProxyClient) StartLocalRP() error {
+func (proxy *ProxyClient) StartLocalRP(n int) {
+	for i := 0; i < n; i++ {
+		go func() {
+			for {
+				proxy.startLocalRPClient()
+			}
+		}()
+	}
+
+	select {}
+}
+
+func (proxy *ProxyClient) startLocalRPClient() error {
 	const redo = 1
 
 	for {
@@ -79,7 +91,7 @@ func (proxy *ProxyClient) StartLocalRP() error {
 		connw := &DummyConnWrapper{conn}
 		signal := make(chan byte, 1)
 
-		upstream := proxy.DialUpstream(conn, "a", nil, doLocalRP, 0)
+		upstream := proxy.DialUpstream(conn, "localrp", nil, doLocalRP, 0)
 		if upstream == nil {
 			return nil
 		}

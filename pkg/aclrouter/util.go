@@ -73,6 +73,7 @@ func (lk *lookup) sortLookupTable() {
 }
 
 func (lk *lookup) tryAddACLSingleRule(r string) error {
+	lk.Size++
 	rx := strings.Replace(r, "\\.", ".", -1)
 	if strings.HasPrefix(rx, "(^|.)") && strings.HasSuffix(rx, "$") {
 		rx = rx[5 : len(rx)-1]
