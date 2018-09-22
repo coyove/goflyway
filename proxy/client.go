@@ -52,6 +52,7 @@ type ClientConfig struct {
 	CACache     *lru.Cache
 	ACL         *acr.ACL
 	KCP         KCPConfig
+	HTTPS       bool
 	Logger      *logg.Logger
 
 	*Cipher
@@ -76,9 +77,12 @@ func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error
 	if proxy.Connect2 == "" {
 		switch dialStyle {
 		case 'd':
-			if proxy.KCP.Enable {
+			switch {
+			case proxy.KCP.Enable:
 				conn, err = kcp.Dial(proxy.Upstream)
-			} else {
+			case proxy.HTTPS:
+				conn, err = tls.Dial("tcp", proxy.Upstream, tlsSkip)
+			default:
 				conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
 			}
 		case 'v':
@@ -552,8 +556,9 @@ func (proxy *ProxyClient) Start() error {
 
 func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	var err error
+	var upURL *url.URL
 
-	upURL, err := url.Parse("http://" + config.Upstream)
+	upURL, err = url.Parse("http://" + config.Upstream)
 	if err != nil {
 		config.Logger.F("Local", err)
 		return nil
@@ -572,6 +577,16 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		dummies: lru.NewCache(int64(len(dummyHeaders))),
 
 		ClientConfig: config,
+	}
+
+	if proxy.HTTPS {
+		proxy.pool.OnDial = func(addr string) (net.Conn, error) {
+			return tls.Dial("tcp", addr, tlsSkip)
+		}
+		proxy.tp.Dial = func(network, addr string) (net.Conn, error) {
+			return tls.Dial("tcp", addr, tlsSkip)
+		}
+		proxy.tpq.Dial = proxy.tp.Dial
 	}
 
 	if proxy.KCP.Enable {

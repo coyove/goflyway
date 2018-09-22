@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -33,6 +34,7 @@ type ServerConfig struct {
 	LBindCap      int64
 	DisableUDP    bool
 	DisableLRP    bool
+	HTTPS         []tls.Certificate
 	ProxyPassAddr string
 	ClientAnswer  string
 	Logger        *logg.Logger
@@ -360,13 +362,20 @@ func (proxy *ProxyUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *ProxyUpstream) Start() (err error) {
-	if proxy.KCP.Enable {
+	switch {
+	case proxy.KCP.Enable:
 		ln, err := kcp.Listen(proxy.Localaddr)
 		if err != nil {
 			return err
 		}
 		proxy.Listener = tcpmux.Wrap(ln)
-	} else {
+	case proxy.HTTPS != nil:
+		ln, err := tls.Listen("tcp", proxy.Localaddr, &tls.Config{Certificates: proxy.HTTPS})
+		if err != nil {
+			return err
+		}
+		proxy.Listener = tcpmux.Wrap(ln)
+	default:
 		proxy.Listener, err = tcpmux.Listen(proxy.Localaddr, true)
 		if err != nil {
 			return

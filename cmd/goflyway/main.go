@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/tls"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -38,7 +39,8 @@ var (
 	cmdLocal    = flag.String("l", ":8100", "Listening address")
 	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
-	cmdKCP      = flag.Bool("kcp", false, "Use KCP to transfer data, experimental feature")
+	cmdUnderlay = flag.String("U", "http", "Underlay protocol: {http, kcp, https}")
+	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
@@ -65,17 +67,16 @@ var (
 	cmdBind       = flag.String("bind", "", "[C] Bind to an address at server")
 	cmdLBind      = flag.String("lbind", "", "[C] Bind a local address to server")
 	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[C] Local bind request connections")
-	cmdGenCA      = flag.Bool("gen-ca", false, "[C] Generate certificate (ca.pem) and private key (key.pem)")
 
 	// curl flags
-	cmdGet        = flag.String("get", "", "[Cu] GET request")
-	cmdHead       = flag.String("head", "", "[Cu] HEAD request")
-	cmdPost       = flag.String("post", "", "[Cu] POST request")
-	cmdPut        = flag.String("put", "", "[Cu] PUT request")
-	cmdDelete     = flag.String("delete", "", "[Cu] DELETE request")
-	cmdOptions    = flag.String("options", "", "[Cu] OPTIONS request")
-	cmdTrace      = flag.String("trace", "", "[Cu] TRACE request")
-	cmdPatch      = flag.String("patch", "", "[Cu] PATCH request")
+	cmdGet        = flag.String("get", "", "[Cu] Issue a GET request")
+	cmdHead       = flag.String("head", "", "[Cu] Issue an HEAD request")
+	cmdPost       = flag.String("post", "", "[Cu] Issue a POST request")
+	cmdPut        = flag.String("put", "", "[Cu] Issue a PUT request")
+	cmdDelete     = flag.String("delete", "", "[Cu] Issue a DELETE request")
+	cmdOptions    = flag.String("options", "", "[Cu] Issue an OPTIONS request")
+	cmdTrace      = flag.String("trace", "", "[Cu] Issue a TRACE request")
+	cmdPatch      = flag.String("patch", "", "[Cu] Issue a PATCH request")
 	cmdVerbose    = flag.Bool("v", false, "[Cu] Verbose output")
 	cmdForm       = flag.String("F", "", "[Cu] Post form")
 	cmdHeaders    = flag.String("H", "", "[Cu] Headers")
@@ -185,6 +186,7 @@ func loadConfig() {
 		"mitmdump   ", cmdMITMDump,
 		"remote     ", cmdRemote,
 		"answer     ", cmdAnswer,
+		"underlay   ", cmdUnderlay,
 	)
 }
 
@@ -224,7 +226,7 @@ func main() {
 		}
 
 		lib.Println("Successfully generated ca.pem/key.pem, please leave them in the same directory with goflyway")
-		lib.Println("They will be automatically read when goflyway launched as client")
+		lib.Println("They will be automatically read when goflyway launched")
 		return
 	}
 
@@ -274,11 +276,15 @@ func main() {
 	var sc *proxy.ServerConfig
 
 	if *cmdMux > 0 {
-		logger.L("Init", "TCP multiplexer", *cmdMux)
+		logger.L("Init", "Use TCP multiplexer", *cmdMux)
 	}
 
-	if *cmdKCP {
+	if *cmdUnderlay == "kcp" {
 		logger.L("Init", "Use KCP protocol")
+	}
+
+	if *cmdUnderlay == "https" {
+		logger.L("Init", "Use HTTPS protocol")
 	}
 
 	if *cmdUpstream != "" {
@@ -308,7 +314,8 @@ func main() {
 		cc.Upstream = *cmdUpstream
 		cc.LocalRPBind = *cmdLBind
 		cc.Logger = logger
-		cc.KCP.Enable = *cmdKCP
+		cc.KCP.Enable = *cmdUnderlay == "kcp"
+		cc.HTTPS = *cmdUnderlay == "https"
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -338,7 +345,7 @@ func main() {
 			LBindCap:      *cmdLBindCap,
 			Logger:        logger,
 			KCP: proxy.KCPConfig{
-				Enable: *cmdKCP,
+				Enable: *cmdUnderlay == "kcp",
 			},
 		}
 
@@ -346,6 +353,19 @@ func main() {
 			sc.Users = map[string]proxy.UserConfig{
 				*cmdAuth: {},
 			}
+		}
+
+		if *cmdUnderlay == "https" {
+			var cl, kl int
+			var ca tls.Certificate
+			ca, cl, kl = lib.TryLoadCert()
+			if cl == 0 {
+				logger.L("HTTPS", "Can't find cert.pem, using the default one")
+			}
+			if kl == 0 {
+				logger.L("HTTPS", "Can't find key.pem, using the default one")
+			}
+			sc.HTTPS = []tls.Certificate{ca}
 		}
 	}
 
