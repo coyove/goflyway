@@ -6,21 +6,19 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"sync"
-
-	"github.com/xtaci/kcp-go"
-
-	"github.com/coyove/common/logg"
-	"github.com/coyove/common/lru"
-	"github.com/coyove/tcpmux"
-
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/coyove/common/logg"
+	"github.com/coyove/common/lru"
+	"github.com/coyove/tcpmux"
+	"github.com/xtaci/kcp-go"
 )
 
 type KCPConfig struct {

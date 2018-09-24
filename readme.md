@@ -4,15 +4,10 @@
 
 goflyway is a handy tool that uses a remote server to transfer data with encryption, featuring:
 
-1. TCP tunneling, act as HTTP(S) or SOCKS5 proxy
+1. HTTP/SOCKS5 proxy with websocket relay
+2. Man-in-the-middle
 2. UDP over TCP tunneling
-3. TCP tunneling over Websocket relay
-4. TCP multiplexer
-5. MITM proxy with traffic logger
-6. Client-side simple curl-like functions
-7. Server-side HTTP reverse proxy
-8. Local port forwarding
-9. Remote port forwarding (HTTP only, not for prod)
+2. Local port forwarding / Remote HTTP(S) forwarding 
 
 For more info, please refer to the following links.
 
