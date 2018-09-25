@@ -357,19 +357,6 @@ func main() {
 			}
 		}
 
-		if *cmdUnderlay == "https" {
-			var cl, kl int
-			var ca tls.Certificate
-			ca, cl, kl = lib.TryLoadCert()
-			if cl == 0 {
-				logger.L("HTTPS", "Cert Fallback", "Can't find cert.pem, using the default one")
-			}
-			if kl == 0 {
-				logger.L("HTTPS", "Cert Fallback", "Can't find key.pem, using the default one")
-			}
-			sc.HTTPS = &tls.Config{Certificates: []tls.Certificate{ca}}
-		}
-
 		if *cmdAutoCert != "www.example.com" {
 			*cmdLocal = ":443"
 			*cmdLocal2 = ":443"
@@ -380,7 +367,22 @@ func main() {
 				HostPolicy: autocert.HostWhitelist(*cmdAutoCert),
 			}
 
+			logger.L("AutoCert", *cmdAutoCert)
 			sc.HTTPS = &tls.Config{GetCertificate: m.GetCertificate}
+
+			logger.L("AutoCert", "Listen for HTTP validation")
+			go http.ListenAndServe(":http", m.HTTPHandler(nil))
+		} else if *cmdUnderlay == "https" {
+			var cl, kl int
+			var ca tls.Certificate
+			ca, cl, kl = lib.TryLoadCert()
+			if cl == 0 {
+				logger.L("HTTPS", "Cert Fallback", "Can't find cert.pem, using the default one")
+			}
+			if kl == 0 {
+				logger.L("HTTPS", "Cert Fallback", "Can't find key.pem, using the default one")
+			}
+			sc.HTTPS = &tls.Config{Certificates: []tls.Certificate{ca}}
 		}
 	}
 
