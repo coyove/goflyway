@@ -1,8 +1,8 @@
-# goflyway, transferring data via remote server
+# goflyway - an encrypted HTTP server
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
-goflyway is a handy tool that uses a remote server to transfer data with encryption, featuring:
+goflyway is a simple HTTP server which serves data over secure connections, featuring:
 
 1. HTTP/SOCKS5 proxy with websocket relay
 2. Man-in-the-middle

@@ -46,7 +46,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	defer func() {
 		if proxy.Policy.IsSet(PolicyGlobal) && !priv {
 			r = ruleProxy
-			ext += "Global"
+			ext = "Global"
 		} else {
 			proxy.DNSCache.Add(host, &Rule{ipstr, r, r, rule})
 		}
@@ -125,34 +125,4 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	default:
 		return ruleProxy, "Unknown"
 	}
-}
-
-func (proxy *ProxyClient) GetRemoteConfig() string {
-	cr := proxy.Cipher.newRequest()
-	cr.Opt.Set(doDNS)
-	cr.Auth = proxy.UserAuth
-	cr.Query = "~"
-
-	dnsloc := "http://" + proxy.Upstream
-	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptHost("config", cr)
-
-	if proxy.URLHeader == "" {
-		dnsloc = trueloc
-	}
-
-	req, _ := http.NewRequest("GET", dnsloc, nil)
-
-	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, trueloc)
-	}
-
-	resp, err := proxy.tpq.RoundTrip(req)
-	if err != nil {
-		proxy.Logger.E("ACL", "Error", err)
-		return ""
-	}
-
-	tryClose(resp.Body)
-
-	return proxy.Cipher.Decrypt(resp.Header.Get(dnsRespHeader), &cr.iv)
 }

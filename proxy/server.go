@@ -34,7 +34,6 @@ type ServerConfig struct {
 	DisableLRP    bool
 	HTTPS         *tls.Config
 	ProxyPassAddr string
-	ClientAnswer  string
 	Logger        *logg.Logger
 	KCP           KCPConfig
 
@@ -230,20 +229,15 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if cr.Opt.IsSet(doDNS) {
 		host := cr.Query
-		if host == "~" {
-			w.Header().Add(dnsRespHeader, proxy.Encrypt(proxy.ClientAnswer, &cr.iv))
-		} else {
-			ip, err := net.ResolveIPAddr("ip4", host)
-			if err != nil {
-				proxy.Logger.W("Dial", "Error", err)
-				ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
-			}
-
-			proxy.Logger.D("Server", "DNS query", host, ip.String())
-			w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
+		ip, err := net.ResolveIPAddr("ip4", host)
+		if err != nil {
+			proxy.Logger.W("Dial", "Error", err)
+			ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
 		}
-		w.WriteHeader(200)
 
+		proxy.Logger.D("Server", "DNS query", host, ip.String())
+		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
+		w.WriteHeader(200)
 	} else if cr.Opt.IsSet(doLocalRP) {
 		ioc := proxy.getIOConfig(cr.Auth)
 		ioc.Partial = cr.Opt.IsSet(doPartial)

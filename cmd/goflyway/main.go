@@ -49,7 +49,6 @@ var (
 	cmdDisableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
 	cmdDisableLRP = flag.Bool("disable-localrp", false, "[S] Disable client localrp control request")
 	cmdProxyPass  = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
-	cmdAnswer     = flag.String("answer", "", "[S] Answer client config setup")
 	cmdLBindWaits = flag.Int64("lbind-timeout", 5, "[S] Local bind timeout in seconds")
 	cmdLBindCap   = flag.Int64("lbind-cap", 100, "[S] Local bind requests buffer")
 	cmdAutoCert   = flag.String("autocert", "www.example.com", "[S] Use autocert to get a valid certificate")
@@ -65,7 +64,6 @@ var (
 	cmdVPN        = flag.Bool("vpn", false, "[C] VPN mode, used on Android only")
 	cmdACL        = flag.String("acl", "chinalist.txt", "[C] Load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[C] Dump HTTPS requests to file")
-	cmdRemote     = flag.Bool("remote", false, "[C] Get config setup from the upstream")
 	cmdBind       = flag.String("bind", "", "[C] Bind to an address at server")
 	cmdLBind      = flag.String("lbind", "", "[C] Bind a local address to server")
 	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[C] Local bind request connections")
@@ -117,24 +115,32 @@ func loadConfig() {
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		logger.L("Init", "Can't load config file", err)
+		logger.L("Config", "Error", err)
 		return
 	}
 
 	if strings.Contains(path, "shadowsocks.conf") {
-		logger.L("Config", "Read shadowsocks config")
+		logger.L("Config", "Shadowsocks")
 
 		cmds := make(map[string]interface{})
 		if err := json.Unmarshal(buf, &cmds); err != nil {
-			logger.L("Config", "Can't parse config file", err)
+			logger.L("Config", "Parse", err)
 			return
 		}
 
 		*cmdKey = cmds["password"].(string)
 		*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
-		if port := int(cmds["server_port"].(float64)); port > 50000 {
-			*cmdRemote = true
-			*cmdUpstream = fmt.Sprintf("%v:%v", cmds["server"], port-50000)
+		if strings.HasPrefix(*cmdKey, "?") {
+			switch (*cmdKey)[1] {
+			case 'w':
+				*cmdUpstream = "ws://" + *cmdUpstream
+			case 's':
+				*cmdUnderlay = "https"
+			// case 'k':
+			// 	*cmdUnderlay = "kcp"
+			case 'c':
+				*cmdUpstream = "ws://" + *cmdUpstream + "/" + (*cmdKey)[2:]
+			}
 		}
 		*cmdMux = 10
 		*cmdLogLevel = "dbg"
@@ -145,11 +151,11 @@ func loadConfig() {
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		logger.L("Config", "Can't parse config file", err)
+		logger.L("Config", "Parse", err)
 		return
 	}
 
-	logger.L("Config", "Reading config section", *cmdSection)
+	logger.L("Config", "Section", *cmdSection)
 	func(args ...interface{}) {
 		for i := 0; i < len(args); i += 2 {
 			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f.(type) {
@@ -186,10 +192,8 @@ func loadConfig() {
 		"lbindcap   ", cmdLBindCap,
 		"lbindconns ", cmdLBindConn,
 		"mitmdump   ", cmdMITMDump,
-		"remote     ", cmdRemote,
-		"answer     ", cmdAnswer,
 		"underlay   ", cmdUnderlay,
-		"acme       ", cmdAutoCert,
+		"autocert   ", cmdAutoCert,
 	)
 }
 
@@ -342,7 +346,6 @@ func main() {
 			ProxyPassAddr: *cmdProxyPass,
 			DisableUDP:    *cmdDisableUDP,
 			DisableLRP:    *cmdDisableLRP,
-			ClientAnswer:  *cmdAnswer,
 			LBindTimeout:  *cmdLBindWaits,
 			LBindCap:      *cmdLBindCap,
 			Logger:        logger,
@@ -401,18 +404,7 @@ func main() {
 	logger.L("Alias", cipher.Alias)
 	if *cmdUpstream != "" {
 		client := proxy.NewClient(localaddr, cc)
-
-		if *cmdRemote {
-			logger.L("Config", "Remote answer", "Get config from the upstream")
-			cm := client.GetRemoteConfig()
-			if cm == "" {
-				logger.F("Config", "Error", "Can't get remote config")
-			}
-
-			parseUpstream(cc, cm)
-			client = proxy.NewClient(localaddr, cc)
-		}
-		logger.L("Final Stage", "Server", client.Upstream)
+		logger.L("Client", "Dial", client.Upstream)
 
 		if method != "" {
 			curl(client, method, url, nil)
@@ -471,6 +463,7 @@ func main() {
 }
 
 func parseUpstream(cc *proxy.ClientConfig, upstream string) {
+	logger.L("Upstream", upstream)
 	if is := func(in string) bool { return strings.HasPrefix(upstream, in) }; is("https://") {
 		cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(upstream)
 		logger.L("HTTPS Proxy", "Auth", cc.Connect2+"@"+cc.Connect2Auth)
