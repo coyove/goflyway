@@ -23,6 +23,7 @@ release = \
 	cp -t build/ $(LIST)
 tar = cd build && tar -cvzf $(NAME)_$(1)_$(2).tar.gz $(NAME) $(LIST) && rm $(NAME)
 zip = cd build && zip $(NAME)_$(1)_$(2).zip $(NAME).exe $(LIST) && rm $(NAME).exe
+golangxcrypto = git clone https://github.com/golang/crypto ../../../golang.org/x/crypto
 
 linux: release/linux_386 release/linux_amd64
 
@@ -49,3 +50,6 @@ release/windows_386: $(SOURCE)
 release/windows_amd64: $(SOURCE)
 	$(call release,windows,amd64,$(NAME).exe)
 	$(call zip,windows,amd64)
+
+goget:
+	$(call golangxcrypto)

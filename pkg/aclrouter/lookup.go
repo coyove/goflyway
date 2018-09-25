@@ -126,7 +126,8 @@ func loadChinaList(buf []byte) (*ACL, error) {
 	acl.postInit()
 
 	raw := string(buf)
-	for _, domain := range strings.Split(raw, "\n") {
+	hosts := strings.Split(raw, "\n")
+	for _, domain := range hosts {
 		subs := strings.Split(strings.Trim(domain, "\r "), ".")
 		if len(subs) == 0 || len(domain) == 0 || domain[0] == '#' {
 			continue
@@ -154,6 +155,7 @@ func loadChinaList(buf []byte) (*ACL, error) {
 		}
 	}
 
+	acl.White.Size = uint32(len(hosts))
 	return acl, nil
 }
 

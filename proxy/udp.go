@@ -167,7 +167,7 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 
 PUT_HEADER:
 	binary.BigEndian.PutUint16(b, uint16(n))
-	c.logger.D("UDP", "Read", n)
+	c.logger.D("UDP", "Read bytes", n)
 	return n + 2, err
 }
 
@@ -230,7 +230,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	defer func() {
 		if err == nil {
 			n = len(b)
-			c.logger.D("UDP", "Write", n)
+			c.logger.D("UDP", "Write bytes", n)
 		} else {
 			c.logger.D("UDP", "Write error", err)
 		}
@@ -277,7 +277,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 1 {
-		c.logger.D("UDP", "Rare case: incomplete header")
+		c.logger.D("UDP", "Incomplete header")
 		c.waitingMore.buf = b
 		c.incompleteLen = true // "len" should have 2 bytes, we got 1
 		return 1, nil
@@ -288,7 +288,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 
 TEST:
 	if len(buf) < ln {
-		c.logger.D("UDP", "Rare case: incomplete buffer")
+		c.logger.D("UDP", "Incomplete buffer")
 		c.waitingMore.buf = buf
 		c.waitingMore.remain = ln - len(buf)
 		return len(b), nil
@@ -299,7 +299,7 @@ TEST:
 	}
 
 	// len(buf) > ln
-	c.logger.D("UDP", "Rare case: overflow buffer")
+	c.logger.D("UDP", "Overflow buffer")
 	if n, err = c.write(buf[:ln]); err != nil {
 		return
 	}
@@ -332,7 +332,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 
 	_, dst, err := parseUDPHeader(nil, buf[:n], true)
 	if err != nil {
-		proxy.Logger.E("UDP", err)
+		proxy.Logger.E("UDP", "Error", err)
 		return
 	}
 

@@ -268,7 +268,7 @@ func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
 	}
 
 	if buf[0] != 2 {
-		iot.Logger.W("WS Read", "invalid ws opcode", buf[0])
+		iot.Logger.W("WS Read", "Invalid WS opcode", buf[0])
 	}
 
 	mask := (buf[1] & 0x80) > 0
@@ -281,7 +281,7 @@ func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
 		}
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
 	case 127:
-		iot.Logger.E("WS Read", "payload too large")
+		iot.Logger.E("WS Read", "Payload too large")
 		return
 	default:
 	}

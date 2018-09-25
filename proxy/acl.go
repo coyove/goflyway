@@ -39,7 +39,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)
 	if err != nil {
-		proxy.Logger.E("ACL", err)
+		proxy.Logger.E("ACL", "Error", err)
 	}
 
 	priv := false
@@ -148,7 +148,7 @@ func (proxy *ProxyClient) GetRemoteConfig() string {
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {
-		proxy.Logger.E("ACL", err)
+		proxy.Logger.E("ACL", "Error", err)
 		return ""
 	}
 

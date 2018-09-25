@@ -179,7 +179,7 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[
 	return &r.iv
 }
 
-func (proxy *ProxyUpstream) stripURI(uri string) string {
+func (proxy *ProxyServer) stripURI(uri string) string {
 	if len(uri) < 1 {
 		return uri
 	}
@@ -189,7 +189,7 @@ func (proxy *ProxyUpstream) stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			proxy.Logger.W("Upstream", "Unexpected URI", uri)
+			proxy.Logger.W("Server", "Unexpected URI", uri)
 		}
 	} else {
 		uri = uri[1:]
@@ -198,7 +198,7 @@ func (proxy *ProxyUpstream) stripURI(uri string) string {
 	return uri
 }
 
-func (proxy *ProxyUpstream) decryptRequest(req *http.Request, r *clientRequest) {
+func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 	var cookies buffer
 	for _, c := range req.Cookies() {
 		c.Value = proxy.Cipher.Decrypt(c.Value, &r.iv)
@@ -387,7 +387,7 @@ func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
 	return msg64.Base41Encode(buf)
 }
 
-func (proxy *ProxyUpstream) decryptHost(url string) (host string, r *clientRequest) {
+func (proxy *ProxyServer) decryptHost(url string) (host string, r *clientRequest) {
 	buf, ok := msg64.Base41Decode(url)
 	if !ok || len(buf) < 4+ivLen {
 		return

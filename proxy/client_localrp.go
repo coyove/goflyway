@@ -132,12 +132,12 @@ func (proxy *ProxyClient) startLocalRPClient() error {
 				go func(buf []byte) {
 					conn, err := net.Dial("tcp", proxy.ClientConfig.LocalRPBind)
 					if err != nil {
-						proxy.Logger.E("Local RP", err)
+						proxy.Logger.E("Local RP", "Error", err)
 						return
 					}
 
 					if _, err := conn.Write(buf); err != nil {
-						proxy.Logger.E("Local RP", err)
+						proxy.Logger.E("Local RP", "Error", err)
 						return
 					}
 
@@ -149,7 +149,7 @@ func (proxy *ProxyClient) startLocalRPClient() error {
 		select {
 		case x := <-signal:
 			if x == redo {
-				proxy.Logger.D("Local RP", "Reconnect to the upstream for control messages")
+				proxy.Logger.D("Local RP", "Reconnect")
 				upstream.Close()
 				// DummyConn: no need to close it
 				continue

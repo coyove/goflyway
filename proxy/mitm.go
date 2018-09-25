@@ -51,7 +51,7 @@ func (proxy *ProxyClient) sign(host string) *tls.Certificate {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		proxy.Logger.E("MITM", err)
+		proxy.Logger.E("MITM", "Error", err)
 		return nil
 	}
 
