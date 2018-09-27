@@ -95,11 +95,7 @@ var (
 	_ = flag.Bool("fast-open", true, "-- Placeholder --")
 )
 
-func loadConfig() {
-	if *cmdSection == "" {
-		return
-	}
-
+func loadConfig() error {
 	path := *cmdConfig
 	if path == "" {
 		if runtime.GOOS == "windows" {
@@ -110,22 +106,18 @@ func loadConfig() {
 	}
 
 	if _, err := os.Stat(path); err != nil {
-		return
+		return nil
 	}
 
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
-		logger.L("Config", "Error", err)
-		return
+		return err
 	}
 
 	if strings.Contains(path, "shadowsocks.conf") {
-		logger.L("Config", "Shadowsocks")
-
 		cmds := make(map[string]interface{})
 		if err := json.Unmarshal(buf, &cmds); err != nil {
-			logger.L("Config", "Parse", err)
-			return
+			return err
 		}
 
 		*cmdKey = cmds["password"].(string)
@@ -134,10 +126,6 @@ func loadConfig() {
 			switch (*cmdKey)[1] {
 			case 'w':
 				*cmdUpstream = "ws://" + *cmdUpstream
-			case 's':
-				*cmdUnderlay = "https"
-			// case 'k':
-			// 	*cmdUnderlay = "kcp"
 			case 'c':
 				*cmdUpstream = "ws://" + *cmdUpstream + "/" + (*cmdKey)[2:]
 			}
@@ -146,16 +134,18 @@ func loadConfig() {
 		*cmdLogLevel = "dbg"
 		*cmdVPN = true
 		*cmdGlobal = true
-		return
+		return nil
+	}
+
+	if *cmdSection == "" {
+		return nil
 	}
 
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
-		logger.L("Config", "Parse", err)
-		return
+		return err
 	}
 
-	logger.L("Config", "Section", *cmdSection)
 	func(args ...interface{}) {
 		for i := 0; i < len(args); i += 2 {
 			switch f, name := args[i+1], strings.TrimSpace(args[i].(string)); f.(type) {
@@ -195,6 +185,8 @@ func loadConfig() {
 		"underlay   ", cmdUnderlay,
 		"autocert   ", cmdAutoCert,
 	)
+
+	return nil
 }
 
 var logger *logg.Logger
@@ -257,13 +249,21 @@ func main() {
 	}
 
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
+	configerr := loadConfig()
 
 	logger = &logg.Logger{}
 	logger.SetFormats(logg.FmtLongTime, logg.FmtShortFile, logg.FmtLevel)
 	logger.Parse(*cmdLogLevel)
 
-	logger.L("Hello", "goflyway build "+version)
-	loadConfig()
+	if *cmdSection != "" {
+		logger.L("Config", "Section", *cmdSection)
+	}
+
+	if configerr != nil {
+		logger.L("Config", "Error", configerr)
+	}
+
+	logger.L("Build", "goflyway "+version)
 
 	if *cmdUpstream != "" {
 		logger.L("Role", "Client")
@@ -534,6 +534,21 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 	}
 
 	if _, _, err := net.SplitHostPort(upstream); err != nil {
+		if strings.Count(upstream, ":") > 1 {
+			lc := strings.LastIndex(upstream, ":")
+			port := upstream[lc+1:]
+			upstream = upstream[:lc]
+			upip := net.ParseIP(upstream)
+			if bs := []byte(upip); len(bs) == net.IPv6len {
+				upstream = "["
+				for i := 0; i < 16; i += 2 {
+					upstream += strconv.FormatInt(int64(bs[i])*256+int64(bs[i+1]), 16) + ":"
+				}
+				upstream = upstream[:len(upstream)-1] + "]:" + port
+				return
+			}
+		}
+
 		logger.F("Init", "Invalid server destination", upstream, err)
 	}
 

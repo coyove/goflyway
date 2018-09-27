@@ -16,7 +16,15 @@ import (
 )
 
 func vpnDial(address string) (net.Conn, error) {
-	sock, err := fd.Socket(syscall.AF_INET)
+	var family int
+	family = syscall.AF_INET
+
+	if address[0] == '[' {
+		// naive match
+		family = syscall.AF_INET6
+	}
+
+	sock, err := fd.Socket(family)
 	if err != nil {
 		return nil, err
 	}

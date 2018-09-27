@@ -18,7 +18,7 @@ release: windows darwin linux
 # don't use ldflags -X
 release = \
 	sed -i -- 's/__devel__/$(VERSION)/g' $(SOURCE) && \
-	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=1 go build -o build/$(3) ./cmd/goflyway && \
+	GOOS=$(1) GOARCH=$(2) go build -o build/$(3) ./cmd/goflyway && \
 	sed -i -- 's/$(VERSION)/__devel__/g' $(SOURCE) && \
 	cp -t build/ $(LIST)
 tar = cd build && tar -cvzf $(NAME)_$(1)_$(2).tar.gz $(NAME) $(LIST) && rm $(NAME)
