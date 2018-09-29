@@ -72,11 +72,11 @@ func parseUDPHeader(conn net.Conn, buf []byte, omitCheck bool) (method byte, add
 
 	if !omitCheck {
 		if buf[0] != socksVersion5 {
-			return 0, nil, fmt.Errorf(socksVersionErr, buf[0])
+			return 0, nil, fmt.Errorf("expect SOCKS5, got %v", buf[0])
 		}
 
 		if buf[1] != 0x01 && buf[1] != 0x03 {
-			return 0, nil, fmt.Errorf(socksMethodErr, buf[1])
+			return 0, nil, fmt.Errorf("invalid method for UDP relay: %v", buf[1])
 		}
 	}
 
@@ -89,7 +89,7 @@ func parseUDPHeader(conn net.Conn, buf []byte, omitCheck bool) (method byte, add
 	case socksAddrDomain:
 		addr.size = 3 + 1 + 1 + int(buf[4]) + 2
 	default:
-		return 0, nil, fmt.Errorf(socksAddressErr, buf[3])
+		return 0, nil, fmt.Errorf("invalid address type: %v", buf[3])
 	}
 
 	if conn != nil {
@@ -167,7 +167,7 @@ func (c *udpBridgeConn) Read(b []byte) (n int, err error) {
 
 PUT_HEADER:
 	binary.BigEndian.PutUint16(b, uint16(n))
-	c.logger.D("UDP", "Read bytes", n)
+	c.logger.D("udpBridgeConn read %d bytes", n)
 	return n + 2, err
 }
 
@@ -182,7 +182,7 @@ func (c *udpBridgeConn) write(b []byte) (n int, err error) {
 	}
 
 	if c.udpSrc == nil {
-		c.logger.W("UDP", "Early write")
+		c.logger.W("udpBridgeConn early write")
 		return
 	}
 
@@ -230,9 +230,9 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	defer func() {
 		if err == nil {
 			n = len(b)
-			c.logger.D("UDP", "Write bytes", n)
+			c.logger.D("udpBridgeConn write %d bytes", n)
 		} else {
-			c.logger.D("UDP", "Write error", err)
+			c.logger.E("udpBridgeConn write failed: %v", err)
 		}
 	}()
 
@@ -277,7 +277,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 1 {
-		c.logger.D("UDP", "Incomplete header")
+		c.logger.D("Incomplete udpBridgeConn header, waiting")
 		c.waitingMore.buf = b
 		c.incompleteLen = true // "len" should have 2 bytes, we got 1
 		return 1, nil
@@ -288,7 +288,7 @@ func (c *udpBridgeConn) Write(b []byte) (n int, err error) {
 
 TEST:
 	if len(buf) < ln {
-		c.logger.D("UDP", "Incomplete buffer")
+		c.logger.D("Incomplete buffer to write, waiting")
 		c.waitingMore.buf = buf
 		c.waitingMore.remain = ln - len(buf)
 		return len(b), nil
@@ -299,7 +299,7 @@ TEST:
 	}
 
 	// len(buf) > ln
-	c.logger.D("UDP", "Overflow buffer")
+	c.logger.D("Large UDP buffer, split to write")
 	if n, err = c.write(buf[:ln]); err != nil {
 		return
 	}
@@ -326,18 +326,18 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 	buf := make([]byte, 2048)
 	n, src, err := relay.ReadFrom(buf)
 	if err != nil {
-		proxy.Logger.E("UDP", "Can't read initial packet", err)
+		proxy.Logger.E("Can't read initial UDP packet: %v", err)
 		return
 	}
 
 	_, dst, err := parseUDPHeader(nil, buf[:n], true)
 	if err != nil {
-		proxy.Logger.E("UDP", "Error", err)
+		proxy.Logger.E("UDP parse: %v", err)
 		return
 	}
 
-	proxy.Logger.D("UDP", "Listening port", port)
-	proxy.Logger.D("UDP", "Destination", dst.String())
+	proxy.Logger.D("UDP relay server listen at %d", port)
+	proxy.Logger.D("UDP destination: %s", dst.String())
 
 	maxConns := proxy.UDPRelayCoconn
 	srcs := make([]*udpBridgeConn, maxConns)
@@ -357,10 +357,9 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 			srcs[0].initBuf = buf[dst.size:n]
 		}
 
-		if proxy.Policy.IsSet(PolicyWebSocket) {
-			conns[i] = proxy.dialUpstreamAndBridgeWS(srcs[i], dst.String(), nil, doUDPRelay, 0)
-		} else {
-			conns[i] = proxy.dialUpstreamAndBridge(srcs[i], dst.String(), nil, doUDPRelay, 0)
+		conns[i], err = proxy.DialUpstream(srcs[i], dst.String(), nil, doUDPRelay, 0)
+		if err != nil {
+			proxy.Logger.E("UDP DialUpstream failed: %v", err)
 		}
 	}
 
@@ -380,5 +379,5 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 		time.Sleep(time.Second)
 	}
 
-	proxy.Logger.D("UDP", "Closing relay port", port)
+	proxy.Logger.D("Close UDP relay server at %d", port)
 }

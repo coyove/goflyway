@@ -39,7 +39,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)
 	if err != nil {
-		proxy.Logger.E("ACL", "Error", err)
+		proxy.Logger.E("ACL check error: %v", err)
 	}
 
 	priv := false
@@ -98,9 +98,10 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	resp, err := proxy.tpq.RoundTrip(req)
 	if err != nil {
-		// if e, _ := err.(net.Error); e != nil && e.Timeout() {
-		// 	// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
-		// } else {
+		if e, _ := err.(net.Error); e != nil && e.Timeout() {
+			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial
+			return r, "Timeout"
+		}
 		// 	proxy.Logger.E("ACL", err)
 		// }
 		return r, "Network error: " + err.Error()
@@ -115,13 +116,13 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	ipstr = net.IP(ip).String()
 	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
-		return rulePass, "Pass (remote rule)"
+		return rulePass, "Pass (by remote)"
 	case acr.RuleProxy, acr.RuleMatchedProxy:
-		return ruleProxy, "Proxy (remote rule)"
+		return ruleProxy, "Proxy (by remote)"
 	case acr.RuleBlock:
-		return ruleBlock, "Block (remote rule)"
+		return ruleBlock, "Block (by remote)"
 	case acr.RulePrivate:
-		return ruleProxy, "Private IP (remote rule)"
+		return ruleProxy, "Private IP (by remote)"
 	default:
 		return ruleProxy, "Unknown"
 	}

@@ -66,7 +66,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 	exit := make(chan bool)
 	go func(config IOConfig) {
 		if _, err := iot.Copy(target, source, key, config); err != nil {
-			iot.Logger.E("Bridge", err)
+			iot.Logger.E("Bridge: %v", err)
 		}
 		exit <- true
 	}(o)
@@ -82,7 +82,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOCon
 
 	o.Role = roleSend
 	if _, err := iot.Copy(source, target, key, o); err != nil {
-		iot.Logger.E("Bridge", err)
+		iot.Logger.E("Bridge: %v", err)
 	}
 
 	select {
@@ -174,13 +174,14 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			iot.Lock()
 			ns := tick.UnixNano()
 
+			purged := 0
 			for id, state := range iot.mconns {
 				if (ns - state.last) > int64(maxIdleTime)*1e9 {
 					state.conn.Close()
 					delete(iot.mconns, id)
+					purged++
 				}
 			}
-
 			count++
 
 			if count%trafficSurveyinterval == 0 {
@@ -190,13 +191,12 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			if count == 60 {
 				count = 0
 				if len(iot.mconns) > 0 {
-					iot.Logger.D("Active Connections", len(iot.mconns))
+					iot.Logger.D("GC +%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
 				}
 
 				if iot.Ob != nil {
 					c, s := iot.Ob.Count()
-					iot.Logger.D("Mux Master", c)
-					iot.Logger.D("Mux Streams", s)
+					iot.Logger.D("Mux: %d masters, %d streams", c, s)
 				}
 			}
 
@@ -268,7 +268,7 @@ func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
 	}
 
 	if buf[0] != 2 {
-		iot.Logger.W("WS Read", "Invalid WS opcode", buf[0])
+		iot.Logger.W("Invalid websocket opcode: %v", buf[0])
 	}
 
 	mask := (buf[1] & 0x80) > 0
@@ -281,7 +281,7 @@ func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
 		}
 		ln = int(binary.BigEndian.Uint16(buf[2:4]))
 	case 127:
-		iot.Logger.E("WS Read", "Payload too large")
+		iot.Logger.E("Websocket payload too large")
 		return
 	default:
 	}
@@ -312,7 +312,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 	if iot.Logger.GetLevel() == logg.LvDebug {
 		defer func() {
 			if r := recover(); r != nil {
-				iot.Logger.E("Copy Panic", r)
+				iot.Logger.E("Copy panic: %v", r)
 			}
 		}()
 	}
@@ -417,7 +417,6 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		dst.Write([]byte("0\r\n\r\n"))
 	}
 
-	// proxy.Logger.D("close ", u)
 	return written, err
 }
 

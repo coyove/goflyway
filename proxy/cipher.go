@@ -183,7 +183,7 @@ func (gc *Cipher) Decrypt(text string, iv *[ivLen]byte) string {
 	sum := binary.BigEndian.Uint16(buf)
 
 	if msg64.Crc16b(0, buf[2:]) != sum {
-		gc.IO.Logger.D("Cipher", "Invalid checksum", text)
+		gc.IO.Logger.D("Invalid checksum of '%s'", text)
 		return ""
 	}
 

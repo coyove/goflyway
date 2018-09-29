@@ -19,7 +19,7 @@ func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
-		l.proxy.Logger.E("HTTP/SOCKS", "Listen", err)
+		l.proxy.Logger.E("HTTP/SOCKS listen: %v", err)
 
 		if isClosedConnErr(err) {
 			return nil, err
@@ -36,7 +36,7 @@ CONTINUE:
 
 	if err != nil {
 		if err != io.EOF {
-			l.proxy.Logger.E("HTTP/SOCKS", "Prefetch", err)
+			l.proxy.Logger.E("HTTP/SOCKS prefetch: %v", err)
 		}
 
 		wrapper.Close()
@@ -46,7 +46,7 @@ CONTINUE:
 	switch b {
 	case 0x04, 0x05:
 		// we are accepting SOCKS4 in case it goes to the HTTP handler
-		go l.proxy.handleSocks(wrapper)
+		go l.proxy.handleSOCKS(wrapper)
 		goto CONTINUE
 	default:
 		return wrapper, err

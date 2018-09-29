@@ -4,8 +4,6 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/binary"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -72,7 +70,7 @@ type ProxyServer struct {
 	localRP struct {
 		sync.Mutex
 		downstreams []net.Conn
-		downConns   []DummyConnWrapper
+		downConns   []dummyConnWrapper
 		requests    chan localRPCtrlSrvReq
 		waiting     map[string]localRPCtrlSrvResp
 	}
@@ -112,13 +110,13 @@ func (proxy *ProxyServer) Write(w http.ResponseWriter, key *[ivLen]byte, p []byt
 func (proxy *ProxyServer) hijack(w http.ResponseWriter) net.Conn {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
-		proxy.Logger.E("Server", "Hijack", "Not supported")
+		proxy.Logger.E("Hijack failed: not supported")
 		return nil
 	}
 
 	conn, _, err := hij.Hijack()
 	if err != nil {
-		proxy.Logger.E("Server", "Hijack", err.Error())
+		proxy.Logger.E("Hijack failed: %v", err)
 		return nil
 	}
 
@@ -161,7 +159,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		proxy.Logger.W("Server", "Unknown address", r.RemoteAddr)
+		proxy.Logger.W("Unknown address: %s", r.RemoteAddr)
 		replySomething()
 		return
 	}
@@ -185,7 +183,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				rawReq:   rawReq,
 			}
 
-			proxy.Logger.D("Local RP", "Client", "Wait client to response")
+			proxy.Logger.D("RP ctrl server waits client to response")
 			select {
 			case resp := <-cb:
 				if resp.err != nil {
@@ -193,10 +191,10 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
-				proxy.Logger.E("Local RP", "Client", "client didn't response")
+				proxy.Logger.E("RP client didn't response")
 				userConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError: localrp timed out"))
 			}
-			proxy.Logger.D("Local RP", "Client", "OK")
+			proxy.Logger.D("RP client OK")
 
 			proxy.localRP.Lock()
 			for k, resp := range proxy.localRP.waiting {
@@ -208,7 +206,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.localRP.Unlock()
 			return
 		}
-		proxy.Logger.D("Server", "Invalid request", addr, proxy.stripURI(r.RequestURI))
+		proxy.Logger.D("Invalid request from %s: %s", addr, proxy.stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
@@ -216,13 +214,13 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if proxy.Users != nil {
 		if !proxy.auth(cr.Auth) {
-			proxy.Logger.W("Server", "User auth failed", addr)
+			proxy.Logger.W("User auth failed from %s", addr)
 			return
 		}
 	}
 
 	if h, _, _ := proxy.blacklist.GetEx(addr); h > invalidRequestRetry {
-		proxy.Logger.D("Server", "Repeated access using invalid key", addr)
+		proxy.Logger.D("Repeated access using invalid key from %s", addr)
 		// replySomething()
 		// return
 	}
@@ -231,11 +229,11 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		host := cr.Query
 		ip, err := net.ResolveIPAddr("ip4", host)
 		if err != nil {
-			proxy.Logger.W("Dial", "Error", err)
+			proxy.Logger.W("DNS query failed: %v", err)
 			ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
 		}
 
-		proxy.Logger.D("Server", "DNS query", host, ip.String())
+		proxy.Logger.D("DNS answer of %s: %s", host, ip.String())
 		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
 		w.WriteHeader(200)
 	} else if cr.Opt.IsSet(doLocalRP) {
@@ -262,12 +260,12 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
-			proxy.Logger.W("Server", "Valid rkey invalid host", addr)
+			proxy.Logger.W("Valid rkey invalid host from %s", addr)
 			replySomething()
 			return
 		}
 
-		proxy.Logger.D("Dial", "Host", host)
+		proxy.Logger.D("Dial real host: %s", host)
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
 			return
@@ -281,7 +279,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if cr.Opt.IsSet(doUDPRelay) {
 			if proxy.DisableUDP {
-				proxy.Logger.W("Server", "UDP disabled")
+				proxy.Logger.W("Client UDP relay request rejected")
 				downstreamConn.Close()
 				return
 			}
@@ -301,7 +299,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			proxy.Logger.E("Dial", "Error", err)
+			proxy.Logger.E("Dial real host failed: %v", err)
 			downstreamConn.Close()
 			return
 		}
@@ -310,7 +308,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if cr.Opt.IsSet(doMuxWS) {
 			proxy.Listener.(*tcpmux.ListenPool).Upgrade(downstreamConn)
-			proxy.Logger.D("Server", "Downstream connection has been upgraded to multiplexer stream")
+			proxy.Logger.D("Downstream connection has been upgraded to multiplexer master")
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
 		}
@@ -326,24 +324,20 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Host = r.URL.Host
 		proxy.decryptRequest(r, cr)
 
-		proxy.Logger.D("Server", r.Method, r.URL.String())
+		proxy.Logger.D("HTTP forward: %s %s", r.Method, r.URL.String())
 
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
-			proxy.Logger.E("Server", "HTTP forward", r.URL, err)
+			proxy.Logger.E("Round trip %s: %v", r.URL, err)
 			proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
 			return
-		}
-
-		if resp.StatusCode >= 400 {
-			proxy.Logger.D("Server", "HTTP forward", resp.Status, r.URL)
 		}
 
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
 		w.WriteHeader(resp.StatusCode)
 
 		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
-			proxy.Logger.E("Server", "Copy bytes", nr, err)
+			proxy.Logger.E("IO copy %d bytes: %v", nr, err)
 		}
 
 		tryClose(resp.Body)
@@ -380,7 +374,7 @@ func (proxy *ProxyServer) Start() (err error) {
 			for range time.Tick(time.Minute) {
 				proxy.localRP.Lock()
 				if proxy.localRP.waiting != nil {
-					proxy.Logger.D("Local RP", "Queue", len(proxy.localRP.waiting), len(proxy.localRP.downConns))
+					proxy.Logger.D("RP ctrl server queue: %d waiting, %d connected", len(proxy.localRP.waiting), len(proxy.localRP.downConns))
 				}
 				proxy.localRP.Unlock()
 			}
@@ -390,7 +384,7 @@ func (proxy *ProxyServer) Start() (err error) {
 	return http.Serve(proxy.Listener, proxy)
 }
 
-func NewServer(addr string, config *ServerConfig) *ProxyServer {
+func NewServer(addr string, config *ServerConfig) (*ProxyServer, error) {
 	proxy := &ProxyServer{
 		tp: &http.Transport{TLSClientConfig: tlsSkip},
 
@@ -404,8 +398,7 @@ func NewServer(addr string, config *ServerConfig) *ProxyServer {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
 			u, err := url.Parse(config.ProxyPassAddr)
 			if err != nil {
-				proxy.Logger.F("Server", "Error", err)
-				return nil
+				return nil, nil
 			}
 
 			proxy.rp = httputil.NewSingleHostReverseProxy(u)
@@ -419,116 +412,5 @@ func NewServer(addr string, config *ServerConfig) *ProxyServer {
 	}
 
 	proxy.Localaddr = addr
-	return proxy
-}
-
-func (proxy *ProxyServer) pickAControlConn() DummyConnWrapper {
-	proxy.localRP.Lock()
-	defer proxy.localRP.Unlock()
-	return proxy.localRP.downConns[proxy.Cipher.Rand.Intn(len(proxy.localRP.downConns))]
-}
-
-func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *clientRequest, ioc IOConfig) {
-	if _, err := downstream.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-		proxy.Logger.E("Local RP", "Error", err)
-		downstream.Close()
-		return
-	}
-
-	if proxy.DisableLRP {
-		proxy.Logger.W("Local RP", "Reject client request")
-		downstream.Close()
-		return
-	}
-
-	proxy.localRP.Lock()
-	if proxy.localRP.downstreams == nil {
-		proxy.localRP.downstreams = make([]net.Conn, 0)
-		proxy.localRP.downConns = make([]DummyConnWrapper, 0)
-	}
-	if proxy.localRP.requests == nil {
-		proxy.localRP.requests = make(chan localRPCtrlSrvReq, proxy.LBindCap)
-	}
-	if proxy.localRP.waiting == nil {
-		proxy.localRP.waiting = make(map[string]localRPCtrlSrvResp)
-	}
-
-	conn := &DummyConn{}
-	conn.Init()
-	connw := DummyConnWrapper{conn}
-
-	proxy.localRP.downstreams = append(proxy.localRP.downstreams, downstream)
-	proxy.localRP.downConns = append(proxy.localRP.downConns, connw)
-
-	if len(proxy.localRP.downConns) == 1 {
-		go func() {
-			for {
-				select {
-				case req := <-proxy.localRP.requests:
-					if req.end {
-						proxy.Logger.D("Local RP", "Request listening loop has ended")
-						return
-					}
-					if len(req.dst) >= 65535 {
-						req.callback <- localRPCtrlSrvResp{
-							err: fmt.Errorf("request too long"),
-						}
-						continue
-					}
-
-					buf := make([]byte, 16+4+len(req.rawReq))
-					proxy.Cipher.Rand.Read(buf[:16])
-
-					localrpr := fmt.Sprintf("%x", buf[:16])
-					binary.BigEndian.PutUint32(buf[16:20], uint32(len(req.rawReq)))
-					copy(buf[20:], req.rawReq)
-
-					proxy.localRP.Lock()
-					proxy.localRP.waiting[localrpr] = localRPCtrlSrvResp{
-						localrpr: localrpr,
-						req:      req,
-					}
-					proxy.localRP.Unlock()
-
-					connw := proxy.pickAControlConn()
-					go connw.Write(buf)
-				}
-			}
-		}()
-	}
-
-	proxy.localRP.Unlock()
-
-	go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
-
-	go func() {
-
-		for {
-			buf := make([]byte, 16)
-			if _, err := connw.Write(buf); err != nil {
-				break
-			}
-			if _, err := connw.Read(buf); err != nil {
-				break
-			}
-			// proxy.Logger.D("Server","LocalRP: pong")
-			time.Sleep(localRPPingInterval)
-		}
-
-		proxy.localRP.Lock()
-		for i, d := range proxy.localRP.downConns {
-			if d == connw {
-				proxy.localRP.downstreams = append(proxy.localRP.downstreams[:i], proxy.localRP.downstreams[i+1:]...)
-				proxy.localRP.downConns = append(proxy.localRP.downConns[:i], proxy.localRP.downConns[i+1:]...)
-				break
-			}
-		}
-		if len(proxy.localRP.downstreams) == 0 {
-			proxy.localRP.requests <- localRPCtrlSrvReq{end: true}
-			proxy.localRP.waiting = nil
-			proxy.localRP.requests = nil
-		}
-		proxy.localRP.Unlock()
-		downstream.Close()
-	}()
+	return proxy, nil
 }

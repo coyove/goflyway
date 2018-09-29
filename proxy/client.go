@@ -72,7 +72,7 @@ type ProxyClient struct {
 	Listener  *listenerWrapper
 }
 
-func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error) {
+func (proxy *ProxyClient) dial(dialStyle byte) (conn net.Conn, err error) {
 	lat := time.Now().UnixNano()
 	if proxy.Connect2 == "" {
 		switch dialStyle {
@@ -210,19 +210,18 @@ func (proxy *ProxyClient) dialUpstream(dialStyle byte) (conn net.Conn, err error
 	return connectConn, nil
 }
 
-func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
+func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
 	if proxy.Policy.IsSet(PolicyWebSocket) {
-		return proxy.dialUpstreamAndBridgeWS(conn, host, resp, extra, dialStyle)
+		return proxy.dialUpstreamWS(conn, host, resp, extra, dialStyle)
 	}
-	return proxy.dialUpstreamAndBridge(conn, host, resp, extra, dialStyle)
+	return proxy.dialUpstream(conn, host, resp, extra, dialStyle)
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream(0)
+func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
+	upstreamConn, err := proxy.dial(0)
 	if err != nil {
-		proxy.Logger.E("Dial", "Error", err)
 		downstreamConn.Close()
-		return nil
+		return nil, err
 	}
 
 	r := proxy.Cipher.newRequest()
@@ -246,12 +245,12 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
 	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
 		if err != nil {
-			proxy.Logger.E("Client", "Invalid response", host, err)
+			err = fmt.Errorf("invalid response from %s: %v", host, err)
 		}
 
 		upstreamConn.Close()
 		downstreamConn.Close()
-		return nil
+		return nil, err
 	}
 
 	if resp != nil {
@@ -260,17 +259,16 @@ func (proxy *ProxyClient) dialUpstreamAndBridge(downstreamConn net.Conn, host st
 
 	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, &r.iv, IOConfig{Partial: proxy.Partial})
 
-	return upstreamConn
+	return upstreamConn, nil
 }
 
-func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) net.Conn {
-	upstreamConn, err := proxy.dialUpstream(dialStyle)
+func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
+	upstreamConn, err := proxy.dial(dialStyle)
 	if err != nil {
-		proxy.Logger.E("Dial", "Error", err)
 		if downstreamConn != nil {
 			downstreamConn.Close()
 		}
-		return nil
+		return nil, err
 	}
 
 	r := proxy.Cipher.newRequest()
@@ -299,19 +297,19 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
 		if err != nil {
-			proxy.Logger.E("Client", "Invalid response", host, err)
+			err = fmt.Errorf("invalid websocket response from %s: %v", host, err)
 		}
 
 		upstreamConn.Close()
 		if downstreamConn != nil {
 			downstreamConn.Close()
 		}
-		return nil
+		return nil, err
 	}
 
 	if extra == doMuxWS {
 		// we return here and handle the connection to tcpmux
-		return upstreamConn
+		return upstreamConn, nil
 	}
 
 	if resp != nil {
@@ -322,19 +320,19 @@ func (proxy *ProxyClient) dialUpstreamAndBridgeWS(downstreamConn net.Conn, host 
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
 	})
-	return upstreamConn
+	return upstreamConn, nil
 }
 
-func (proxy *ProxyClient) dialHostAndBridge(downstreamConn net.Conn, host string, resp []byte) {
+func (proxy *ProxyClient) dialHost(downstreamConn net.Conn, host string, resp []byte) (net.Conn, error) {
 	targetSiteConn, err := net.Dial("tcp", host)
 	if err != nil {
-		proxy.Logger.E("Dial", "Error", err)
 		downstreamConn.Close()
-		return
+		return nil, err
 	}
 
 	downstreamConn.Write(resp)
 	go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
+	return downstreamConn, nil
 }
 
 func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -366,19 +364,20 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			proxy.Logger.L("ACL", ext, host)
+			proxy.Logger.L("%s - %s", ext, host)
 			proxyClient.Close()
 		} else if ans == rulePass {
-			proxy.Logger.D("ACL", ext, r.RequestURI)
-			proxy.dialHostAndBridge(proxyClient, host, okHTTP)
+			proxy.Logger.D("%s - %s", ext, r.RequestURI)
+			_, err = proxy.dialHost(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyMITM) {
 			proxy.manInTheMiddle(proxyClient, host)
-		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			proxy.Logger.D("ACL", ext, "Websocket", r.RequestURI)
-			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		} else {
-			proxy.Logger.D("ACL", ext, r.RequestURI)
-			proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
+			proxy.Logger.D("%s - %s", ext, r.RequestURI)
+			_, err = proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
+		}
+
+		if err != nil {
+			proxy.Logger.E("Dial failed: %v", err)
 		}
 	} else {
 		// normal http requests
@@ -400,14 +399,14 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var iv *[ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
-			proxy.Logger.L("ACL", ext, r.Host)
+			proxy.Logger.L("%s - %s", ext, r.Host)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		} else if ans == rulePass {
-			proxy.Logger.D("ACL", ext, r.Method, r.Host)
+			proxy.Logger.D("%s - %s %s", ext, r.Method, r.Host)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			proxy.Logger.D("ACL", ext, r.Method, r.Host)
+			proxy.Logger.D("%s - %s %s", ext, r.Method, r.Host)
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
 			iv = proxy.encryptRequest(r, cr)
@@ -415,13 +414,9 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			proxy.Logger.E("HTTP", "Forward", err, rURL)
+			proxy.Logger.E("Round trip %s: %v", err, rURL)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-
-		if resp.StatusCode >= 400 {
-			proxy.Logger.D("HTTP", "Forward", resp.Status, rURL)
 		}
 
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, false, iv)
@@ -434,7 +429,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Partial: false,
 				Role:    roleRecv,
 			}); err != nil {
-				proxy.Logger.E("HTTP", "Copy bytes", nr, err)
+				proxy.Logger.E("IO copy %d bytes: %v", nr, err)
 			}
 
 			tryClose(resp.Body)
@@ -442,11 +437,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
+func (proxy *ProxyClient) authSOCKS(conn net.Conn) bool {
 	buf := make([]byte, 1+1+255+1+255)
 	n, err := io.ReadAtLeast(conn, buf, 2)
 	if err != nil {
-		proxy.Logger.E("SOCKS", "Error", err)
+		proxy.Logger.E("SOCKS5 error: %v", err)
 		return false
 	}
 
@@ -465,34 +460,34 @@ func (proxy *ProxyClient) authSocks(conn net.Conn) bool {
 	return proxy.UserAuth == username+":"+password
 }
 
-func (proxy *ProxyClient) handleSocks(conn net.Conn) {
+func (proxy *ProxyClient) handleSOCKS(conn net.Conn) {
 	logClose := func(args ...interface{}) {
-		proxy.Logger.E(args...)
+		proxy.Logger.E(args[0].(string), args[1:]...)
 		conn.Close()
 	}
 
 	buf := make([]byte, 2)
 	if _, err := io.ReadAtLeast(conn, buf, 2); err != nil {
-		logClose("SOCKS", "Error", err)
+		logClose("SOCKS5 error: %v", err)
 		return
 	} else if buf[0] != socksVersion5 {
-		logClose("SOCKS", "Error", fmt.Sprintf(socksVersionErr, buf[0]))
+		logClose("SOCKS5 version error: %v", buf[0])
 		return
 	}
 
 	numMethods := int(buf[1])
 	methods := make([]byte, numMethods)
 	if _, err := io.ReadAtLeast(conn, methods, numMethods); err != nil {
-		logClose("SOCKS", "Error", err)
+		logClose("SOCKS5 error: %v", err)
 		return
 	}
 
 	if proxy.UserAuth != "" {
 		conn.Write([]byte{socksVersion5, 0x02}) // username & password auth
 
-		if !proxy.authSocks(conn) {
+		if !proxy.authSOCKS(conn) {
 			conn.Write([]byte{1, 1})
-			logClose("SOCKS", "Invalid auth data", conn.RemoteAddr)
+			logClose("SOCKS5 auth error from %s", conn.RemoteAddr)
 			return
 		}
 
@@ -505,7 +500,7 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	// tunneling start
 	method, addr, err := parseUDPHeader(conn, nil, false)
 	if err != nil {
-		logClose("SOCKS", "Error", err)
+		logClose("SOCKS5 error: %v", err)
 		return
 	}
 
@@ -513,22 +508,22 @@ func (proxy *ProxyClient) handleSocks(conn net.Conn) {
 	switch method {
 	case 1:
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			proxy.Logger.L("SOCKS ACL", ext, host)
+			proxy.Logger.L("%s - %s", ext, host)
 			conn.Close()
 		} else if ans == rulePass {
-			proxy.Logger.D("SOCKS ACL", ext, host)
-			proxy.dialHostAndBridge(conn, host, okSOCKS)
-		} else if proxy.Policy.IsSet(PolicyWebSocket) {
-			proxy.Logger.D("SOCKS ACL", ext, "Websocket", host)
-			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
+			proxy.Logger.D("%s - %s", ext, host)
+			_, err = proxy.dialHost(conn, host, okSOCKS)
 		} else {
-			proxy.Logger.D("SOCKS ACL", ext, host)
-			proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
+			proxy.Logger.D("%s - %s", ext, host)
+			_, err = proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
+		}
+		if err != nil {
+			proxy.Logger.E("Dial failed: %v", err)
 		}
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
-			logClose("SOCKS", "UDP relay server started", err)
+			logClose("UDP relay server can't start: %v", err)
 			return
 		}
 
@@ -554,14 +549,13 @@ func (proxy *ProxyClient) Start() error {
 	return http.Serve(proxy.Listener, proxy)
 }
 
-func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
+func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 	var err error
 	var upURL *url.URL
 
 	upURL, err = url.Parse("http://" + config.Upstream)
 	if err != nil {
-		config.Logger.F("Client", "Error", err)
-		return nil
+		return nil, err
 	}
 
 	// tcpmux.HashSeed = config.Cipher.keyBuf
@@ -607,18 +601,14 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 			// If we are in VPN mode, this value will be later set to 'v' (vpn)
 
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
-				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS, 'd')
-				if conn == nil {
-					err = fmt.Errorf("mux: ws error")
-				}
-				return
+				return proxy.dialUpstreamWS(nil, address, nil, doMuxWS, 'd')
 			}
 		}
 	}
 
 	if proxy.Connect2 != "" || proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
-		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dialUpstream(0) }
+		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dial(0) }
 		proxy.tp.Dial = proxy.tpq.Dial
 	}
 
@@ -639,8 +629,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	} else {
 		proxy.addr, err = net.ResolveTCPAddr("tcp", localaddr)
 		if err != nil {
-			proxy.Logger.F("Client", "Error", err)
-			return nil
+			return nil, err
 		}
 
 		if localaddr[0] == ':' {
@@ -653,11 +642,7 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 	if proxy.Policy.IsSet(PolicyVPN) {
 		if config.Policy.IsSet(PolicyWebSocket) {
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
-				conn = proxy.dialUpstreamAndBridgeWS(nil, address, nil, doMuxWS, 'v')
-				if conn == nil {
-					err = fmt.Errorf("ws error")
-				}
-				return
+				return proxy.dialUpstreamWS(nil, address, nil, doMuxWS, 'v')
 			}
 		} else {
 			proxy.pool.OnDial = vpnDial
@@ -667,5 +652,5 @@ func NewClient(localaddr string, config *ClientConfig) *ProxyClient {
 		proxy.pool.DialTimeout(time.Second)
 	}
 
-	return proxy
+	return proxy, nil
 }

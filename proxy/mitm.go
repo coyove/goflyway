@@ -46,12 +46,12 @@ func (proxy *ProxyClient) sign(host string) *tls.Certificate {
 		return cert.(*tls.Certificate)
 	}
 
-	proxy.Logger.D("MITM", "Self signing", host)
+	proxy.Logger.D("Self signing: %v", host)
 
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		proxy.Logger.E("MITM", "Error", err)
+		proxy.Logger.E("MITM error: %v", err)
 		return nil
 	}
 
@@ -76,7 +76,7 @@ func (proxy *ProxyClient) sign(host string) *tls.Certificate {
 	pubKey := publicKey(proxy.CA.PrivateKey)
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, x509ca, pubKey, proxy.CA.PrivateKey)
 	if err != nil {
-		proxy.Logger.E("MITM", "Create certificate", err)
+		proxy.Logger.E("Create certificate failed: %v", err)
 		return nil
 	}
 
@@ -111,7 +111,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 		})
 
 		if err := tlsClient.Handshake(); err != nil {
-			proxy.Logger.E("MITM", "Handshake", host, err)
+			proxy.Logger.E("TLS handshake failed: %v", err)
 			return
 		}
 
@@ -130,7 +130,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			req, err := http.ReadRequest(bufTLSClient)
 			if err != nil {
 				if !isClosedConnErr(err) && buf[0] != ')' {
-					proxy.Logger.E("MITM", "Can't read request", err)
+					proxy.Logger.E("Can't read request from TLS conn: %v", err)
 				}
 				break
 			}
@@ -160,7 +160,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				rURL = req.URL.Host
 			}
 
-			proxy.Logger.D("MITM", req.Method, rURL)
+			proxy.Logger.D("MITM - %s %s", req.Method, rURL)
 
 			var respBuf buffer
 			cr := proxy.newRequest()
@@ -178,7 +178,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			resp, err := proxy.tp.RoundTrip(req)
 
 			if err != nil {
-				proxy.Logger.E("MITM", "Round trip", rURL, err)
+				proxy.Logger.E("Round trip %s: %v", rURL, err)
 				tlsClient.Write(respBuf.Writes("HTTP/1.1 500 Internal Server Error\r\n\r\n", err.Error()).Bytes())
 				break
 			}
@@ -198,11 +198,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			hdr := http.Header{}
 			copyHeaders(hdr, resp.Header, proxy.Cipher, false, rkeybuf)
 			if err := hdr.Write(tlsClient); err != nil {
-				proxy.Logger.W("MITM", "Write header", err)
+				proxy.Logger.W("MITM write error: %v", err)
 				break
 			}
 			if _, err = io.WriteString(tlsClient, "\r\n"); err != nil {
-				proxy.Logger.W("MITM", "Write header", err)
+				proxy.Logger.W("MITM write error: %v", err)
 				break
 			}
 
@@ -227,7 +227,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				Role:    roleRecv,
 			})
 			if err != nil {
-				proxy.Logger.E("MITM", "Copy bytes", nr, err)
+				proxy.Logger.E("IO copy %d bytes: %v", nr, err)
 			}
 
 			tryClose(resp.Body)

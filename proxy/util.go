@@ -23,9 +23,6 @@ const (
 	socksAddrIPv4   = 1
 	socksAddrDomain = 3
 	socksAddrIPv6   = 4
-	socksVersionErr = "invalid SOCKS version: %d"
-	socksMethodErr  = "invalid SOCKS method: %d"
-	socksAddressErr = "invalid SOCKS address type: %d"
 )
 
 const (
@@ -189,7 +186,7 @@ func (proxy *ProxyServer) stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			proxy.Logger.W("Server", "Unexpected URI", uri)
+			proxy.Logger.W("Unexpected URI: %s", uri)
 		}
 	} else {
 		uri = uri[1:]
