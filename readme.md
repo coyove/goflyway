@@ -24,6 +24,9 @@ Here is also [another android client](https://github.com/koolwiki/goflyway_andro
 
 No plan yet.
 
+## Build
+
+After go-getting `github.com/coyove/tcpmux`, you should manually git checkout it to branch `dev`.
 
 ## Contribute
 
