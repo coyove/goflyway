@@ -168,7 +168,6 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 	go func() {
 		count := 0
-		// lastSent, lastRecved := uint64(0), uint64(0)
 
 		for tick := range time.Tick(time.Second) {
 			iot.Lock()
@@ -344,10 +343,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 				iot.Tr.Recv(int64(nr))
 			}
 
-			if config.Partial && encrypted == sslRecordLen {
-				// goto direct_transmission
-			} else if ctr != nil {
-
+			if ctr != nil {
 				if encrypted+nr > sslRecordLen && config.Partial {
 					ybuf := xbuf[:sslRecordLen-encrypted]
 					ctr.XORKeyStream(ybuf, ybuf)
