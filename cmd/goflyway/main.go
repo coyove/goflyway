@@ -479,7 +479,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 
 		cc.Connect2Auth, cc.Upstream, cc.URLHeader, cc.DummyDomain = parseAuthURL(upstream)
 
-		switch true {
+		switch {
 		case cf:
 			logger.L("Cloudflare upstream: %s", cc.Upstream)
 			cc.DummyDomain = cc.Upstream
@@ -492,7 +492,7 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 			logger.L("Use fake HTTP header 'Host: %s'", cc.DummyDomain)
 		}
 
-		switch true {
+		switch {
 		case fwdws, cf, ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
 			if *cmdLBind != "" {
