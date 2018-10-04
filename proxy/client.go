@@ -244,8 +244,8 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
 	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
-		if err != nil {
-			err = fmt.Errorf("invalid response from %s: %v", host, err)
+		if err == nil {
+			err = fmt.Errorf("invalid response from %s: %s", host, string(buf))
 		}
 
 		upstreamConn.Close()
@@ -296,14 +296,15 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
 	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
-		if err != nil {
-			err = fmt.Errorf("invalid websocket response from %s: %v", host, err)
+		if err == nil {
+			err = fmt.Errorf("invalid websocket response from %s: %s", host, string(buf))
 		}
 
 		upstreamConn.Close()
 		if downstreamConn != nil {
 			downstreamConn.Close()
 		}
+
 		return nil, err
 	}
 
@@ -601,6 +602,10 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 			// If we are in VPN mode, this value will be later set to 'v' (vpn)
 
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
+				if proxy.URLHeader != "" {
+					// fwds://...
+					return proxy.dialUpstreamWS(nil, proxy.DummyDomain, nil, doMuxWS, 'd')
+				}
 				return proxy.dialUpstreamWS(nil, address, nil, doMuxWS, 'd')
 			}
 		}

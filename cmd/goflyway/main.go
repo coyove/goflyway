@@ -34,55 +34,56 @@ var (
 	cmdHelp     = flag.Bool("h", false, "Display help message")
 	cmdHelp2    = flag.Bool("help", false, "Display long help message")
 	cmdConfig   = flag.String("c", "", "Config file path")
-	cmdLogLevel = flag.String("lv", "log", "Logging level: {dbg, log, warn, err, off}")
-	cmdAuth     = flag.String("a", "", "Proxy authentication, form: username:password (remember the colon)")
-	cmdKey      = flag.String("k", "0123456789abcdef", "Password, do not use the default one")
-	cmdLocal    = flag.String("l", ":8100", "Listening address")
-	cmdTimeout  = flag.Int64("t", 20, "Connection timeout in seconds, 0 to disable")
+	cmdLogLevel = flag.String("lv", "log", "[loglevel] Logging level: {dbg, log, warn, err, off}")
+	cmdAuth     = flag.String("a", "", "[auth] Proxy authentication, form: username:password (remember the colon)")
+	cmdKey      = flag.String("k", "0123456789abcdef", "[password] Password, do not use the default one")
+	cmdLocal    = flag.String("l", ":8100", "[listen] Listening address")
+	cmdTimeout  = flag.Int64("t", 20, "[timeout] Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
-	cmdUnderlay = flag.String("U", "http", "Underlay protocol: {http, kcp, https}")
+	cmdUnderlay = flag.String("U", "http", "[underlay] Underlay protocol: {http, kcp, https}")
 	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
 
 	// Server flags
-	cmdThrot      = flag.Int64("throt", 0, "[S] Traffic throttling in bytes")
-	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[S] Traffic throttling token bucket max capacity")
-	cmdDisableUDP = flag.Bool("disable-udp", false, "[S] Disable UDP relay")
-	cmdDisableLRP = flag.Bool("disable-localrp", false, "[S] Disable client localrp control request")
-	cmdProxyPass  = flag.String("proxy-pass", "", "[S] Use goflyway as a reverse HTTP proxy")
-	cmdLBindWaits = flag.Int64("lbind-timeout", 5, "[S] Local bind timeout in seconds")
-	cmdLBindCap   = flag.Int64("lbind-cap", 100, "[S] Local bind requests buffer")
-	cmdAutoCert   = flag.String("autocert", "www.example.com", "[S] Use autocert to get a valid certificate")
+	cmdThrot      = flag.Int64("throt", 0, "[throt] S. Traffic throttling in bytes")
+	cmdThrotMax   = flag.Int64("throt-max", 1024*1024, "[throtmax] S. Traffic throttling token bucket max capacity")
+	cmdDisableUDP = flag.Bool("disable-udp", false, "[disableudp] S. Disable UDP relay")
+	cmdDisableLRP = flag.Bool("disable-localrp", false, "[disablelrp] S. Disable client localrp control request")
+	cmdProxyPass  = flag.String("proxy-pass", "", "[proxypass] S. Use goflyway as a reverse HTTP proxy")
+	cmdLBindWaits = flag.Int64("lbind-timeout", 5, "[lbindwaits] S. Local bind timeout in seconds")
+	cmdLBindCap   = flag.Int64("lbind-cap", 100, "[lbindcap] S. Local bind requests buffer")
+	cmdAutoCert   = flag.String("autocert", "www.example.com", "[autocert] S. Use autocert to get a valid certificate")
+	cmdURLHeader  = flag.String("url-header", "X-Forwarded-Url", "S. Set HTTP header")
 
 	// Client flags
-	cmdGlobal     = flag.Bool("g", false, "[C] Global proxy")
-	cmdUpstream   = flag.String("up", "", "[C] Upstream server address")
-	cmdPartial    = flag.Bool("partial", false, "[C] Partially encrypt the tunnel traffic")
-	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[C] Use N TCP connections to relay UDP")
-	cmdWebConPort = flag.Int64("web-port", 65536, "[C] Web console listening port, 0 to disable, 65536 to auto select")
-	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[C] DNS cache size")
-	cmdMux        = flag.Int64("mux", 0, "[C] limit the total number of TCP connections, 0 means no limit")
-	cmdVPN        = flag.Bool("vpn", false, "[C] VPN mode, used on Android only")
-	cmdACL        = flag.String("acl", "chinalist.txt", "[C] Load ACL file")
-	cmdMITMDump   = flag.String("mitm-dump", "", "[C] Dump HTTPS requests to file")
-	cmdBind       = flag.String("bind", "", "[C] Bind to an address at server")
-	cmdLBind      = flag.String("lbind", "", "[C] Bind a local address to server")
-	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[C] Local bind request connections")
+	cmdGlobal     = flag.Bool("g", false, "[global] C. Global proxy")
+	cmdUpstream   = flag.String("up", "", "[upstream] C. Upstream server address")
+	cmdPartial    = flag.Bool("partial", false, "[partial] C. Partially encrypt the tunnel traffic")
+	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[udptcp] C. Use N TCP connections to relay UDP")
+	cmdWebConPort = flag.Int64("web-port", 65536, "[webconport] C. Web console listening port, 0 to disable, 65536 to auto select")
+	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[dnscache] C. DNS cache size")
+	cmdMux        = flag.Int64("mux", 0, "[mux] C. TCP multiplexer master count, 0 to disable")
+	cmdVPN        = flag.Bool("vpn", false, "C. VPN mode, used on Android only")
+	cmdACL        = flag.String("acl", "chinalist.txt", "[acl] C. Load ACL file")
+	cmdMITMDump   = flag.String("mitm-dump", "", "[mitmdump] C. Dump HTTPS requests to file")
+	cmdBind       = flag.String("bind", "", "[bind] C. Bind to an address at server")
+	cmdLBind      = flag.String("lbind", "", "[lbind] C. Bind a local address to server")
+	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[lbindconns] C. Local bind request connections")
 
 	// curl flags
-	cmdGet        = flag.String("get", "", "[Cu] Issue a GET request")
-	cmdHead       = flag.String("head", "", "[Cu] Issue an HEAD request")
-	cmdPost       = flag.String("post", "", "[Cu] Issue a POST request")
-	cmdPut        = flag.String("put", "", "[Cu] Issue a PUT request")
-	cmdDelete     = flag.String("delete", "", "[Cu] Issue a DELETE request")
-	cmdOptions    = flag.String("options", "", "[Cu] Issue an OPTIONS request")
-	cmdTrace      = flag.String("trace", "", "[Cu] Issue a TRACE request")
-	cmdPatch      = flag.String("patch", "", "[Cu] Issue a PATCH request")
-	cmdVerbose    = flag.Bool("v", false, "[Cu] Verbose output")
-	cmdForm       = flag.String("F", "", "[Cu] Post form")
-	cmdHeaders    = flag.String("H", "", "[Cu] Headers")
-	cmdCookie     = flag.String("C", "", "[Cu] Cookies")
-	cmdMultipart  = flag.Bool("M", false, "[Cu] Multipart")
-	cmdPrettyJSON = flag.Bool("pj", false, "[Cu] JSON pretty output")
+	cmdGet     = flag.String("get", "", "Cu. Issue a GET request")
+	cmdHead    = flag.String("head", "", "Cu. Issue a HEAD request")
+	cmdPost    = flag.String("post", "", "Cu. Issue a POST request")
+	cmdPut     = flag.String("put", "", "Cu. Issue a PUT request")
+	cmdDelete  = flag.String("delete", "", "Cu. Issue a DELETE request")
+	cmdOptions = flag.String("options", "", "Cu. Issue an OPTIONS request")
+	cmdTrace   = flag.String("trace", "", "Cu. Issue a TRACE request")
+	cmdPatch   = flag.String("patch", "", "Cu. Issue a PATCH request")
+	cmdForm    = flag.String("F", "", "Cu. Set post form of the request")
+	cmdHeaders = flag.String("H", "", "Cu. Set headers of the request")
+	cmdCookie  = flag.String("C", "", "Cu. set cookies of the request")
+
+	cmdMultipart  = flag.Bool("M", false, "Cu. Set content type to multipart")
+	cmdPrettyJSON = flag.Bool("pj", false, "Cu. JSON pretty output")
 
 	// Shadowsocks compatible flags
 	cmdLocal2 = flag.String("p", "", "Server listening address")
@@ -205,6 +206,7 @@ func main() {
 		fmt.Print("Launch as server: \n\n\t./goflyway -l :SERVER_PORT -k PASSWORD\n\n")
 		fmt.Print("Generate ca.pem and key.pem: \n\n\t./goflyway -gen-ca\n\n")
 		fmt.Print("POST request: \n\n\t./goflyway -post URL -up ... -H \"h1: v1 \\r\\n h2: v2\" -F \"k1=v1&k2=v2\"\n\n")
+		fmt.Print("Full help: \n\n\t./goflyway -help\n\n")
 		return
 	}
 
@@ -260,7 +262,7 @@ func main() {
 	}
 
 	if configerr != nil {
-		logger.L("Config parse error: %v", configerr)
+		logger.L("Config reading failed: %v", configerr)
 	}
 
 	if *cmdUpstream != "" {
@@ -343,6 +345,7 @@ func main() {
 			DisableLRP:    *cmdDisableLRP,
 			LBindTimeout:  *cmdLBindWaits,
 			LBindCap:      *cmdLBindCap,
+			URLHeader:     *cmdURLHeader,
 			Logger:        logger,
 			KCP: proxy.KCPConfig{
 				Enable: *cmdUnderlay == "kcp",

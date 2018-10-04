@@ -32,6 +32,7 @@ type ServerConfig struct {
 	DisableLRP    bool
 	HTTPS         *tls.Config
 	ProxyPassAddr string
+	URLHeader     string
 	Logger        *logg.Logger
 	KCP           KCPConfig
 
@@ -169,6 +170,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rawReq, _ = httputil.DumpRequest(r, true)
 	}
 
+DE_AGAIN:
 	dst, cr := proxy.decryptHost(proxy.stripURI(r.RequestURI))
 
 	if dst == "" || cr == nil {
@@ -206,6 +208,13 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.localRP.Unlock()
 			return
 		}
+
+		if fu := r.Header.Get(proxy.URLHeader); fu != "" {
+			r.RequestURI = fu
+			r.Header.Del(proxy.URLHeader)
+			goto DE_AGAIN
+		}
+
 		proxy.Logger.D("Invalid request from %s: %s", addr, proxy.stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
@@ -309,6 +318,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if cr.Opt.IsSet(doMuxWS) {
 			proxy.Listener.(*tcpmux.ListenPool).Upgrade(downstreamConn)
 			proxy.Logger.D("Downstream connection has been upgraded to multiplexer master")
+			targetSiteConn.Close()
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
 		}

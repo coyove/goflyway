@@ -1,9 +1,9 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/cipher"
 	"crypto/tls"
-	"encoding/binary"
 	"io"
 	"net"
 	"strconv"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/coyove/common/logg"
 
-	"github.com/coyove/common/rand"
 	"github.com/coyove/goflyway/pkg/trafficmon"
 	"github.com/coyove/tcpmux"
 )
@@ -103,7 +102,7 @@ type io_t struct {
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
 
-	Ob     tcpmux.Survey
+	Ob     interface{}
 	Logger *logg.Logger
 }
 
@@ -188,15 +187,37 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 				iot.Tr.Update()
 			}
 
-			if count == 60 {
+			if count == 60 && iot.Logger.GetLevel() == logg.LvDebug {
 				count = 0
 				if len(iot.mconns) > 0 {
-					iot.Logger.D("GC +%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
+					iot.Logger.D("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
 				}
 
-				if iot.Ob != nil {
-					c, s := iot.Ob.Count()
-					iot.Logger.D("Mux: %d masters, %d streams", c, s)
+				if ob, _ := iot.Ob.(*tcpmux.DialPool); ob != nil {
+					conns := ob.Count()
+					s, b := 0, bytes.Buffer{}
+					for _, c := range conns {
+						s += c
+						b.WriteString(" /" + strconv.Itoa(c))
+					}
+					if s > 0 {
+						iot.Logger.D("Mux: %d masters, %d streams%s", len(conns), s, b.String())
+					}
+				} else if ob, _ := iot.Ob.(*tcpmux.ListenPool); ob != nil {
+					waitings, swaitings, conns := ob.Count()
+					s, v := 0, 0.0
+					if len(conns) >= 2 {
+						K := conns[0]
+						n, Ex, Ex2 := 0.0, 0.0, 0.0
+						for _, c := range conns {
+							s += c
+							n = n + 1
+							Ex += float64(c - K)
+							Ex2 += float64((c - K) * (c - K))
+						}
+						v = (Ex2 - (Ex*Ex)/n) / (n - 1)
+						iot.Logger.D("Mux: %d masters, %d streams (%.2f), %d + %d waitings", len(conns), s, v, waitings, swaitings)
+					}
 				}
 			}
 
@@ -207,105 +228,6 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 			}
 		}
 	}()
-}
-
-// wsWrite and wsRead are simple implementations of RFC6455
-// we assume that all payloads are 65535 bytes at max
-// we don't care control frames and everything is binary
-// we don't close it explicitly, it closes when the TCP connection closes
-// we don't ping or pong
-//
-//   0                   1                   2                   3
-//   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-//   +-+-+-+-+-------+-+-------------+-------------------------------+
-//   |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
-//   |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
-//   |N|V|V|V|       |S|             |   (if payload len==126/127)   |
-//   | |1|2|3|       |K|             |                               |
-//   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-//   |     Extended payload length continued, if payload len == 127  |
-//   + - - - - - - - - - - - - - - - +-------------------------------+
-//   |                               |Masking-key, if MASK set to 1  |
-//   +-------------------------------+-------------------------------+
-//   | Masking-key (continued)       |          Payload Data         |
-//   +-------------------------------- - - - - - - - - - - - - - - - +
-//   :                     Payload Data continued ...                :
-//   + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-//   |                     Payload Data continued ...                |
-//   +---------------------------------------------------------------+
-func wsWrite(dst io.Writer, payload []byte, mask bool) (n int, err error) {
-	if len(payload) > 65535 {
-		panic("don't support payload larger than 65535 yet")
-	}
-
-	buf := make([]byte, 4)
-	buf[0] = 2 // binary
-	buf[1] = 126
-	binary.BigEndian.PutUint16(buf[2:], uint16(len(payload)))
-
-	if mask {
-		buf[1] |= 0x80
-		buf = append(buf, 0, 0, 0, 0)
-		key := uint32(rand.GetCounter())
-		binary.BigEndian.PutUint32(buf[4:8], key)
-
-		for i, b := 0, buf[4:8]; i < len(payload); i++ {
-			payload[i] ^= b[i%4]
-		}
-	}
-
-	if n, err = dst.Write(buf); err != nil {
-		return
-	}
-
-	return dst.Write(payload)
-}
-
-func (iot *io_t) wsRead(src io.Reader) (payload []byte, n int, err error) {
-	buf := make([]byte, 4)
-	if n, err = io.ReadAtLeast(src, buf[:2], 2); err != nil {
-		return
-	}
-
-	if buf[0] != 2 {
-		iot.Logger.W("Invalid websocket opcode: %v", buf[0])
-	}
-
-	mask := (buf[1] & 0x80) > 0
-	ln := int(buf[1] & 0x7f)
-
-	switch ln {
-	case 126:
-		if n, err = io.ReadAtLeast(src, buf[2:4], 2); err != nil {
-			return
-		}
-		ln = int(binary.BigEndian.Uint16(buf[2:4]))
-	case 127:
-		iot.Logger.E("Websocket payload too large")
-		return
-	default:
-	}
-
-	if mask {
-		if n, err = io.ReadAtLeast(src, buf[:4], 4); err != nil {
-			return
-		}
-		// now buf contains mask key
-	}
-
-	payload = make([]byte, ln)
-	if n, err = io.ReadAtLeast(src, payload, ln); err != nil {
-		return
-	}
-
-	if mask {
-		for i, b := 0, buf[:4]; i < len(payload); i++ {
-			payload[i] ^= b[i%4]
-		}
-	}
-
-	// n == ln, err == nil,
-	return
 }
 
 func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOConfig) (written int64, err error) {
@@ -332,7 +254,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 		case wsClientSrcIsUpstream, wsServerSrcIsDownstream:
 			// we are client, reading from upstream, or
 			// we are server, reading from downstream
-			buf, nr, er = iot.wsRead(src)
+			buf, nr, er = tcpmux.WSRead(src)
 		default:
 			nr, er = src.Read(buf)
 		}
@@ -378,9 +300,9 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 			} else {
 				switch config.WSCtrl {
 				case wsServerDstIsDownstream:
-					nw, ew = wsWrite(dst, xbuf, false)
+					nw, ew = tcpmux.WSWrite(dst, xbuf, false)
 				case wsClientDstIsUpstream:
-					nw, ew = wsWrite(dst, xbuf, true)
+					nw, ew = tcpmux.WSWrite(dst, xbuf, true)
 				default:
 					nw, ew = dst.Write(xbuf)
 				}
