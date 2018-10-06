@@ -2,41 +2,12 @@ package msg64
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
-	"strings"
+	"hash/crc32"
 
 	"github.com/coyove/common/rand"
 )
 
-var crc16Table [256]uint16
-var r *rand.Rand
-
-func init() {
-	for i := 0; i < 256; i++ {
-		crc16Table[i] = uint16(0x1021 * i)
-	}
-	r = rand.New()
-}
-
-func Crc16n(crc uint16, b byte) uint16 {
-	crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(b)]
-	return crc
-}
-
-func Crc16b(crc uint16, v []byte) uint16 {
-	for i := 0; i < len(v); i++ {
-		crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(v[i])]
-	}
-	return crc
-}
-
-func Crc16s(crc uint16, v string) uint16 {
-	for i := 0; i < len(v); i++ {
-		crc = ((crc << 8) & 0xFF00) ^ crc16Table[((crc>>8)&0xFF)^uint16(v[i])]
-	}
-	return crc
-}
+var r = rand.New()
 
 type bitsArray struct {
 	idx      int
@@ -165,10 +136,10 @@ var table = []byte{
 	/* 111000 56: */ '*',
 	/* 111001 57: */ '(',
 	/* 111010 58: */ ')',
+	/* 111011 59: */ '?',
 
 	// control bits
 
-	// 111011 59: SEP, separator
 	// 111100 60: HASH, followed by 15 bits
 	// 111101 61: CAPS, followed by 5 bits
 	// 111110 62: RAW, followed by 8 bits, a raw byte
@@ -176,7 +147,6 @@ var table = []byte{
 }
 
 const (
-	_SEP  = 59
 	_HASH = 60
 	_CAPS = 61
 	_RAW  = 62
@@ -193,7 +163,7 @@ var itable = map[byte]byte{
 	'A': 36, 'B': 37, 'C': 38, 'D': 39, 'E': 40, 'F': 41,
 	'-': 42, '.': 43, '_': 44, 'H': 45, ':': 46, '/': 47,
 	'S': 48, '#': 49, '+': 50, '%': 51, ',': 52, '!': 53,
-	'=': 54, '&': 55, '*': 56, '(': 57, ')': 58,
+	'=': 54, '&': 55, '*': 56, '(': 57, ')': 58, '?': 59,
 }
 
 func charToIdx(b byte) (byte, byte, int) {
@@ -209,24 +179,18 @@ func charToIdx(b byte) (byte, byte, int) {
 	return b2, 0, 6
 }
 
-// Encode encodes a string and a struct into a buffer
-func Encode(str string, payload interface{}) []byte {
+// Encode encodes a buffer into a new buffer
+func Encode(payload []byte) []byte {
+	b := &bitsArray{underlay: make([]byte, 0, len(payload))}
+	str := payload
 	ln := len(str)
-	b := &bitsArray{underlay: make([]byte, 0, ln*2)}
-	crc := Crc16s(0, str)
+	crc := crc32.NewIEEE()
+	crc.Write(payload)
 
-	var pbuf *bytes.Buffer
-	if payload != nil {
-		pbuf = &bytes.Buffer{}
-		tmp, _ := json.Marshal(payload)
-		json.Compact(pbuf, tmp)
-		crc = Crc16b(crc, pbuf.Bytes())
-	}
-
-	if strings.HasPrefix(str, "https://") {
+	if bytes.HasPrefix(str, []byte("https://")) {
 		b.PushByte(3, 2)
 		str = str[8:]
-	} else if strings.HasPrefix(str, "http://") {
+	} else if bytes.HasPrefix(str, []byte("http://")) {
 		b.PushByte(2, 2)
 		str = str[7:]
 	} else {
@@ -238,8 +202,11 @@ func Encode(str string, payload interface{}) []byte {
 	for i := 0; i < ln; i++ {
 		if !inserted && r.Intn(ln-i) == 0 {
 			b.PushByte(_HASH, 6)
-			b.PushByte(byte(crc>>8), 7)
-			b.PushByte(byte(crc), 8)
+			sum := crc.Sum32()
+			b.PushByte(byte(sum>>24), 7)
+			b.PushByte(byte(sum>>16), 8)
+			b.PushByte(byte(sum>>8), 8)
+			b.PushByte(byte(sum), 8)
 			inserted = true
 		}
 
@@ -256,11 +223,6 @@ func Encode(str string, payload interface{}) []byte {
 		}
 	}
 
-	if payload != nil {
-		b.PushByte(_SEP, 6)
-		b.Write(pbuf.Bytes())
-	}
-
 	w := b.RemainingBitsToOneByte()
 	b.PushByte(0xFF, w)
 
@@ -271,26 +233,6 @@ type msgReader struct {
 	buf          []byte
 	idx, readidx int
 	beforeEOF    bool
-	crc          uint16
-}
-
-func (m *msgReader) Read(buf []byte) (int, error) {
-	if m.beforeEOF {
-		return 0, io.EOF
-	}
-
-	for i := 0; i < len(buf); i++ {
-		b, ok := m.read(8)
-		if !ok {
-			m.beforeEOF = true
-			return i, nil
-		}
-
-		buf[i] = b
-		m.crc = Crc16n(m.crc, b)
-	}
-
-	return len(buf), nil
 }
 
 func (m *msgReader) read(w int) (byte, bool) {
@@ -338,69 +280,59 @@ func (m *msgReader) read(w int) (byte, bool) {
 	return n, true
 }
 
-// Decode decodes the buffer into a struct and a string
-func Decode(buf []byte, payload interface{}) string {
+// Decode decodes the buffer
+func Decode(buf []byte) []byte {
 	src := &msgReader{buf: buf}
-
 	ret := make([]byte, 0, len(buf))
 	b, ok := src.read(2)
 	if !ok {
-		return ""
+		return nil
 	}
 
 	if b == 3 {
-		ret = append(ret, 'h', 't', 't', 'p', 's', ':', '/', '/')
+		ret = append(ret, []byte("https://")...)
 	} else if b == 2 {
-		ret = append(ret, 'h', 't', 't', 'p', ':', '/', '/')
+		ret = append(ret, []byte("http://")...)
 	}
 
-	var crc uint16
+	var crc uint32
+
 READ:
 	for b, ok := src.read(6); ok; b, ok = src.read(6) {
 		switch b {
-		case _END:
-			break READ
 		case _RAW:
 			b2, ok2 := src.read(8)
 			if !ok2 {
-				break READ
+				return nil
 			}
-
 			ret = append(ret, b2)
 		case _CAPS:
 			b2, ok2 := src.read(5)
 			if !ok2 {
-				break READ
+				return nil
 			}
 			ret = append(ret, b2+'A')
 		case _HASH:
 			b2, ok2 := src.read(7)
 			b3, ok3 := src.read(8)
-			if !ok3 || !ok2 {
-				break READ
+			b4, ok4 := src.read(8)
+			b5, ok5 := src.read(8)
+			if !ok3 || !ok2 || !ok4 || !ok5 {
+				return nil
 			}
-
-			crc = uint16(b2)<<8 + uint16(b3)
-		case _SEP:
-			src.crc = Crc16b(0, ret)
-			dec := json.NewDecoder(src)
-			if payload != nil {
-				if dec.Decode(payload) != nil {
-					return ""
-				}
-			}
-			goto VERIFY
+			crc = uint32(b2)<<24 + uint32(b3)<<16 + uint32(b4)<<8 + uint32(b5)
+		case _END:
+			break READ
 		default:
 			ret = append(ret, table[b])
 		}
 	}
 
-	src.crc = Crc16b(0, ret)
-
-VERIFY:
-	if (src.crc & 0x7FFF) == crc {
-		return string(ret)
+	h := crc32.NewIEEE()
+	h.Write(ret)
+	xcrc := h.Sum32()
+	if (xcrc & 0x7FFFFFFF) == crc {
+		return ret
 	}
-
-	return ""
+	return nil
 }

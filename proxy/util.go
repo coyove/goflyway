@@ -137,18 +137,20 @@ func (proxy *ProxyClient) genHost() string {
 	return proxy.DummyDomain
 }
 
-func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[ivLen]byte {
+func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) [ivLen]byte {
 	r.Auth = proxy.UserAuth
 	proxy.addToDummies(req)
 
 	var urlBuf buffer
 	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, urlBuf.Writes("http://", proxy.genHost(), "/", proxy.encryptHost(req.URL.String(), r)).String())
+		r.Real = req.URL.String()
+		req.Header.Add(proxy.URLHeader, urlBuf.Writes("http://", proxy.genHost(), "/", proxy.encryptClientRequest(r)).String())
 		req.Host = proxy.Upstream
 		req.URL, _ = urlBuf.R().Writes("http://", proxy.Upstream).ToURL()
 	} else {
 		req.Host = proxy.genHost()
-		req.URL, _ = urlBuf.R().Writes("http://", req.Host, "/", proxy.encryptHost(req.URL.String(), r)).ToURL()
+		r.Real = req.URL.String()
+		req.URL, _ = urlBuf.R().Writes("http://", req.Host, "/", proxy.encryptClientRequest(r)).ToURL()
 	}
 
 	if proxy.Policy.IsSet(PolicyMITM) && proxy.Connect2Auth != "" {
@@ -159,21 +161,21 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) *[
 
 	var cookies buffer
 	for _, c := range req.Cookies() {
-		c.Value = proxy.Cipher.Encrypt(c.Value, &r.iv)
+		c.Value = proxy.Cipher.Encrypt(c.Value, r.IV)
 		cookies.Writes(c.String(), ";")
 	}
 	req.Header.Set("Cookie", cookies.Trunc(';').String())
 
 	if origin := req.Header.Get("Origin"); origin != "" {
-		req.Header.Set("Origin", proxy.Encrypt(origin, &r.iv)+".com")
+		req.Header.Set("Origin", proxy.Cipher.Encrypt(origin, r.IV)+".com")
 	}
 
 	if referer := req.Header.Get("Referer"); referer != "" {
-		req.Header.Set("Referer", proxy.Encrypt(referer, &r.iv))
+		req.Header.Set("Referer", proxy.Cipher.Encrypt(referer, r.IV))
 	}
 
-	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
-	return &r.iv
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, r.IV)
+	return r.IV
 }
 
 func (proxy *ProxyServer) stripURI(uri string) string {
@@ -197,18 +199,34 @@ func (proxy *ProxyServer) stripURI(uri string) string {
 
 func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 	var cookies buffer
+	var err error
+
 	for _, c := range req.Cookies() {
-		c.Value = proxy.Cipher.Decrypt(c.Value, &r.iv)
+		c.Value, err = proxy.Cipher.Decrypt(c.Value, r.IV)
+		if err != nil {
+			proxy.Logger.E("Failed to decrypt cookie: %v, %v", err, req)
+			return
+		}
 		cookies.Writes(c.String(), ";")
 	}
 	req.Header.Set("Cookie", cookies.Trunc(';').String())
 
 	if origin := req.Header.Get("Origin"); len(origin) > 4 {
-		req.Header.Set("Origin", proxy.Decrypt(origin[:len(origin)-4], &r.iv))
+		origin, err = proxy.Decrypt(origin[:len(origin)-4], r.IV)
+		if err != nil {
+			proxy.Logger.E("Failed to decrypt origin: %v, %v", err, req)
+			return
+		}
+		req.Header.Set("Origin", origin)
 	}
 
 	if referer := req.Header.Get("Referer"); referer != "" {
-		req.Header.Set("Referer", proxy.Decrypt(referer, &r.iv))
+		referer, err = proxy.Decrypt(referer, r.IV)
+		if err != nil {
+			proxy.Logger.E("Failed to decrypt referer: %v, %v", err, req)
+			return
+		}
+		req.Header.Set("Referer", referer)
 	}
 
 	for k := range req.Header {
@@ -223,10 +241,10 @@ func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 		}
 	}
 
-	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, &r.iv)
+	req.Body = proxy.Cipher.IO.NewReadCloser(req.Body, r.IV)
 }
 
-func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
+func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv [ivLen]byte) {
 	for k := range dst {
 		dst.Del(k)
 	}
@@ -237,7 +255,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
 		for _, v := range vs {
 			switch strings.ToLower(k) {
 			case "set-cookie":
-				if iv != nil {
+				if iv != [ivLen]byte{} {
 					if enc {
 						setcookies.Writes(v, "\n")
 						continue READ
@@ -247,7 +265,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
 							di = len(v)
 						}
 
-						v = gc.Decrypt(v[ei+1:di], iv)
+						v, _ = gc.Decrypt(v[ei+1:di], iv)
 						if !strings.HasSuffix(v, gc.Alias) {
 							continue READ
 						}
@@ -258,7 +276,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
 				if enc {
 					dst.Add("X-"+k, v)
 					continue READ
-				} else if iv != nil {
+				} else if iv != [ivLen]byte{} {
 					continue READ
 				}
 
@@ -277,7 +295,7 @@ func copyHeaders(dst, src http.Header, gc *Cipher, enc bool, iv *[ivLen]byte) {
 		}
 	}
 
-	if setcookies.Len() > 0 && iv != nil {
+	if setcookies.Len() > 0 && iv != [ivLen]byte{} {
 		// some http proxies or middlewares will combine multiple Set-Cookie headers into one
 		// but some browsers do not support this behavior
 		// here we just do the combination in advance and split them when decrypting
@@ -369,33 +387,35 @@ func isTimeoutErr(err error) bool {
 	return false
 }
 
-func (proxy *ProxyClient) encryptHost(host string, r *clientRequest) string {
-	var ss [4]byte
-	proxy.Cipher.Rand.Read(ss[:])
-
-	enc := proxy.Cipher.Xor(msg64.Encode(host, r), &r.iv, nil)
-	encln, ln := len(enc), len(enc)+ivLen+4
-	buf := make([]byte, ln)
-	copy(buf, enc)
-	copy(buf[encln:], r.iv[:])
-	copy(buf[encln+ivLen:], ss[:])
-
-	proxy.Cipher.Xor(buf[encln:encln+ivLen], nil, &ss)
-	return msg64.Base41Encode(buf)
+func (proxy *ProxyClient) encryptClientRequest(r *clientRequest) string {
+	enc := proxy.Cipher.GCM.Seal(nil, r.IV[:12], r.Marshal(), nil)
+	enc = append(enc, r.IV[:]...)
+	return msg64.Base41Encode(enc)
 }
 
-func (proxy *ProxyServer) decryptHost(url string) (host string, r *clientRequest) {
+func (proxy *ProxyServer) decryptClientRequest(url string) *clientRequest {
 	buf, ok := msg64.Base41Decode(url)
-	if !ok || len(buf) < 4+ivLen {
-		return
+	if !ok || len(buf) < ivLen {
+		return nil
 	}
 
-	ln := len(buf)
-	r = new(clientRequest)
+	iv := buf[len(buf)-ivLen:]
+	buf = buf[:len(buf)-ivLen]
 
-	ss := [4]byte{buf[ln-4], buf[ln-3], buf[ln-2], buf[ln-1]}
-	copy(r.iv[:], proxy.Cipher.Xor(buf[ln-4-ivLen:ln-4], nil, &ss))
-	buf = proxy.Cipher.Xor(buf[:ln-4-ivLen], &r.iv, nil)
-	host = msg64.Decode(buf, r)
-	return
+	var err error
+	buf, err = proxy.Cipher.GCM.Open(nil, iv[:12], buf, nil)
+	if err != nil {
+		proxy.Logger.E("Failed to decrypt host: %s, %v", url, err)
+		return nil
+	}
+
+	r := new(clientRequest)
+	copy(r.IV[:], iv)
+
+	if err = r.Unmarshal(buf); err != nil {
+		proxy.Logger.E("Failed to decrypt host: %s, %v", url, err)
+		return nil
+	}
+
+	return r
 }

@@ -41,7 +41,7 @@ type IOConfig struct {
 	WSCtrl  byte
 }
 
-func (iot *io_t) Bridge(target, source net.Conn, key *[ivLen]byte, options IOConfig) {
+func (iot *io_t) Bridge(target, source net.Conn, key [ivLen]byte, options IOConfig) {
 	// copy from source, decrypt, to target
 	o := options
 	switch o.WSCtrl {
@@ -230,7 +230,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 	}()
 }
 
-func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOConfig) (written int64, err error) {
+func (iot *io_t) Copy(dst io.Writer, src io.Reader, key [ivLen]byte, config IOConfig) (written int64, err error) {
 	if iot.Logger.GetLevel() == logg.LvDebug {
 		defer func() {
 			if r := recover(); r != nil {
@@ -342,7 +342,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key *[ivLen]byte, config IOC
 	return written, err
 }
 
-func (iot *io_t) NewReadCloser(src io.ReadCloser, key *[ivLen]byte) *IOReadCloserCipher {
+func (iot *io_t) NewReadCloser(src io.ReadCloser, key [ivLen]byte) *IOReadCloserCipher {
 	return &IOReadCloserCipher{
 		src: src,
 		ctr: (*Cipher)(unsafe.Pointer(iot)).getCipherStream(key),

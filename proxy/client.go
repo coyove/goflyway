@@ -226,13 +226,14 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 
 	r := proxy.Cipher.newRequest()
 	r.Opt = Options(doConnect | extra)
+	r.Real = host
 	r.Auth = proxy.UserAuth
 	if proxy.Partial {
 		r.Opt.Set(doPartial)
 	}
 
 	var pl buffer
-	pl.Writes("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
+	pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 
 	for _, h := range dummyHeaders {
 		if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
@@ -257,7 +258,7 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, &r.iv, IOConfig{Partial: proxy.Partial})
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.IV, IOConfig{Partial: proxy.Partial})
 
 	return upstreamConn, nil
 }
@@ -273,6 +274,7 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 
 	r := proxy.Cipher.newRequest()
 	r.Opt = Options(doConnect | doWebSocket | extra)
+	r.Real = host
 	r.Auth = proxy.UserAuth
 	if proxy.Partial {
 		r.Opt.Set(doPartial)
@@ -280,10 +282,10 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 
 	var pl buffer
 	if proxy.URLHeader == "" {
-		pl.Writes("GET /", proxy.encryptHost(host, r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
+		pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
 	} else {
 		pl.Writes("GET http://", proxy.Upstream, "/ HTTP/1.1\r\nHost: ", proxy.Upstream, "\r\n",
-			proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptHost(host, r), "\r\n")
+			proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptClientRequest(r), "\r\n")
 	}
 
 	wsKey := [20]byte{}
@@ -317,7 +319,7 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, &r.iv, IOConfig{
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.IV, IOConfig{
 		Partial: proxy.Partial,
 		WSCtrl:  wsClient,
 	})
@@ -332,7 +334,7 @@ func (proxy *ProxyClient) dialHost(downstreamConn net.Conn, host string, resp []
 	}
 
 	downstreamConn.Write(resp)
-	go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, nil, IOConfig{})
+	go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, [ivLen]byte{}, IOConfig{})
 	return downstreamConn, nil
 }
 
@@ -397,7 +399,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var resp *http.Response
 		var err error
-		var iv *[ivLen]byte
+		var iv [ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
 			proxy.Logger.L("%s - %s", ext, r.Host)

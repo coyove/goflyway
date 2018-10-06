@@ -238,7 +238,7 @@ func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *cli
 
 	proxy.localRP.Unlock()
 
-	go proxy.Cipher.IO.Bridge(downstream, conn, &cr.iv, ioc)
+	go proxy.Cipher.IO.Bridge(downstream, conn, cr.IV, ioc)
 
 	go func() {
 

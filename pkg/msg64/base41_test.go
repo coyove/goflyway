@@ -49,7 +49,7 @@ func TestBase41Error(t *testing.T) {
 	}
 
 	for i := 0; i < 65536; i++ {
-		str := gen()
+		str := string(gen())
 		_, ok := Base41Decode(str)
 		if ok != valid(str) {
 			t.Error("error testing failed:", str, ok, valid(str))

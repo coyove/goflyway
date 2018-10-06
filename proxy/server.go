@@ -99,7 +99,7 @@ func (proxy *ProxyServer) getIOConfig(auth string) IOConfig {
 	return ioc
 }
 
-func (proxy *ProxyServer) Write(w http.ResponseWriter, key *[ivLen]byte, p []byte, code int) (n int, err error) {
+func (proxy *ProxyServer) Write(w http.ResponseWriter, key [ivLen]byte, p []byte, code int) (n int, err error) {
 	if ctr := proxy.Cipher.getCipherStream(key); ctr != nil {
 		ctr.XORKeyStream(p, p)
 	}
@@ -171,7 +171,8 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 DE_AGAIN:
-	dst, cr := proxy.decryptHost(proxy.stripURI(r.RequestURI))
+	cr := proxy.decryptClientRequest(proxy.stripURI(r.RequestURI))
+	dst := cr.Real
 
 	if dst == "" || cr == nil {
 		if proxy.localRP.waiting != nil {
@@ -262,7 +263,7 @@ DE_AGAIN:
 
 			downstreamConn := proxy.hijack(w)
 			proxy.replyGood(downstreamConn, cr, &ioc, r)
-			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, &cr.iv, ioc)
+			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, cr.IV, ioc)
 			resp.req.callback <- resp
 			return
 		}
@@ -320,7 +321,7 @@ DE_AGAIN:
 			proxy.Logger.D("Downstream connection has been upgraded to multiplexer master")
 			targetSiteConn.Close()
 		} else {
-			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, &cr.iv, ioc)
+			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, cr.IV, ioc)
 		}
 	} else if cr.Opt.IsSet(doForward) {
 		var err error
@@ -339,14 +340,14 @@ DE_AGAIN:
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
 			proxy.Logger.E("Round trip %s: %v", r.URL, err)
-			proxy.Write(w, &cr.iv, []byte(err.Error()), http.StatusInternalServerError)
+			proxy.Write(w, cr.IV, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
 
-		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, &cr.iv)
+		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, cr.IV)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, &cr.iv, proxy.getIOConfig(cr.Auth)); err != nil {
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, cr.IV, proxy.getIOConfig(cr.Auth)); err != nil {
 			proxy.Logger.E("IO copy %d bytes: %v", nr, err)
 		}
 

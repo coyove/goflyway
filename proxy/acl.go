@@ -80,11 +80,12 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	// We have doubts, so query the upstream
 	cr := proxy.Cipher.newRequest()
 	cr.Opt.Set(doDNS)
+	cr.Real = "dns"
 	cr.Auth = proxy.UserAuth
 	cr.Query = host
 
 	dnsloc := "http://" + proxy.Upstream
-	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptHost("dns", cr)
+	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptClientRequest(cr)
 
 	if proxy.URLHeader == "" {
 		dnsloc = trueloc

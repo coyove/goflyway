@@ -275,8 +275,7 @@ func main() {
 		logger.W("Cipher vulnerability: please change the default password: -k=<NEW PASSWORD>")
 	}
 
-	cipher := &proxy.Cipher{Partial: *cmdPartial}
-	cipher.Init(*cmdKey)
+	cipher := proxy.NewCipher(*cmdKey, *cmdPartial)
 	cipher.IO.Logger = logger
 
 	var cc *proxy.ClientConfig
