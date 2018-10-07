@@ -8,8 +8,7 @@ import (
 )
 
 func TestCipher(t *testing.T) {
-	c := &Cipher{}
-	c.Init(strconv.Itoa(int(time.Now().Unix())))
+	c := NewCipher(strconv.Itoa(int(time.Now().Unix())), false)
 	t.Log("Testing Cipher")
 
 	test := func(m byte) {
@@ -19,8 +18,8 @@ func TestCipher(t *testing.T) {
 		c.Rand.Read(iv[:])
 
 		str := base64.StdEncoding.EncodeToString(p)
-		if c.Decrypt(c.Encrypt(str, &iv), &iv) != str {
-			t.Error(str)
+		if xstr, _ := c.Decrypt(c.Encrypt(str, iv), iv); xstr != str {
+			t.Error(str, xstr)
 		}
 	}
 
@@ -30,8 +29,7 @@ func TestCipher(t *testing.T) {
 }
 
 func BenchmarkJibber(b *testing.B) {
-	r := &Cipher{}
-	r.Init("12345678")
+	r := NewCipher("12345678", false)
 
 	for i := 0; i < b.N; i++ {
 		r.Jibber()

@@ -28,32 +28,26 @@ type ResponseHook interface {
 	SetBody(r io.ReadCloser)
 }
 
-type ClientConfigMarshal struct {
-	Upstream       string  `json:"u"`
-	Policy         Options `json:"p"`
-	UserAuth       string  `json:"a"`
-	UDPRelayCoconn int     `json:"r"`
-	Mux            int     `json:"m"`
-
-	// Upstream params
-	Connect2     string `json:"c"`
-	Connect2Auth string `json:"t"`
-	DummyDomain  string `json:"d"`
-	URLHeader    string `json:"h"`
-}
-
 type ClientConfig struct {
-	ClientConfigMarshal
-
-	LocalRPBind string
-	MITMDump    *os.File
-	DNSCache    *lru.Cache
-	CA          tls.Certificate
-	CACache     *lru.Cache
-	ACL         *acr.ACL
-	KCP         KCPConfig
-	HTTPS       bool
-	Logger      *logg.Logger
+	Upstream       string
+	UserAuth       string
+	UDPRelayCoconn int
+	Mux            int
+	Connect2       string
+	Connect2Auth   string
+	DummyDomain    string
+	URLHeader      string
+	LocalRPBind    string
+	MITMDump       *os.File
+	DNSCache       *lru.Cache
+	CA             tls.Certificate
+	CACache        *lru.Cache
+	ACL            *acr.ACL
+	KCP            KCPConfig
+	HTTPS          bool
+	AuthMux        bool
+	Policy         Options
+	Logger         *logg.Logger
 
 	*Cipher
 }
@@ -233,8 +227,8 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 	}
 
 	var pl buffer
-	pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
-
+	pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\n")
+	pl.Writes("Host: ", proxy.genHost(), "\r\n")
 	for _, h := range dummyHeaders {
 		if v, ok := proxy.dummies.Get(h); ok && v.(string) != "" {
 			pl.Writes(h, ": ", v.(string), "\r\n")
@@ -282,17 +276,20 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 
 	var pl buffer
 	if proxy.URLHeader == "" {
-		pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\nHost: ", proxy.genHost(), "\r\n")
+		pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\n")
+		pl.Writes("Host: ", proxy.genHost(), "\r\n")
 	} else {
-		pl.Writes("GET http://", proxy.Upstream, "/ HTTP/1.1\r\nHost: ", proxy.Upstream, "\r\n",
-			proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptClientRequest(r), "\r\n")
+		pl.Writes("GET http://", proxy.Upstream, "/ HTTP/1.1\r\n")
+		pl.Writes("Host: ", proxy.Upstream, "\r\n")
+		pl.Writes(proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptClientRequest(r), "\r\n")
 	}
 
 	wsKey := [20]byte{}
 	proxy.Cipher.Rand.Read(wsKey[:])
-
-	pl.Writes("Upgrade: websocket\r\nConnection: Upgrade\r\n",
-		"Sec-WebSocket-Key: ", base64.StdEncoding.EncodeToString(wsKey[:]), "\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	pl.Writes("Upgrade: websocket\r\n")
+	pl.Writes("Connection: Upgrade\r\n")
+	pl.Writes("Sec-WebSocket-Key: ", base64.StdEncoding.EncodeToString(wsKey[:]), "\r\n")
+	pl.Writes("Sec-WebSocket-Version: 13\r\n\r\n")
 
 	upstreamConn.Write(pl.Bytes())
 
@@ -574,6 +571,10 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 		dummies: lru.NewCache(int64(len(dummyHeaders))),
 
 		ClientConfig: config,
+	}
+
+	if config.AuthMux {
+		proxy.pool.Key = config.Cipher.keyBuf
 	}
 
 	if proxy.HTTPS {

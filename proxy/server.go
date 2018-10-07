@@ -30,6 +30,7 @@ type ServerConfig struct {
 	LBindCap      int64
 	DisableUDP    bool
 	DisableLRP    bool
+	AuthMux       bool
 	HTTPS         *tls.Config
 	ProxyPassAddr string
 	URLHeader     string
@@ -131,12 +132,16 @@ func (proxy *ProxyServer) replyGood(downstreamConn net.Conn, cr *clientRequest, 
 
 		var accept buffer
 		accept.Writes(r.Header.Get("Sec-WebSocket-Key"), "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-
 		ans := sha1.Sum(accept.Bytes())
-		p.Writes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: ",
-			base64.StdEncoding.EncodeToString(ans[:]), "\r\n\r\n")
+
+		p.Writes("HTTP/1.1 101 Switching Protocols\r\n")
+		p.Writes("Upgrade: websocket\r\n")
+		p.Writes("Connection: upgrade\r\n")
+		p.Writes("Sec-WebSocket-Accept: ", base64.StdEncoding.EncodeToString(ans[:]), "\r\n\r\n")
 	} else {
-		p.Writes("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nDate: ", time.Now().UTC().Format(time.RFC1123), "\r\n\r\n")
+		p.Writes("HTTP/1.1 200 OK\r\n")
+		p.Writes("Content-Type: application/octet-stream\r\n")
+		p.Writes("Date: ", time.Now().UTC().Format(time.RFC1123), "\r\n\r\n")
 	}
 
 	downstreamConn.Write(p.Bytes())
@@ -171,8 +176,11 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 DE_AGAIN:
+	dst := ""
 	cr := proxy.decryptClientRequest(proxy.stripURI(r.RequestURI))
-	dst := cr.Real
+	if cr != nil {
+		dst = cr.Real
+	}
 
 	if dst == "" || cr == nil {
 		if proxy.localRP.waiting != nil {
@@ -379,6 +387,10 @@ func (proxy *ProxyServer) Start() (err error) {
 		}
 	}
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
+
+	if proxy.AuthMux {
+		proxy.Listener.(*tcpmux.ListenPool).Key = proxy.Cipher.keyBuf
+	}
 
 	if proxy.Logger.GetLevel() == logg.LvDebug {
 		go func() {

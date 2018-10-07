@@ -8,7 +8,6 @@ import (
 	"github.com/coyove/goflyway/pkg/msg64"
 
 	"crypto/tls"
-	"encoding/base32"
 	"encoding/base64"
 	"io"
 	"net/http"
@@ -28,12 +27,16 @@ const (
 const (
 	doConnect   = 1 << iota // Establish TCP tunnel
 	doForward               // Forward plain HTTP request
-	doWebSocket             // Use WebSocket protocol
-	doMuxWS                 // WS over mux
+	doWebSocket             // Use Websocket protocol
+	doMuxWS                 // Multiplexer over WS
 	doDNS                   // DNS query request
 	doPartial               // Partial encryption
 	doUDPRelay              // UDP relay request
-	doLocalRP
+	doLocalRP               // Request to ctrl server
+
+	// Currently we have 8 options, so in clientRequest.Marshal
+	// we can use "byte" to store. If more options to be added in the future,
+	// code in clientRequest.Marshal must also be changed.
 )
 
 const (
@@ -59,37 +62,31 @@ var (
 )
 
 var (
-	udpHeaderIPv4   = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
-	udpHeaderIPv6   = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	socksHandshake  = []byte{socksVersion5, 1, 0}
-	dummyHeaders    = []string{"Accept-Language", "Accept-Encoding", "Cache-Control", "Connection", "Referer", "User-Agent"}
-	tlsSkip         = &tls.Config{InsecureSkipVerify: true}
-	hasPort         = regexp.MustCompile(`:\d+$`)
-	isHTTPSSchema   = regexp.MustCompile(`^https:\/\/`)
-	base32Encoding  = base32.NewEncoding("0123456789abcdefghiklmnoprstuwxy")
-	base32Encoding2 = base32.NewEncoding("abcd&fghijklmnopqrstuvwxyz+-_./e")
+	udpHeaderIPv4  = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	udpHeaderIPv6  = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	socksHandshake = []byte{socksVersion5, 1, 0}
+	dummyHeaders   = []string{"Accept-Language", "Accept-Encoding", "Cache-Control", "Connection", "Referer", "User-Agent"}
+	tlsSkip        = &tls.Config{InsecureSkipVerify: true}
+	hasPort        = regexp.MustCompile(`:\d+$`)
+	isHTTPSSchema  = regexp.MustCompile(`^https:\/\/`)
 )
 
-type Options byte
+type Options uint32
 
-func (o *Options) IsSet(option byte) bool {
-	return (byte(*o) & option) != 0
+func (o *Options) IsSet(option uint32) bool {
+	return (uint32(*o) & option) != 0
 }
 
-func (o *Options) Set(options ...byte) {
+func (o *Options) Set(options ...uint32) {
 	for _, option := range options {
-		*o = Options(byte(*o) | option)
+		*o = Options(uint32(*o) | option)
 	}
 }
 
-func (o *Options) UnSet(options ...byte) {
+func (o *Options) UnSet(options ...uint32) {
 	for _, option := range options {
-		*o = Options((byte(*o) | option) - option)
+		*o = Options((uint32(*o) | option) - option)
 	}
-}
-
-func (o *Options) Val() byte {
-	return byte(*o)
 }
 
 type buffer struct{ bytes.Buffer }

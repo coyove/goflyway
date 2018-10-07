@@ -41,6 +41,7 @@ var (
 	cmdTimeout  = flag.Int64("t", 20, "[timeout] Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
 	cmdUnderlay = flag.String("U", "http", "[underlay] Underlay protocol: {http, kcp, https}")
+	cmdAuthMux  = flag.Bool("hmac-mux", false, "Enable HMAC on TCP multiplexer")
 	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
 
 	// Server flags
@@ -285,6 +286,10 @@ func main() {
 		logger.L("TCP multiplexer: %d masters", *cmdMux)
 	}
 
+	if *cmdAuthMux {
+		logger.L("HMAC on TCP mux enabled")
+	}
+
 	if *cmdUnderlay == "kcp" {
 		logger.L("KCP enabled")
 	}
@@ -317,6 +322,7 @@ func main() {
 		cc.Logger = logger
 		cc.KCP.Enable = *cmdUnderlay == "kcp"
 		cc.HTTPS = *cmdUnderlay == "https"
+		cc.AuthMux = *cmdAuthMux
 		parseUpstream(cc, *cmdUpstream)
 
 		if *cmdGlobal {
@@ -345,6 +351,7 @@ func main() {
 			LBindTimeout:  *cmdLBindWaits,
 			LBindCap:      *cmdLBindCap,
 			URLHeader:     *cmdURLHeader,
+			AuthMux:       *cmdAuthMux,
 			Logger:        logger,
 			KCP: proxy.KCPConfig{
 				Enable: *cmdUnderlay == "kcp",
@@ -599,7 +606,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		totalBytes += bytes
 		length, _ := strconv.ParseInt(r.HeaderMap.Get("Content-Length"), 10, 64)
 		if counter++; counter%10 == 0 || totalBytes == length {
-			logger.D("[curl] Downloading %d bytes / %d bytes", lib.PrettySize(totalBytes), lib.PrettySize(length))
+			logger.D("[curl] Downloading %s / %s", lib.PrettySize(totalBytes), lib.PrettySize(length))
 		}
 	})
 
