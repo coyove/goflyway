@@ -339,7 +339,7 @@ func (proxy *ProxyClient) handleUDPtoTCP(relay *net.UDPConn, client net.Conn) {
 	proxy.Logger.D("UDP relay server listen at %d", port)
 	proxy.Logger.D("UDP destination: %s", dst.String())
 
-	maxConns := proxy.UDPRelayCoconn
+	maxConns := int(proxy.UDPRelayCoconn)
 	srcs := make([]*udpBridgeConn, maxConns)
 	conns := make([]net.Conn, maxConns)
 

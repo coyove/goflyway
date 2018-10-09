@@ -189,9 +189,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 			if count == 60 && iot.Logger.GetLevel() == logg.LvDebug {
 				count = 0
-				if len(iot.mconns) > 0 {
-					iot.Logger.D("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
-				}
+				iot.Logger.If(len(iot.mconns) > 0).D("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
 
 				if ob, _ := iot.Ob.(*tcpmux.DialPool); ob != nil {
 					conns := ob.Count()
@@ -200,9 +198,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 						s += c
 						b.WriteString(" /" + strconv.Itoa(c))
 					}
-					if s > 0 {
-						iot.Logger.D("Mux: %d masters, %d streams%s", len(conns), s, b.String())
-					}
+					iot.Logger.If(s > 0).D("Mux: %d masters, %d streams%s", len(conns), s, b.String())
 				} else if ob, _ := iot.Ob.(*tcpmux.ListenPool); ob != nil {
 					waitings, swaitings, conns := ob.Count()
 					s, v := 0, 0.0

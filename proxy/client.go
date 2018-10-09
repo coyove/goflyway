@@ -31,8 +31,8 @@ type ResponseHook interface {
 type ClientConfig struct {
 	Upstream       string
 	UserAuth       string
-	UDPRelayCoconn int
-	Mux            int
+	UDPRelayCoconn int64
+	Mux            int64
 	Connect2       string
 	Connect2Auth   string
 	DummyDomain    string
@@ -43,11 +43,8 @@ type ClientConfig struct {
 	CA             tls.Certificate
 	CACache        *lru.Cache
 	ACL            *acr.ACL
-	KCP            KCPConfig
-	HTTPS          bool
-	AuthMux        bool
-	Policy         Options
 	Logger         *logg.Logger
+	Policy         Options
 
 	*Cipher
 }
@@ -72,9 +69,9 @@ func (proxy *ProxyClient) dial(dialStyle byte) (conn net.Conn, err error) {
 		switch dialStyle {
 		case 'd':
 			switch {
-			case proxy.KCP.Enable:
+			case proxy.Policy.IsSet(PolicyKCP):
 				conn, err = kcp.Dial(proxy.Upstream)
-			case proxy.HTTPS:
+			case proxy.Policy.IsSet(PolicyHTTPS):
 				conn, err = tls.Dial("tcp", proxy.Upstream, tlsSkip)
 			default:
 				conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
@@ -237,10 +234,13 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 
 	upstreamConn.Write(pl.Writes("\r\n").Bytes())
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
-	// the first 15 bytes MUST be "HTTP/1.1 200 OK"
-	if err != nil || len(buf) < 15 || !bytes.Equal(buf[:15], []byte("HTTP/1.1 200 OK")) {
+	if err != nil || !bytes.HasPrefix(buf, http200) {
 		if err == nil {
 			err = fmt.Errorf("invalid response from %s: %s", host, string(buf))
+		}
+
+		if bytes.HasPrefix(buf, http403) {
+			err = fmt.Errorf("server rejected the request of %s", host)
 		}
 
 		upstreamConn.Close()
@@ -294,9 +294,13 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 	upstreamConn.Write(pl.Bytes())
 
 	buf, err := readUntil(upstreamConn, "\r\n\r\n")
-	if err != nil || !strings.HasPrefix(string(buf), "HTTP/1.1 101 Switching Protocols") {
+	if err != nil || !bytes.HasPrefix(buf, http101) {
 		if err == nil {
 			err = fmt.Errorf("invalid websocket response from %s: %s", host, string(buf))
+		}
+
+		if bytes.HasPrefix(buf, http403) {
+			err = fmt.Errorf("server rejected the request of %s", host)
 		}
 
 		upstreamConn.Close()
@@ -376,9 +380,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, err = proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		}
 
-		if err != nil {
-			proxy.Logger.E("Dial failed: %v", err)
-		}
+		proxy.Logger.If(err != nil).E("Dial failed: %v", err)
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
@@ -517,9 +519,7 @@ func (proxy *ProxyClient) handleSOCKS(conn net.Conn) {
 			proxy.Logger.D("%s - %s", ext, host)
 			_, err = proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		}
-		if err != nil {
-			proxy.Logger.E("Dial failed: %v", err)
-		}
+		proxy.Logger.If(err != nil).E("Dial failed: %v", err)
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
@@ -562,7 +562,7 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 
 	proxyURL := http.ProxyURL(upURL)
 	proxy := &ProxyClient{
-		pool: tcpmux.NewDialer(config.Upstream, config.Mux),
+		pool: tcpmux.NewDialer(config.Upstream, int(config.Mux)),
 
 		tp:  &http.Transport{TLSClientConfig: tlsSkip, Proxy: proxyURL, Dial: (&net.Dialer{Timeout: timeoutDial}).Dial},
 		tpd: &http.Transport{TLSClientConfig: tlsSkip},
@@ -573,11 +573,11 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 		ClientConfig: config,
 	}
 
-	if config.AuthMux {
+	if config.Policy.IsSet(PolicyMuxHMAC) {
 		proxy.pool.Key = config.Cipher.keyBuf
 	}
 
-	if proxy.HTTPS {
+	if proxy.Policy.IsSet(PolicyHTTPS) {
 		proxy.pool.OnDial = func(addr string) (net.Conn, error) {
 			return tls.Dial("tcp", addr, tlsSkip)
 		}
@@ -587,7 +587,7 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 		proxy.tpq.Dial = proxy.tp.Dial
 	}
 
-	if proxy.KCP.Enable {
+	if proxy.Policy.IsSet(PolicyKCP) {
 		proxy.pool.OnDial = kcp.Dial
 		proxy.tpq.Dial = func(network, address string) (net.Conn, error) {
 			return kcp.Dial(address)

@@ -43,6 +43,8 @@ var (
 	cmdUnderlay = flag.String("U", "http", "[underlay] Underlay protocol: {http, kcp, https}")
 	cmdAuthMux  = flag.Bool("hmac-mux", false, "Enable HMAC on TCP multiplexer")
 	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
+	cmdACL      = flag.String("acl", "chinalist.txt", "[acl] Load ACL file")
+	cmdACLCache = flag.Int64("acl-cache", 1024, "[aclcache] ACL cache size")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[throt] S. Traffic throttling in bytes")
@@ -61,10 +63,8 @@ var (
 	cmdPartial    = flag.Bool("partial", false, "[partial] C. Partially encrypt the tunnel traffic")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[udptcp] C. Use N TCP connections to relay UDP")
 	cmdWebConPort = flag.Int64("web-port", 65536, "[webconport] C. Web console listening port, 0 to disable, 65536 to auto select")
-	cmdDNSCache   = flag.Int64("dns-cache", 1024, "[dnscache] C. DNS cache size")
 	cmdMux        = flag.Int64("mux", 0, "[mux] C. TCP multiplexer master count, 0 to disable")
 	cmdVPN        = flag.Bool("vpn", false, "C. VPN mode, used on Android only")
-	cmdACL        = flag.String("acl", "chinalist.txt", "[acl] C. Load ACL file")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[mitmdump] C. Dump HTTPS requests to file")
 	cmdBind       = flag.String("bind", "", "[bind] C. Bind to an address at server")
 	cmdLBind      = flag.String("lbind", "", "[lbind] C. Bind a local address to server")
@@ -174,7 +174,7 @@ func loadConfig() error {
 		"mux        ", cmdMux,
 		"proxypass  ", cmdProxyPass,
 		"webconport ", cmdWebConPort,
-		"dnscache   ", cmdDNSCache,
+		"aclcache   ", cmdACLCache,
 		"loglevel   ", cmdLogLevel,
 		"throt      ", cmdThrot,
 		"throtmax   ", cmdThrotMax,
@@ -257,83 +257,55 @@ func main() {
 	logger = &logg.Logger{}
 	logger.SetFormats(logg.FmtLongTime, logg.FmtShortFile, logg.FmtLevel)
 	logger.Parse(*cmdLogLevel)
-
-	if *cmdSection != "" {
-		logger.L("Config section: %v", *cmdSection)
-	}
-
-	if configerr != nil {
-		logger.L("Config reading failed: %v", configerr)
-	}
-
-	if *cmdUpstream != "" {
-		logger.L("Client role (goflyway %s)", version)
-	} else {
-		logger.L("Server role (goflyway %s)", version)
-	}
-
-	if *cmdKey == "0123456789abcdef" {
-		logger.W("Cipher vulnerability: please change the default password: -k=<NEW PASSWORD>")
-	}
+	logger.If(*cmdSection != "").L("Config section: %v", *cmdSection)
+	logger.If(configerr != nil).L("Config reading failed: %v", configerr)
+	logger.If(*cmdUpstream != "").L("Client role (goflyway %s)", version)
+	logger.If(*cmdUpstream == "").L("Server role (goflyway %s)", version)
+	logger.If(*cmdKey == "0123456789abcdef").W("Cipher vulnerability: please change the default password: -k=<NEW PASSWORD>")
+	logger.If(*cmdPartial).L("Partial encryption enabled")
+	logger.If(*cmdMux > 0).L("TCP multiplexer: %d masters", *cmdMux)
+	logger.If(*cmdAuthMux).L("HMAC on TCP mux enabled")
+	logger.If(*cmdUnderlay == "kcp").L("KCP enabled")
+	logger.If(*cmdUnderlay == "https").L("HTTPS enabled")
 
 	cipher := proxy.NewCipher(*cmdKey, *cmdPartial)
 	cipher.IO.Logger = logger
 
+	acl, err := aclrouter.LoadACL(*cmdACL)
+	if err != nil {
+		logger.W("Failed to read ACL config: %v", err)
+	} else {
+		logger.D("ACL %s: %d black rules, %d white rules, %d gray rules", *cmdACL, acl.Black.Size, acl.White.Size, acl.Gray.Size)
+		for _, r := range acl.OmitRules {
+			logger.L("ACL omitted rule: %s", r)
+		}
+	}
+
 	var cc *proxy.ClientConfig
 	var sc *proxy.ServerConfig
 
-	if *cmdMux > 0 {
-		logger.L("TCP multiplexer: %d masters", *cmdMux)
-	}
-
-	if *cmdAuthMux {
-		logger.L("HMAC on TCP mux enabled")
-	}
-
-	if *cmdUnderlay == "kcp" {
-		logger.L("KCP enabled")
-	}
-
-	if *cmdUnderlay == "https" {
-		logger.L("HTTPS enabled")
-	}
-
 	if *cmdUpstream != "" {
-		acl, err := aclrouter.LoadACL(*cmdACL)
-		if err != nil {
-			logger.W("Failed to read ACL config: %v", err)
-		} else {
-			logger.D("ACL %s: %d black rules, %d white rules, %d gray rules", *cmdACL, acl.Black.Size, acl.White.Size, acl.Gray.Size)
-			for _, r := range acl.OmitRules {
-				logger.L("ACL omitted rule: %s", r)
-			}
-		}
-
 		cc = &proxy.ClientConfig{}
 		cc.Cipher = cipher
-		cc.DNSCache = lru.NewCache(*cmdDNSCache)
+		cc.DNSCache = lru.NewCache(*cmdACLCache)
 		cc.CACache = lru.NewCache(256)
 		cc.ACL = acl
 		cc.UserAuth = *cmdAuth
-		cc.UDPRelayCoconn = int(*cmdUDPonTCP)
-		cc.Mux = int(*cmdMux)
+		cc.UDPRelayCoconn = *cmdUDPonTCP
+		cc.Mux = *cmdMux
 		cc.Upstream = *cmdUpstream
 		cc.LocalRPBind = *cmdLBind
 		cc.Logger = logger
-		cc.KCP.Enable = *cmdUnderlay == "kcp"
-		cc.HTTPS = *cmdUnderlay == "https"
-		cc.AuthMux = *cmdAuthMux
+		cc.Policy.SetBool(*cmdUnderlay == "kcp", proxy.PolicyKCP)
+		cc.Policy.SetBool(*cmdUnderlay == "https", proxy.PolicyHTTPS)
+		cc.Policy.SetBool(*cmdAuthMux, proxy.PolicyMuxHMAC)
+		cc.Policy.SetBool(*cmdGlobal, proxy.PolicyGlobal)
+		cc.Policy.SetBool(*cmdVPN, proxy.PolicyVPN)
+
 		parseUpstream(cc, *cmdUpstream)
 
-		if *cmdGlobal {
-			logger.L("Global proxy enabled")
-			cc.Policy.Set(proxy.PolicyGlobal)
-		}
-
-		if *cmdVPN {
-			logger.L("Android shadowsocks compatible mode enabled")
-			cc.Policy.Set(proxy.PolicyVPN)
-		}
+		logger.If(*cmdGlobal).L("Global proxy enabled")
+		logger.If(*cmdVPN).L("Android shadowsocks compatible mode enabled")
 
 		if *cmdMITMDump != "" {
 			cc.MITMDump, _ = os.Create(*cmdMITMDump)
@@ -346,17 +318,18 @@ func main() {
 			Throttling:    *cmdThrot,
 			ThrottlingMax: *cmdThrotMax,
 			ProxyPassAddr: *cmdProxyPass,
-			DisableUDP:    *cmdDisableUDP,
-			DisableLRP:    *cmdDisableLRP,
 			LBindTimeout:  *cmdLBindWaits,
 			LBindCap:      *cmdLBindCap,
 			URLHeader:     *cmdURLHeader,
-			AuthMux:       *cmdAuthMux,
 			Logger:        logger,
-			KCP: proxy.KCPConfig{
-				Enable: *cmdUnderlay == "kcp",
-			},
+			ACL:           acl,
+			ACLCache:      lru.NewCache(*cmdACLCache),
 		}
+
+		sc.Policy.SetBool(*cmdDisableUDP, proxy.PolicyDisableUDP)
+		sc.Policy.SetBool(*cmdDisableLRP, proxy.PolicyDisableLRP)
+		sc.Policy.SetBool(*cmdAuthMux, proxy.PolicyMuxHMAC)
+		sc.Policy.SetBool(*cmdUnderlay == "kcp", proxy.PolicyKCP)
 
 		if *cmdAuth != "" {
 			sc.Users = map[string]proxy.UserConfig{
@@ -374,22 +347,19 @@ func main() {
 				HostPolicy: autocert.HostWhitelist(*cmdAutoCert),
 			}
 
-			logger.L("AutoCert host: %v", *cmdAutoCert)
 			sc.HTTPS = &tls.Config{GetCertificate: m.GetCertificate}
+			sc.Policy.Set(proxy.PolicyHTTPS)
 
-			logger.L("AutoCert listen :80 for HTTP validation")
+			logger.L("AutoCert host: %v, listen :80 for HTTP validation", *cmdAutoCert)
 			go http.ListenAndServe(":http", m.HTTPHandler(nil))
 		} else if *cmdUnderlay == "https" {
 			var cl, kl int
 			var ca tls.Certificate
 			ca, cl, kl = lib.TryLoadCert()
-			if cl == 0 {
-				logger.L("HTTPS can't find cert.pem, use the default one")
-			}
-			if kl == 0 {
-				logger.L("HTTPS can't find key.pem, use the default one")
-			}
+			logger.If(cl == 0).L("HTTPS can't find cert.pem, use the default one")
+			logger.If(kl == 0).L("HTTPS can't find key.pem, use the default one")
 			sc.HTTPS = &tls.Config{Certificates: []tls.Certificate{ca}}
+			sc.Policy.Set(proxy.PolicyHTTPS)
 		}
 	}
 
@@ -408,18 +378,14 @@ func main() {
 	logger.L("Alias code: %s", cipher.Alias)
 	if *cmdUpstream != "" {
 		client, err := proxy.NewClient(localaddr, cc)
-		if err != nil {
-			logger.F("Init failed: %v", err)
-		}
+		logger.If(err != nil).F("Init client failed: %v", err)
 		logger.L("Dial upstream: %s", client.Upstream)
 
 		if method != "" {
 			curl(client, method, url, nil)
 		} else if *cmdBind != "" {
 			ln, err := net.Listen("tcp", localaddr)
-			if err != nil {
-				logger.F("Local port forwarding failed to start: %v", err)
-			}
+			logger.If(err != nil).F("Local port forwarding failed to start: %v", err)
 			logger.L("Local port forwarding bind at %s", localaddr)
 			for {
 				conn, err := ln.Accept()
@@ -449,19 +415,16 @@ func main() {
 						logger.F("Web console exited: %v", http.ListenAndServe(addr, nil))
 					}()
 				}
-				logger.L("Proxy started at %s", client.Localaddr)
+				logger.L("Client started at %s", client.Localaddr)
 				logger.F("Client exited: %v", client.Start())
 			}
 		}
 	} else {
-		if method != "" {
-			logger.F("You are issuing an HTTP request without the upstream server")
-		}
+		logger.If(method != "").F("You are issuing an HTTP request without the upstream server")
+
 		server, err := proxy.NewServer(localaddr, sc)
-		if err != nil {
-			logger.F("Init failed: %v", err)
-		}
-		logger.L("Proxy started at %s", server.Localaddr)
+		logger.If(err != nil).F("Init server failed: %v", err)
+		logger.L("Server started at %s", server.Localaddr)
 
 		if strings.HasPrefix(sc.ProxyPassAddr, "http") {
 			logger.L("Reverse proxy started, pass to %s", sc.ProxyPassAddr)
@@ -474,14 +437,12 @@ func main() {
 
 func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 	logger.L("Upstream config: %s", upstream)
-	if is := func(in string) bool { return strings.HasPrefix(upstream, in) }; is("https://") {
+	is := func(in string) bool { return strings.HasPrefix(upstream, in) }
+
+	if is("https://") {
 		cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(upstream)
 		logger.L("HTTPS proxy auth: %s@%s", cc.Connect2, cc.Connect2Auth)
-
-		if cc.Mux > 0 {
-			logger.L("Can't use an HTTPS proxy with TCP multiplexer")
-		}
-
+		logger.If(cc.Mux > 0).F("Can't use an HTTPS proxy with TCP multiplexer (TODO)")
 	} else if gfw, http, ws, cf, fwd, fwdws :=
 		is("gfw://"), is("http://"), is("ws://"),
 		is("cf://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || fwd || fwdws {
@@ -496,17 +457,15 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 			if cc.URLHeader == "" {
 				cc.URLHeader = "X-Forwarded-Url"
 			}
-			logger.L("Forward using HTTP header '%s: http://%s/...'", cc.URLHeader, cc.DummyDomain)
+			logger.L("Custom HTTP header '%s: http://%s/...'", cc.URLHeader, cc.DummyDomain)
 		case cc.DummyDomain != "":
-			logger.L("Use fake HTTP header 'Host: %s'", cc.DummyDomain)
+			logger.L("Custom HTTP header 'Host: %s'", cc.DummyDomain)
 		}
 
 		switch true {
 		case fwdws, cf, ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
-			if *cmdLBind != "" {
-				logger.F("Remote port forwarding can't be used with Websocket")
-			}
+			logger.If(*cmdLBind != "").F("Remote port forwarding can't be used with Websocket")
 			logger.L("Websocket enabled")
 		case fwd, http:
 			cc.Policy.Set(proxy.PolicyMITM)
@@ -514,12 +473,8 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 
 			var cl, kl int
 			cc.CA, cl, kl = lib.TryLoadCert()
-			if cl == 0 {
-				logger.L("MITM can't find cert.pem, use the default one")
-			}
-			if kl == 0 {
-				logger.L("MITM can't find key.pem, use the default one")
-			}
+			logger.If(cl == 0).L("MITM can't find cert.pem, use the default one")
+			logger.If(kl == 0).L("MITM can't find key.pem, use the default one")
 		}
 	}
 }

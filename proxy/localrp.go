@@ -174,7 +174,7 @@ func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *cli
 		return
 	}
 
-	if proxy.DisableLRP {
+	if proxy.Policy.IsSet(PolicyDisableLRP) {
 		proxy.Logger.W("RP client ctrl request rejected")
 		downstream.Close()
 		return

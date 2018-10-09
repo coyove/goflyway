@@ -44,6 +44,11 @@ const (
 	PolicyGlobal
 	PolicyVPN
 	PolicyWebSocket
+	PolicyHTTPS
+	PolicyKCP
+	PolicyMuxHMAC
+	PolicyDisableUDP
+	PolicyDisableLRP
 )
 
 const (
@@ -57,11 +62,11 @@ const (
 )
 
 var (
-	okHTTP  = []byte("HTTP/1.0 200 Connection Established\r\n\r\n")
-	okSOCKS = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
-)
-
-var (
+	okHTTP         = []byte("HTTP/1.0 200 Connection Established\r\n\r\n")
+	okSOCKS        = []byte{socksVersion5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	http101        = []byte("HTTP/1.1 101 Switching Protocols")
+	http200        = []byte("HTTP/1.1 200 OK")
+	http403        = []byte("HTTP/1.1 403 Forbidden")
 	udpHeaderIPv4  = []byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	udpHeaderIPv6  = []byte{0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	socksHandshake = []byte{socksVersion5, 1, 0}
@@ -80,6 +85,12 @@ func (o *Options) IsSet(option uint32) bool {
 func (o *Options) Set(options ...uint32) {
 	for _, option := range options {
 		*o = Options(uint32(*o) | option)
+	}
+}
+
+func (o *Options) SetBool(b bool, option uint32) {
+	if b {
+		o.Set(option)
 	}
 }
 

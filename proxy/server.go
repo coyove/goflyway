@@ -15,29 +15,24 @@ import (
 
 	"github.com/coyove/common/logg"
 	"github.com/coyove/common/lru"
+	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/tcpmux"
 	"github.com/xtaci/kcp-go"
 )
-
-type KCPConfig struct {
-	Enable bool
-}
 
 type ServerConfig struct {
 	Throttling    int64
 	ThrottlingMax int64
 	LBindTimeout  int64
 	LBindCap      int64
-	DisableUDP    bool
-	DisableLRP    bool
-	AuthMux       bool
-	HTTPS         *tls.Config
+	Policy        Options
 	ProxyPassAddr string
 	URLHeader     string
 	Logger        *logg.Logger
-	KCP           KCPConfig
-
-	Users map[string]UserConfig
+	ACL           *acr.ACL
+	ACLCache      *lru.Cache
+	HTTPS         *tls.Config
+	Users         map[string]UserConfig
 
 	*Cipher
 }
@@ -254,7 +249,16 @@ DE_AGAIN:
 		proxy.Logger.D("DNS answer of %s: %s", host, ip.String())
 		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
 		w.WriteHeader(200)
-	} else if cr.Opt.IsSet(doLocalRP) {
+		return
+	}
+
+	if proxy.isBlocked(dst) {
+		w.WriteHeader(http.StatusForbidden)
+		proxy.Logger.D("%s is blocked", dst)
+		return
+	}
+
+	if cr.Opt.IsSet(doLocalRP) {
 		ioc := proxy.getIOConfig(cr.Auth)
 		ioc.Partial = cr.Opt.IsSet(doPartial)
 
@@ -296,7 +300,7 @@ DE_AGAIN:
 		var err error
 
 		if cr.Opt.IsSet(doUDPRelay) {
-			if proxy.DisableUDP {
+			if proxy.Policy.IsSet(PolicyDisableUDP) {
 				proxy.Logger.W("Client UDP relay request rejected")
 				downstreamConn.Close()
 				return
@@ -368,13 +372,13 @@ DE_AGAIN:
 
 func (proxy *ProxyServer) Start() (err error) {
 	switch {
-	case proxy.KCP.Enable:
+	case proxy.Policy.IsSet(PolicyKCP):
 		ln, err := kcp.Listen(proxy.Localaddr)
 		if err != nil {
 			return err
 		}
 		proxy.Listener = tcpmux.Wrap(ln)
-	case proxy.HTTPS != nil:
+	case proxy.HTTPS != nil && proxy.Policy.IsSet(PolicyHTTPS):
 		ln, err := tls.Listen("tcp", proxy.Localaddr, proxy.HTTPS)
 		if err != nil {
 			return err
@@ -388,7 +392,7 @@ func (proxy *ProxyServer) Start() (err error) {
 	}
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
-	if proxy.AuthMux {
+	if proxy.Policy.IsSet(PolicyMuxHMAC) {
 		proxy.Listener.(*tcpmux.ListenPool).Key = proxy.Cipher.keyBuf
 	}
 

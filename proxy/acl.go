@@ -38,9 +38,7 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	}
 
 	rule, ipstr, err := proxy.ACL.Check(host, !proxy.ACL.RemoteDNS)
-	if err != nil {
-		proxy.Logger.E("ACL check error: %v", err)
-	}
+	proxy.Logger.If(err != nil).E("ACL check error: %v", err)
 
 	priv := false
 	defer func() {
@@ -127,4 +125,22 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	default:
 		return ruleProxy, "Unknown"
 	}
+}
+
+func (proxy *ProxyServer) isBlocked(host string) (bk bool) {
+	if proxy.ACL == nil {
+		return false
+	}
+
+	host, _ = splitHostPort(host)
+	if c, ok := proxy.ACLCache.Get(host); ok {
+		return c.(bool)
+	}
+
+	rule, _, err := proxy.ACL.Check(host, true)
+	proxy.Logger.If(err != nil).E("ACL check error: %v", err)
+
+	bk = rule == acr.RuleBlock
+	proxy.ACLCache.Add(host, bk)
+	return
 }
