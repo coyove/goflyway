@@ -107,13 +107,13 @@ func (proxy *ProxyServer) Write(w http.ResponseWriter, key [ivLen]byte, p []byte
 func (proxy *ProxyServer) hijack(w http.ResponseWriter) net.Conn {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
-		proxy.Logger.E("Hijack failed: not supported")
+		proxy.Logger.Errorf("Hijack failed: not supported")
 		return nil
 	}
 
 	conn, _, err := hij.Hijack()
 	if err != nil {
-		proxy.Logger.E("Hijack failed: %v", err)
+		proxy.Logger.Errorf("Hijack failed: %v", err)
 		return nil
 	}
 
@@ -160,7 +160,7 @@ func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		proxy.Logger.W("Unknown address: %s", r.RemoteAddr)
+		proxy.Logger.Warnf("Unknown address: %s", r.RemoteAddr)
 		replySomething()
 		return
 	}
@@ -189,7 +189,7 @@ DE_AGAIN:
 				rawReq:   rawReq,
 			}
 
-			proxy.Logger.D("RP ctrl server waits client to response")
+			proxy.Logger.Dbgf("RP ctrl server waits client to response")
 			select {
 			case resp := <-cb:
 				if resp.err != nil {
@@ -197,10 +197,10 @@ DE_AGAIN:
 					return
 				}
 			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
-				proxy.Logger.E("RP client didn't response")
+				proxy.Logger.Errorf("RP client didn't response")
 				userConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError: localrp timed out"))
 			}
-			proxy.Logger.D("RP client OK")
+			proxy.Logger.Dbgf("RP client OK")
 
 			proxy.localRP.Lock()
 			for k, resp := range proxy.localRP.waiting {
@@ -219,7 +219,7 @@ DE_AGAIN:
 			goto DE_AGAIN
 		}
 
-		proxy.Logger.D("Invalid request from %s: %s", addr, proxy.stripURI(r.RequestURI))
+		proxy.Logger.Dbgf("Invalid request from %s: %s", addr, proxy.stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
 		replySomething()
 		return
@@ -227,13 +227,13 @@ DE_AGAIN:
 
 	if proxy.Users != nil {
 		if !proxy.auth(cr.Auth) {
-			proxy.Logger.W("User auth failed from %s", addr)
+			proxy.Logger.Warnf("User auth failed from %s", addr)
 			return
 		}
 	}
 
 	if h, _, _ := proxy.blacklist.GetEx(addr); h > invalidRequestRetry {
-		proxy.Logger.D("Repeated access using invalid key from %s", addr)
+		proxy.Logger.Dbgf("Repeated access using invalid key from %s", addr)
 		// replySomething()
 		// return
 	}
@@ -242,11 +242,11 @@ DE_AGAIN:
 		host := cr.Query
 		ip, err := net.ResolveIPAddr("ip4", host)
 		if err != nil {
-			proxy.Logger.W("DNS query failed: %v", err)
+			proxy.Logger.Warnf("DNS query failed: %v", err)
 			ip = &net.IPAddr{IP: net.IP{127, 0, 0, 1}}
 		}
 
-		proxy.Logger.D("DNS answer of %s: %s", host, ip.String())
+		proxy.Logger.Dbgf("DNS answer of %s: %s", host, ip.String())
 		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
 		w.WriteHeader(200)
 		return
@@ -254,7 +254,7 @@ DE_AGAIN:
 
 	if proxy.isBlocked(dst) {
 		w.WriteHeader(http.StatusForbidden)
-		proxy.Logger.D("%s is blocked", dst)
+		proxy.Logger.Logf("%s is blocked", dst)
 		return
 	}
 
@@ -282,12 +282,12 @@ DE_AGAIN:
 	} else if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
-			proxy.Logger.W("Valid rkey invalid host from %s", addr)
+			proxy.Logger.Warnf("Valid rkey invalid host from %s", addr)
 			replySomething()
 			return
 		}
 
-		proxy.Logger.D("Dial real host: %s", host)
+		proxy.Logger.Logf("Dial real host: %s", host)
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
 			return
@@ -301,7 +301,7 @@ DE_AGAIN:
 
 		if cr.Opt.IsSet(doUDPRelay) {
 			if proxy.Policy.IsSet(PolicyDisableUDP) {
-				proxy.Logger.W("Client UDP relay request rejected")
+				proxy.Logger.Warnf("Client UDP relay request rejected")
 				downstreamConn.Close()
 				return
 			}
@@ -321,7 +321,7 @@ DE_AGAIN:
 		}
 
 		if err != nil {
-			proxy.Logger.E("Dial real host failed: %v", err)
+			proxy.Logger.Errorf("Dial real host failed: %v", err)
 			downstreamConn.Close()
 			return
 		}
@@ -330,7 +330,7 @@ DE_AGAIN:
 
 		if cr.Opt.IsSet(doMuxWS) {
 			proxy.Listener.(*tcpmux.ListenPool).Upgrade(downstreamConn)
-			proxy.Logger.D("Downstream connection has been upgraded to multiplexer master")
+			proxy.Logger.Dbgf("Downstream connection has been upgraded to multiplexer master")
 			targetSiteConn.Close()
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, cr.IV, ioc)
@@ -347,11 +347,11 @@ DE_AGAIN:
 		r.Host = r.URL.Host
 		proxy.decryptRequest(r, cr)
 
-		proxy.Logger.D("HTTP forward: %s %s", r.Method, r.URL.String())
+		proxy.Logger.Dbgf("HTTP forward: %s %s", r.Method, r.URL.String())
 
 		resp, err := proxy.tp.RoundTrip(r)
 		if err != nil {
-			proxy.Logger.E("Round trip %s: %v", r.URL, err)
+			proxy.Logger.Errorf("Round trip %s: %v", r.URL, err)
 			proxy.Write(w, cr.IV, []byte(err.Error()), http.StatusInternalServerError)
 			return
 		}
@@ -360,7 +360,7 @@ DE_AGAIN:
 		w.WriteHeader(resp.StatusCode)
 
 		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, cr.IV, proxy.getIOConfig(cr.Auth)); err != nil {
-			proxy.Logger.E("IO copy %d bytes: %v", nr, err)
+			proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 		}
 
 		tryClose(resp.Body)
@@ -401,7 +401,7 @@ func (proxy *ProxyServer) Start() (err error) {
 			for range time.Tick(time.Minute) {
 				proxy.localRP.Lock()
 				if proxy.localRP.waiting != nil {
-					proxy.Logger.D("RP ctrl server queue: %d waiting, %d connected", len(proxy.localRP.waiting), len(proxy.localRP.downConns))
+					proxy.Logger.Dbgf("RP ctrl server queue: %d waiting, %d connected", len(proxy.localRP.waiting), len(proxy.localRP.downConns))
 				}
 				proxy.localRP.Unlock()
 			}

@@ -34,7 +34,7 @@ var (
 	cmdHelp     = flag.Bool("h", false, "Display help message")
 	cmdHelp2    = flag.Bool("help", false, "Display long help message")
 	cmdConfig   = flag.String("c", "", "Config file path")
-	cmdLogLevel = flag.String("lv", "log", "[loglevel] Logging level: {dbg, log, warn, err, off}")
+	cmdLogLevel = flag.String("lv", "info", "[loglevel] Logging level: {dbg0, dbg, log, info, warn, err, off}")
 	cmdAuth     = flag.String("a", "", "[auth] Proxy authentication, form: username:password (remember the colon)")
 	cmdKey      = flag.String("k", "0123456789abcdef", "[password] Password, do not use the default one")
 	cmdLocal    = flag.String("l", ":8100", "[listen] Listening address")
@@ -254,30 +254,28 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 	configerr := loadConfig()
 
-	logger = &logg.Logger{}
-	logger.SetFormats(logg.FmtLongTime, logg.FmtShortFile, logg.FmtLevel)
-	logger.Parse(*cmdLogLevel)
-	logger.If(*cmdSection != "").L("Config section: %v", *cmdSection)
-	logger.If(configerr != nil).L("Config reading failed: %v", configerr)
-	logger.If(*cmdUpstream != "").L("Client role (goflyway %s)", version)
-	logger.If(*cmdUpstream == "").L("Server role (goflyway %s)", version)
-	logger.If(*cmdKey == "0123456789abcdef").W("Cipher vulnerability: please change the default password: -k=<NEW PASSWORD>")
-	logger.If(*cmdPartial).L("Partial encryption enabled")
-	logger.If(*cmdMux > 0).L("TCP multiplexer: %d masters", *cmdMux)
-	logger.If(*cmdAuthMux).L("HMAC on TCP mux enabled")
-	logger.If(*cmdUnderlay == "kcp").L("KCP enabled")
-	logger.If(*cmdUnderlay == "https").L("HTTPS enabled")
-
+	logger = logg.NewLogger(*cmdLogLevel)
 	cipher := proxy.NewCipher(*cmdKey, *cmdPartial)
 	cipher.IO.Logger = logger
 
+	logger.If(*cmdSection != "").Infof("Config section: %v", *cmdSection)
+	logger.If(configerr != nil).Warnf("Config reading failed: %v", configerr)
+	logger.If(*cmdUpstream != "").Infof("Client role %s (goflyway %s)", cipher.Alias, version)
+	logger.If(*cmdUpstream == "").Infof("Server role %s (goflyway %s)", cipher.Alias, version)
+	logger.If(*cmdKey == "0123456789abcdef").Warnf("Cipher vulnerability: please change the default password: -k=<NEW PASSWORD>")
+	logger.If(*cmdPartial).Infof("Partial encryption enabled")
+	logger.If(*cmdMux > 0).Infof("TCP multiplexer: %d masters", *cmdMux)
+	logger.If(*cmdAuthMux).Infof("HMAC on TCP mux enabled")
+	logger.If(*cmdUnderlay == "kcp").Infof("KCP enabled")
+	logger.If(*cmdUnderlay == "https").Infof("HTTPS enabled")
+
 	acl, err := aclrouter.LoadACL(*cmdACL)
 	if err != nil {
-		logger.W("Failed to read ACL config: %v", err)
+		logger.Warnf("Failed to read ACL config: %v", err)
 	} else {
-		logger.D("ACL %s: %d black rules, %d white rules, %d gray rules", *cmdACL, acl.Black.Size, acl.White.Size, acl.Gray.Size)
+		logger.Dbgf("ACL %s: %d black rules, %d white rules, %d gray rules", *cmdACL, acl.Black.Size, acl.White.Size, acl.Gray.Size)
 		for _, r := range acl.OmitRules {
-			logger.L("ACL omitted rule: %s", r)
+			logger.Infof("ACL omitted rule: %s", r)
 		}
 	}
 
@@ -304,8 +302,8 @@ func main() {
 
 		parseUpstream(cc, *cmdUpstream)
 
-		logger.If(*cmdGlobal).L("Global proxy enabled")
-		logger.If(*cmdVPN).L("Android shadowsocks compatible mode enabled")
+		logger.If(*cmdGlobal).Infof("Global proxy enabled")
+		logger.If(*cmdVPN).Infof("Android shadowsocks compatible mode enabled")
 
 		if *cmdMITMDump != "" {
 			cc.MITMDump, _ = os.Create(*cmdMITMDump)
@@ -350,14 +348,14 @@ func main() {
 			sc.HTTPS = &tls.Config{GetCertificate: m.GetCertificate}
 			sc.Policy.Set(proxy.PolicyHTTPS)
 
-			logger.L("AutoCert host: %v, listen :80 for HTTP validation", *cmdAutoCert)
+			logger.Infof("AutoCert host: %v, listen :80 for HTTP validation", *cmdAutoCert)
 			go http.ListenAndServe(":http", m.HTTPHandler(nil))
 		} else if *cmdUnderlay == "https" {
 			var cl, kl int
 			var ca tls.Certificate
 			ca, cl, kl = lib.TryLoadCert()
-			logger.If(cl == 0).L("HTTPS can't find cert.pem, use the default one")
-			logger.If(kl == 0).L("HTTPS can't find key.pem, use the default one")
+			logger.If(cl == 0).Warnf("HTTPS can't find cert.pem, use the default one")
+			logger.If(kl == 0).Warnf("HTTPS can't find key.pem, use the default one")
 			sc.HTTPS = &tls.Config{Certificates: []tls.Certificate{ca}}
 			sc.Policy.Set(proxy.PolicyHTTPS)
 		}
@@ -375,31 +373,30 @@ func main() {
 		localaddr = *cmdLocal
 	}
 
-	logger.L("Alias code: %s", cipher.Alias)
 	if *cmdUpstream != "" {
 		client, err := proxy.NewClient(localaddr, cc)
-		logger.If(err != nil).F("Init client failed: %v", err)
-		logger.L("Dial upstream: %s", client.Upstream)
+		logger.If(err != nil).Fatalf("Init client failed: %v", err)
+		logger.Logf("Dial upstream: %s", client.Upstream)
 
 		if method != "" {
 			curl(client, method, url, nil)
 		} else if *cmdBind != "" {
 			ln, err := net.Listen("tcp", localaddr)
-			logger.If(err != nil).F("Local port forwarding failed to start: %v", err)
-			logger.L("Local port forwarding bind at %s", localaddr)
+			logger.If(err != nil).Fatalf("Local port forwarding failed to start: %v", err)
+			logger.Infof("Local port forwarding bind at %s", localaddr)
 			for {
 				conn, err := ln.Accept()
 				if err != nil {
-					logger.E("Bind accept: %v", err)
+					logger.Errorf("Bind accept: %v", err)
 					continue
 				}
-				logger.L("Bind bridge local:%s->remote:%s", conn.LocalAddr().String(), *cmdBind)
+				logger.Infof("Bind bridge local:%s->remote:%s", conn.LocalAddr().String(), *cmdBind)
 				client.Bridge(conn, *cmdBind)
 			}
 		} else {
 
 			if *cmdLBind != "" {
-				logger.L("Remote port forwarding bind at %s", client.ClientConfig.LocalRPBind)
+				logger.Infof("Remote port forwarding bind at %s", client.ClientConfig.LocalRPBind)
 				client.StartLocalRP(int(*cmdLBindConn))
 			} else {
 				if *cmdWebConPort != 0 {
@@ -411,38 +408,35 @@ func main() {
 						}
 
 						http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
-						logger.L("Web console started at %s", addr)
-						logger.F("Web console exited: %v", http.ListenAndServe(addr, nil))
+						logger.Infof("Web console started at %s", addr).Fatal(http.ListenAndServe(addr, nil))
 					}()
 				}
-				logger.L("Client started at %s", client.Localaddr)
-				logger.F("Client exited: %v", client.Start())
+				logger.Infof("Client started at %s", client.Localaddr).Fatal(client.Start())
 			}
 		}
 	} else {
-		logger.If(method != "").F("You are issuing an HTTP request without the upstream server")
+		logger.If(method != "").Fatalf("You are issuing an HTTP request without the upstream server")
 
 		server, err := proxy.NewServer(localaddr, sc)
-		logger.If(err != nil).F("Init server failed: %v", err)
-		logger.L("Server started at %s", server.Localaddr)
+		logger.If(err != nil).Fatalf("Init server failed: %v", err)
 
 		if strings.HasPrefix(sc.ProxyPassAddr, "http") {
-			logger.L("Reverse proxy started, pass to %s", sc.ProxyPassAddr)
+			logger.Infof("Reverse proxy started, pass to %s", sc.ProxyPassAddr)
 		} else if sc.ProxyPassAddr != "" {
-			logger.L("File server started, root: %s", sc.ProxyPassAddr)
+			logger.Infof("File server started, root: %s", sc.ProxyPassAddr)
 		}
-		logger.F("Server exited: %v", server.Start())
+		logger.Infof("Server started at %s", server.Localaddr).Fatal(server.Start())
 	}
 }
 
 func parseUpstream(cc *proxy.ClientConfig, upstream string) {
-	logger.L("Upstream config: %s", upstream)
+	logger.Infof("Upstream config: %s", upstream)
 	is := func(in string) bool { return strings.HasPrefix(upstream, in) }
 
 	if is("https://") {
 		cc.Connect2Auth, cc.Connect2, _, cc.Upstream = parseAuthURL(upstream)
-		logger.L("HTTPS proxy auth: %s@%s", cc.Connect2, cc.Connect2Auth)
-		logger.If(cc.Mux > 0).F("Can't use an HTTPS proxy with TCP multiplexer (TODO)")
+		logger.Infof("HTTPS proxy auth: %s@%s", cc.Connect2, cc.Connect2Auth)
+		logger.If(cc.Mux > 0).Fatalf("Can't use an HTTPS proxy with TCP multiplexer (TODO)")
 	} else if gfw, http, ws, cf, fwd, fwdws :=
 		is("gfw://"), is("http://"), is("ws://"),
 		is("cf://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || fwd || fwdws {
@@ -451,30 +445,30 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 
 		switch true {
 		case cf:
-			logger.L("Cloudflare upstream: %s", cc.Upstream)
+			logger.Infof("Cloudflare upstream: %s", cc.Upstream)
 			cc.DummyDomain = cc.Upstream
 		case fwdws, fwd:
 			if cc.URLHeader == "" {
 				cc.URLHeader = "X-Forwarded-Url"
 			}
-			logger.L("Custom HTTP header '%s: http://%s/...'", cc.URLHeader, cc.DummyDomain)
+			logger.Logf("Custom HTTP header '%s: http://%s/...'", cc.URLHeader, cc.DummyDomain)
 		case cc.DummyDomain != "":
-			logger.L("Custom HTTP header 'Host: %s'", cc.DummyDomain)
+			logger.Logf("Custom HTTP header 'Host: %s'", cc.DummyDomain)
 		}
 
 		switch true {
 		case fwdws, cf, ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
-			logger.If(*cmdLBind != "").F("Remote port forwarding can't be used with Websocket")
-			logger.L("Websocket enabled")
+			logger.If(*cmdLBind != "").Fatalf("Remote port forwarding can't be used with Websocket")
+			logger.Infof("Websocket enabled")
 		case fwd, http:
 			cc.Policy.Set(proxy.PolicyMITM)
-			logger.L("MITM enabled")
+			logger.Infof("MITM enabled")
 
 			var cl, kl int
 			cc.CA, cl, kl = lib.TryLoadCert()
-			logger.If(cl == 0).L("MITM can't find cert.pem, use the default one")
-			logger.If(kl == 0).L("MITM can't find key.pem, use the default one")
+			logger.If(cl == 0).Warnf("MITM can't find cert.pem, use the default one")
+			logger.If(kl == 0).Warnf("MITM can't find key.pem, use the default one")
 		}
 	}
 }
@@ -516,7 +510,7 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 			}
 		}
 
-		logger.F("Invalid server destination: %s, %v", upstream, err)
+		logger.Fatalf("Invalid server destination: %s, %v", upstream, err)
 	}
 
 	return
@@ -525,12 +519,12 @@ func parseAuthURL(in string) (auth string, upstream string, header string, dummy
 func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.Cookie) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		logger.E("[curl] Can't create the request: %v", err)
+		logger.Errorf("[curl] Can't create the request: %v", err)
 		return
 	}
 
 	if err := lib.ParseHeadersAndPostBody(*cmdHeaders, *cmdForm, *cmdMultipart, req); err != nil {
-		logger.E("[curl] Invalid headers: %v", err)
+		logger.Errorf("[curl] Invalid headers: %v", err)
 		return
 	}
 
@@ -538,7 +532,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		cs := make([]string, len(cookies))
 		for i, cookie := range cookies {
 			cs[i] = cookie.Name + "=" + cookie.Value
-			logger.D("[curl] Cookie: %s", cookie.String())
+			logger.Dbgf("[curl] Cookie: %s", cookie.String())
 		}
 
 		oc := req.Header.Get("Cookie")
@@ -552,7 +546,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	}
 
 	reqbuf, _ := httputil.DumpRequest(req, false)
-	logger.D("[curl] Request: %s", string(reqbuf))
+	logger.Dbgf("[curl] Request: %s", string(reqbuf))
 
 	var totalBytes, counter int64
 	var startTime = time.Now().UnixNano()
@@ -561,7 +555,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 		totalBytes += bytes
 		length, _ := strconv.ParseInt(r.HeaderMap.Get("Content-Length"), 10, 64)
 		if counter++; counter%10 == 0 || totalBytes == length {
-			logger.D("[curl] Downloading %s / %s", lib.PrettySize(totalBytes), lib.PrettySize(length))
+			logger.Dbgf("[curl] Downloading %s / %s", lib.PrettySize(totalBytes), lib.PrettySize(length))
 		}
 	})
 
@@ -569,12 +563,12 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	cookies = append(cookies, lib.ParseSetCookies(r.HeaderMap)...)
 
 	if r.HeaderMap.Get("Content-Encoding") == "gzip" {
-		logger.D("[curl] Decoding gzip content")
+		logger.Dbgf("[curl] Decoding gzip content")
 		r.Body, _ = gzip.NewReader(r.Body)
 	}
 
 	if r.Body == nil {
-		logger.D("[curl] Empty body")
+		logger.Dbgf("[curl] Empty body")
 		r.Body = &lib.NullReader{}
 	}
 
@@ -583,7 +577,7 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 	if r.IsRedir() {
 		location := r.Header().Get("Location")
 		if location == "" {
-			logger.E("[curl] Invalid redirection")
+			logger.Errorf("[curl] Invalid redirection")
 			return
 		}
 
@@ -597,14 +591,14 @@ func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.
 			}
 		}
 
-		logger.L("[curl] Redirect: %s", location)
+		logger.Infof("[curl] Redirect: %s", location)
 		curl(client, method, location, cookies)
 	} else {
 		respbuf, _ := httputil.DumpResponse(r.Result(), false)
-		logger.D("[curl] Response: %s", string(respbuf))
+		logger.Dbgf("[curl] Response: %s", string(respbuf))
 
 		lib.IOCopy(os.Stdout, r, *cmdPrettyJSON)
 
-		logger.L("[curl] Elapsed time: %d ms", (time.Now().UnixNano()-startTime)/1e6)
+		logger.Infof("[curl] Elapsed time: %d ms", (time.Now().UnixNano()-startTime)/1e6)
 	}
 }

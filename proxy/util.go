@@ -196,7 +196,7 @@ func (proxy *ProxyServer) stripURI(uri string) string {
 		if idx > -1 {
 			uri = uri[idx+1+8:]
 		} else {
-			proxy.Logger.W("Unexpected URI: %s", uri)
+			proxy.Logger.Warnf("Unexpected URI: %s", uri)
 		}
 	} else {
 		uri = uri[1:]
@@ -212,7 +212,7 @@ func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 	for _, c := range req.Cookies() {
 		c.Value, err = proxy.Cipher.Decrypt(c.Value, r.IV)
 		if err != nil {
-			proxy.Logger.E("Failed to decrypt cookie: %v, %v", err, req)
+			proxy.Logger.Errorf("Failed to decrypt cookie: %v, %v", err, req)
 			return
 		}
 		cookies.Writes(c.String(), ";")
@@ -222,7 +222,7 @@ func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 	if origin := req.Header.Get("Origin"); len(origin) > 4 {
 		origin, err = proxy.Decrypt(origin[:len(origin)-4], r.IV)
 		if err != nil {
-			proxy.Logger.E("Failed to decrypt origin: %v, %v", err, req)
+			proxy.Logger.Errorf("Failed to decrypt origin: %v, %v", err, req)
 			return
 		}
 		req.Header.Set("Origin", origin)
@@ -231,7 +231,7 @@ func (proxy *ProxyServer) decryptRequest(req *http.Request, r *clientRequest) {
 	if referer := req.Header.Get("Referer"); referer != "" {
 		referer, err = proxy.Decrypt(referer, r.IV)
 		if err != nil {
-			proxy.Logger.E("Failed to decrypt referer: %v, %v", err, req)
+			proxy.Logger.Errorf("Failed to decrypt referer: %v, %v", err, req)
 			return
 		}
 		req.Header.Set("Referer", referer)
@@ -332,7 +332,7 @@ func (proxy *ProxyClient) basicAuth(token string) string {
 
 func tryClose(b io.ReadCloser) {
 	if err := b.Close(); err != nil {
-		// proxy.Logger.W("Can't close", err)
+		// proxy.Logger.Warnf("Can't close", err)
 	}
 }
 
@@ -413,7 +413,7 @@ func (proxy *ProxyServer) decryptClientRequest(url string) *clientRequest {
 	var err error
 	buf, err = proxy.Cipher.GCM.Open(nil, iv[:12], buf, nil)
 	if err != nil {
-		proxy.Logger.E("Failed to decrypt host: %s, %v", url, err)
+		proxy.Logger.Errorf("Failed to decrypt host: %s, %v", url, err)
 		return nil
 	}
 
@@ -421,7 +421,7 @@ func (proxy *ProxyServer) decryptClientRequest(url string) *clientRequest {
 	copy(r.IV[:], iv)
 
 	if err = r.Unmarshal(buf); err != nil {
-		proxy.Logger.E("Failed to decrypt host: %s, %v", url, err)
+		proxy.Logger.Errorf("Failed to decrypt host: %s, %v", url, err)
 		return nil
 	}
 

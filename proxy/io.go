@@ -65,7 +65,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key [ivLen]byte, options IOConf
 	exit := make(chan bool)
 	go func(config IOConfig) {
 		if _, err := iot.Copy(target, source, key, config); err != nil {
-			iot.Logger.E("Bridge: %v", err)
+			iot.Logger.Errorf("Bridge: %v", err)
 		}
 		exit <- true
 	}(o)
@@ -81,7 +81,7 @@ func (iot *io_t) Bridge(target, source net.Conn, key [ivLen]byte, options IOConf
 
 	o.Role = roleSend
 	if _, err := iot.Copy(source, target, key, o); err != nil {
-		iot.Logger.E("Bridge: %v", err)
+		iot.Logger.Errorf("Bridge: %v", err)
 	}
 
 	select {
@@ -189,7 +189,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 
 			if count == 60 && iot.Logger.GetLevel() == logg.LvDebug {
 				count = 0
-				iot.Logger.If(len(iot.mconns) > 0).D("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
+				iot.Logger.If(len(iot.mconns) > 0).Dbgf("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
 
 				if ob, _ := iot.Ob.(*tcpmux.DialPool); ob != nil {
 					conns := ob.Count()
@@ -198,7 +198,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 						s += c
 						b.WriteString(" /" + strconv.Itoa(c))
 					}
-					iot.Logger.If(s > 0).D("Mux: %d masters, %d streams%s", len(conns), s, b.String())
+					iot.Logger.If(s > 0).Dbgf("Mux: %d masters, %d streams%s", len(conns), s, b.String())
 				} else if ob, _ := iot.Ob.(*tcpmux.ListenPool); ob != nil {
 					waitings, swaitings, conns := ob.Count()
 					s, v := 0, 0.0
@@ -212,7 +212,7 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 							Ex2 += float64((c - K) * (c - K))
 						}
 						v = (Ex2 - (Ex*Ex)/n) / (n - 1)
-						iot.Logger.D("Mux: %d masters, %d streams (%.2f), %d + %d waitings", len(conns), s, v, waitings, swaitings)
+						iot.Logger.Dbgf("Mux: %d masters, %d streams (%.2f), %d + %d waitings", len(conns), s, v, waitings, swaitings)
 					}
 				}
 			}
@@ -230,7 +230,7 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key [ivLen]byte, config IOCo
 	if iot.Logger.GetLevel() == logg.LvDebug {
 		defer func() {
 			if r := recover(); r != nil {
-				iot.Logger.E("Copy panic: %v", r)
+				iot.Logger.Errorf("Copy panic: %v", r)
 			}
 		}()
 	}

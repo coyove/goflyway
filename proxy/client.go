@@ -166,7 +166,7 @@ func (proxy *ProxyClient) dial(dialStyle byte) (conn net.Conn, err error) {
 		// 	return nil, err
 		// }
 
-		// proxy.Logger.D("Client","dial ", addr.String())
+		// proxy.Logger.Dbgf("Client","dial ", addr.String())
 		// return net.DialTimeout("tcp", addr.String(), timeoutDial)
 		// }
 
@@ -368,19 +368,19 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			proxy.Logger.L("%s - %s", ext, host)
+			proxy.Logger.Infof("%s - %s", ext, host)
 			proxyClient.Close()
 		} else if ans == rulePass {
-			proxy.Logger.D("%s - %s", ext, r.RequestURI)
+			proxy.Logger.Logf("%s - %s", ext, r.RequestURI)
 			_, err = proxy.dialHost(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyMITM) {
 			proxy.manInTheMiddle(proxyClient, host)
 		} else {
-			proxy.Logger.D("%s - %s", ext, r.RequestURI)
+			proxy.Logger.Logf("%s - %s", ext, r.RequestURI)
 			_, err = proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
 		}
 
-		proxy.Logger.If(err != nil).E("Dial failed: %v", err)
+		proxy.Logger.If(err != nil).Errorf("Dial failed: %v", err)
 	} else {
 		// normal http requests
 		if !r.URL.IsAbs() {
@@ -401,14 +401,14 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var iv [ivLen]byte
 
 		if ans, ext := proxy.canDirectConnect(r.Host); ans == ruleBlock {
-			proxy.Logger.L("%s - %s", ext, r.Host)
+			proxy.Logger.Infof("%s - %s", ext, r.Host)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		} else if ans == rulePass {
-			proxy.Logger.D("%s - %s %s", ext, r.Method, r.Host)
+			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
-			proxy.Logger.D("%s - %s %s", ext, r.Method, r.Host)
+			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			cr := proxy.newRequest()
 			cr.Opt.Set(doForward)
 			iv = proxy.encryptRequest(r, cr)
@@ -416,7 +416,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			proxy.Logger.E("Round trip %s: %v", err, rURL)
+			proxy.Logger.Errorf("Round trip %s: %v", err, rURL)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -431,7 +431,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Partial: false,
 				Role:    roleRecv,
 			}); err != nil {
-				proxy.Logger.E("IO copy %d bytes: %v", nr, err)
+				proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 			}
 
 			tryClose(resp.Body)
@@ -443,7 +443,7 @@ func (proxy *ProxyClient) authSOCKS(conn net.Conn) bool {
 	buf := make([]byte, 1+1+255+1+255)
 	n, err := io.ReadAtLeast(conn, buf, 2)
 	if err != nil {
-		proxy.Logger.E("SOCKS5 error: %v", err)
+		proxy.Logger.Errorf("SOCKS5 error: %v", err)
 		return false
 	}
 
@@ -464,7 +464,7 @@ func (proxy *ProxyClient) authSOCKS(conn net.Conn) bool {
 
 func (proxy *ProxyClient) handleSOCKS(conn net.Conn) {
 	logClose := func(args ...interface{}) {
-		proxy.Logger.E(args[0].(string), args[1:]...)
+		proxy.Logger.Errorf(args[0].(string), args[1:]...)
 		conn.Close()
 	}
 
@@ -510,16 +510,16 @@ func (proxy *ProxyClient) handleSOCKS(conn net.Conn) {
 	switch method {
 	case 1:
 		if ans, ext := proxy.canDirectConnect(host); ans == ruleBlock {
-			proxy.Logger.L("%s - %s", ext, host)
+			proxy.Logger.Infof("%s - %s", ext, host)
 			conn.Close()
 		} else if ans == rulePass {
-			proxy.Logger.D("%s - %s", ext, host)
+			proxy.Logger.Logf("%s - %s", ext, host)
 			_, err = proxy.dialHost(conn, host, okSOCKS)
 		} else {
-			proxy.Logger.D("%s - %s", ext, host)
+			proxy.Logger.Logf("%s - %s", ext, host)
 			_, err = proxy.DialUpstream(conn, host, okSOCKS, 0, 0)
 		}
-		proxy.Logger.If(err != nil).E("Dial failed: %v", err)
+		proxy.Logger.If(err != nil).Errorf("Dial failed: %v", err)
 	case 3:
 		relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {

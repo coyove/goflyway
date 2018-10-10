@@ -95,7 +95,7 @@ func (proxy *ProxyClient) startLocalRPClient() {
 
 		upstream, err := proxy.DialUpstream(conn, "localrp", nil, doLocalRP, 0)
 		if err != nil {
-			proxy.Logger.E("Dial ctrl server error: %v", err)
+			proxy.Logger.Errorf("Dial ctrl server error: %v", err)
 			return
 		}
 
@@ -111,7 +111,7 @@ func (proxy *ProxyClient) startLocalRPClient() {
 				localrpr := fmt.Sprintf("%x", buf)
 				if bytes.Equal(buf, pingSignal) {
 					// ping
-					// proxy.Logger.D("Local RP","LocalRP: ping")
+					// proxy.Logger.Dbgf("Local RP","LocalRP: ping")
 					_, err := connw.Write(buf)
 					if err != nil {
 						signal <- redo
@@ -135,12 +135,12 @@ func (proxy *ProxyClient) startLocalRPClient() {
 				go func(buf []byte) {
 					conn, err := net.Dial("tcp", proxy.ClientConfig.LocalRPBind)
 					if err != nil {
-						proxy.Logger.E("Dial local bind error: %v", err)
+						proxy.Logger.Errorf("Dial local bind error: %v", err)
 						return
 					}
 
 					if _, err := conn.Write(buf); err != nil {
-						proxy.Logger.E("Write local bind error: %v", err)
+						proxy.Logger.Errorf("Write local bind error: %v", err)
 						return
 					}
 
@@ -152,7 +152,7 @@ func (proxy *ProxyClient) startLocalRPClient() {
 		select {
 		case x := <-signal:
 			if x == redo {
-				proxy.Logger.D("Reconnect ctrl server")
+				proxy.Logger.Dbgf("Reconnect ctrl server")
 				upstream.Close()
 				// dummyConn: no need to close it
 				continue
@@ -169,13 +169,13 @@ func (proxy *ProxyServer) pickAControlConn() dummyConnWrapper {
 
 func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *clientRequest, ioc IOConfig) {
 	if _, err := downstream.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-		proxy.Logger.E("Response error: %v", err)
+		proxy.Logger.Errorf("Response error: %v", err)
 		downstream.Close()
 		return
 	}
 
 	if proxy.Policy.IsSet(PolicyDisableLRP) {
-		proxy.Logger.W("RP client ctrl request rejected")
+		proxy.Logger.Warnf("RP client ctrl request rejected")
 		downstream.Close()
 		return
 	}
@@ -205,7 +205,7 @@ func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *cli
 				select {
 				case req := <-proxy.localRP.requests:
 					if req.end {
-						proxy.Logger.D("RP ctrl server has ended")
+						proxy.Logger.Dbgf("RP ctrl server has ended")
 						return
 					}
 					if len(req.dst) >= 65535 {
@@ -250,7 +250,7 @@ func (proxy *ProxyServer) startLocalRPControlServer(downstream net.Conn, cr *cli
 			if _, err := connw.Read(buf); err != nil {
 				break
 			}
-			// proxy.Logger.D("Server","LocalRP: pong")
+			// proxy.Logger.Dbgf("Server","LocalRP: pong")
 			time.Sleep(localRPPingInterval)
 		}
 

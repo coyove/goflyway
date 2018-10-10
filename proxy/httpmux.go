@@ -19,7 +19,7 @@ func (l *listenerWrapper) Accept() (net.Conn, error) {
 CONTINUE:
 	c, err := l.Listener.Accept()
 	if err != nil || c == nil {
-		l.proxy.Logger.E("HTTP/SOCKS listen: %v", err)
+		l.proxy.Logger.Errorf("HTTP/SOCKS listen: %v", err)
 
 		if isClosedConnErr(err) {
 			return nil, err
@@ -36,7 +36,7 @@ CONTINUE:
 
 	if err != nil {
 		if err != io.EOF {
-			l.proxy.Logger.E("HTTP/SOCKS prefetch: %v", err)
+			l.proxy.Logger.Errorf("HTTP/SOCKS prefetch: %v", err)
 		}
 
 		wrapper.Close()
