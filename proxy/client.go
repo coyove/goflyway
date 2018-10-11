@@ -36,7 +36,6 @@ type ClientConfig struct {
 	Connect2       string
 	Connect2Auth   string
 	DummyDomain    string
-	URLHeader      string
 	LocalRPBind    string
 	MITMDump       *os.File
 	DNSCache       *lru.Cache
@@ -201,14 +200,14 @@ func (proxy *ProxyClient) dial(dialStyle byte) (conn net.Conn, err error) {
 	return connectConn, nil
 }
 
-func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
+func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra uint32, dialStyle byte) (net.Conn, error) {
 	if proxy.Policy.IsSet(PolicyWebSocket) {
 		return proxy.dialUpstreamWS(conn, host, resp, extra, dialStyle)
 	}
 	return proxy.dialUpstream(conn, host, resp, extra, dialStyle)
 }
 
-func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
+func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, resp []byte, extra uint32, dialStyle byte) (net.Conn, error) {
 	upstreamConn, err := proxy.dial(0)
 	if err != nil {
 		downstreamConn.Close()
@@ -219,8 +218,11 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 	r.Opt = Options(doConnect | extra)
 	r.Real = host
 	r.Auth = proxy.UserAuth
-	if proxy.Partial {
-		r.Opt.Set(doPartial)
+	switch proxy.Cipher.Mode {
+	case PartialCipher:
+		r.Opt.Set(doPartialCipher)
+	case NoneCipher:
+		r.Opt.Set(doDisableCipher)
 	}
 
 	var pl buffer
@@ -252,12 +254,14 @@ func (proxy *ProxyClient) dialUpstream(downstreamConn net.Conn, host string, res
 		downstreamConn.Write(resp)
 	}
 
-	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.IV, IOConfig{Partial: proxy.Partial})
+	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.IV, IOConfig{
+		Mode: proxy.Cipher.Mode,
+	})
 
 	return upstreamConn, nil
 }
 
-func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, resp []byte, extra, dialStyle byte) (net.Conn, error) {
+func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, resp []byte, extra uint32, dialStyle byte) (net.Conn, error) {
 	upstreamConn, err := proxy.dial(dialStyle)
 	if err != nil {
 		if downstreamConn != nil {
@@ -270,18 +274,21 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 	r.Opt = Options(doConnect | doWebSocket | extra)
 	r.Real = host
 	r.Auth = proxy.UserAuth
-	if proxy.Partial {
-		r.Opt.Set(doPartial)
+	switch proxy.Cipher.Mode {
+	case PartialCipher:
+		r.Opt.Set(doPartialCipher)
+	case NoneCipher:
+		r.Opt.Set(doDisableCipher)
 	}
 
 	var pl buffer
-	if proxy.URLHeader == "" {
+	if !proxy.Policy.IsSet(PolicyForward) {
 		pl.Writes("GET /", proxy.encryptClientRequest(r), " HTTP/1.1\r\n")
 		pl.Writes("Host: ", proxy.genHost(), "\r\n")
 	} else {
 		pl.Writes("GET http://", proxy.Upstream, "/ HTTP/1.1\r\n")
 		pl.Writes("Host: ", proxy.Upstream, "\r\n")
-		pl.Writes(proxy.URLHeader, ": http://", proxy.genHost(), "/", proxy.encryptClientRequest(r), "\r\n")
+		pl.Writes(fwdURLHeader, ": http://", proxy.genHost(), "/", proxy.encryptClientRequest(r), "\r\n")
 	}
 
 	wsKey := [20]byte{}
@@ -321,8 +328,8 @@ func (proxy *ProxyClient) dialUpstreamWS(downstreamConn net.Conn, host string, r
 	}
 
 	go proxy.Cipher.IO.Bridge(downstreamConn, upstreamConn, r.IV, IOConfig{
-		Partial: proxy.Partial,
-		WSCtrl:  wsClient,
+		Mode:   proxy.Cipher.Mode,
+		WSCtrl: wsClient,
 	})
 	return upstreamConn, nil
 }
@@ -427,9 +434,13 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h, ok := w.(ResponseHook); ok {
 			h.SetBody(proxy.Cipher.IO.NewReadCloser(resp.Body, iv))
 		} else {
+			mode := proxy.Cipher.Mode
+			if mode == PartialCipher {
+				mode = FullCipher
+			}
 			if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, iv, IOConfig{
-				Partial: false,
-				Role:    roleRecv,
+				Mode: mode,
+				Role: roleRecv,
 			}); err != nil {
 				proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 			}
@@ -605,7 +616,7 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 			// If we are in VPN mode, this value will be later set to 'v' (vpn)
 
 			proxy.pool.OnDial = func(address string) (conn net.Conn, err error) {
-				if proxy.URLHeader != "" {
+				if proxy.Policy.IsSet(PolicyForward) {
 					// fwds://...
 					return proxy.dialUpstreamWS(nil, proxy.DummyDomain, nil, doMuxWS, 'd')
 				}

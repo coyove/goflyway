@@ -27,7 +27,6 @@ type ServerConfig struct {
 	LBindCap      int64
 	Policy        Options
 	ProxyPassAddr string
-	URLHeader     string
 	Logger        *logg.Logger
 	ACL           *acr.ACL
 	ACLCache      *lru.Cache
@@ -87,10 +86,17 @@ func (proxy *ProxyServer) auth(auth string) bool {
 	return false
 }
 
-func (proxy *ProxyServer) getIOConfig(auth string) IOConfig {
+func (proxy *ProxyServer) getIOConfig(cr *clientRequest) IOConfig {
 	var ioc IOConfig
 	if proxy.Throttling > 0 {
 		ioc.Bucket = NewTokenBucket(proxy.Throttling, proxy.ThrottlingMax)
+	}
+	if cr.Opt.IsSet(doPartialCipher) {
+		ioc.Mode = PartialCipher
+	}
+	if cr.Opt.IsSet(doDisableCipher) {
+		ioc.Mode = NoneCipher
+		proxy.Logger.Dbgf("We have a none cipher request: %v", cr)
 	}
 	return ioc
 }
@@ -213,9 +219,9 @@ DE_AGAIN:
 			return
 		}
 
-		if fu := r.Header.Get(proxy.URLHeader); fu != "" {
+		if fu := r.Header.Get(fwdURLHeader); fu != "" {
 			r.RequestURI = fu
-			r.Header.Del(proxy.URLHeader)
+			r.Header.Del(fwdURLHeader)
 			goto DE_AGAIN
 		}
 
@@ -252,15 +258,8 @@ DE_AGAIN:
 		return
 	}
 
-	if proxy.isBlocked(dst) {
-		w.WriteHeader(http.StatusForbidden)
-		proxy.Logger.Logf("%s is blocked", dst)
-		return
-	}
-
 	if cr.Opt.IsSet(doLocalRP) {
-		ioc := proxy.getIOConfig(cr.Auth)
-		ioc.Partial = cr.Opt.IsSet(doPartial)
+		ioc := proxy.getIOConfig(cr)
 
 		if dst == "localrp" {
 			proxy.startLocalRPControlServer(proxy.hijack(w), cr, ioc)
@@ -279,7 +278,15 @@ DE_AGAIN:
 			resp.req.callback <- resp
 			return
 		}
-	} else if cr.Opt.IsSet(doConnect) {
+	}
+
+	if proxy.isBlocked(dst) {
+		w.WriteHeader(http.StatusForbidden)
+		proxy.Logger.Logf("%s is blocked", dst)
+		return
+	}
+
+	if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
 			proxy.Logger.Warnf("Valid rkey invalid host from %s", addr)
@@ -293,8 +300,7 @@ DE_AGAIN:
 			return
 		}
 
-		ioc := proxy.getIOConfig(cr.Auth)
-		ioc.Partial = cr.Opt.IsSet(doPartial)
+		ioc := proxy.getIOConfig(cr)
 
 		var targetSiteConn net.Conn
 		var err error
@@ -359,7 +365,12 @@ DE_AGAIN:
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, cr.IV)
 		w.WriteHeader(resp.StatusCode)
 
-		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, cr.IV, proxy.getIOConfig(cr.Auth)); err != nil {
+		ioc := proxy.getIOConfig(cr)
+		if ioc.Mode == PartialCipher {
+			ioc.Mode = FullCipher
+		}
+
+		if nr, err := proxy.Cipher.IO.Copy(w, resp.Body, cr.IV, ioc); err != nil {
 			proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 		}
 

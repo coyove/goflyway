@@ -35,7 +35,7 @@ const (
 type IOConfig struct {
 	Bucket  *TokenBucket
 	Chunked bool
-	Partial bool
+	Mode    _CipherMode
 	Print   bool
 	Role    byte
 	WSCtrl  byte
@@ -262,11 +262,13 @@ func (iot *io_t) Copy(dst io.Writer, src io.Reader, key [ivLen]byte, config IOCo
 				iot.Tr.Recv(int64(nr))
 			}
 
-			if config.Partial && encrypted == sslRecordLen {
-				// goto direct_transmission
+			if config.Mode == NoneCipher {
+				// Cipher is disabled, goto direct transmission
+			} else if config.Mode == PartialCipher && encrypted == sslRecordLen {
+				// We have encrypted enough bytes, goto direct transmission
 			} else if ctr != nil {
 
-				if encrypted+nr > sslRecordLen && config.Partial {
+				if encrypted+nr > sslRecordLen && config.Mode == PartialCipher {
 					ybuf := xbuf[:sslRecordLen-encrypted]
 					ctr.XORKeyStream(ybuf, ybuf)
 					encrypted = sslRecordLen

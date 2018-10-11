@@ -222,7 +222,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			}
 
 			nr, err := proxy.Cipher.IO.Copy(clientWriter, resp.Body, rkeybuf, IOConfig{
-				Partial: false,
+				Mode:    FullCipher,
 				Chunked: true,
 				Role:    roleRecv,
 			})

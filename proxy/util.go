@@ -25,22 +25,24 @@ const (
 )
 
 const (
-	doConnect   = 1 << iota // Establish TCP tunnel
-	doForward               // Forward plain HTTP request
-	doWebSocket             // Use Websocket protocol
-	doMuxWS                 // Multiplexer over WS
-	doDNS                   // DNS query request
-	doPartial               // Partial encryption
-	doUDPRelay              // UDP relay request
-	doLocalRP               // Request to ctrl server
+	doConnect       = 1 << iota // Establish TCP tunnel
+	doForward                   // Forward plain HTTP request
+	doWebSocket                 // Use Websocket protocol
+	doMuxWS                     // Multiplexer over WS
+	doDNS                       // DNS query request
+	doPartialCipher             // Partial encryption
+	doDisableCipher             // No encryption
+	doUDPRelay                  // UDP relay request
+	doLocalRP                   // Request to ctrl server
 
-	// Currently we have 8 options, so in clientRequest.Marshal
-	// we can use "byte" to store. If more options to be added in the future,
+	// Currently we have 9 options, so in clientRequest.Marshal
+	// we can use "uint16" to store. If more options to be added in the future,
 	// code in clientRequest.Marshal must also be changed.
 )
 
 const (
 	PolicyMITM = 1 << iota
+	PolicyForward
 	PolicyGlobal
 	PolicyVPN
 	PolicyWebSocket
@@ -59,6 +61,7 @@ const (
 	invalidRequestRetry = 10
 	dnsRespHeader       = "ETag"
 	errConnClosedMsg    = "use of closed network connection"
+	fwdURLHeader        = "X-Forwarded-Url"
 )
 
 var (
@@ -150,9 +153,9 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) [i
 	proxy.addToDummies(req)
 
 	var urlBuf buffer
-	if proxy.URLHeader != "" {
+	if proxy.Policy.IsSet(PolicyForward) {
 		r.Real = req.URL.String()
-		req.Header.Add(proxy.URLHeader, urlBuf.Writes("http://", proxy.genHost(), "/", proxy.encryptClientRequest(r)).String())
+		req.Header.Add(fwdURLHeader, urlBuf.Writes("http://", proxy.genHost(), "/", proxy.encryptClientRequest(r)).String())
 		req.Host = proxy.Upstream
 		req.URL, _ = urlBuf.R().Writes("http://", proxy.Upstream).ToURL()
 	} else {

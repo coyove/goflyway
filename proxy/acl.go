@@ -85,14 +85,14 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	dnsloc := "http://" + proxy.Upstream
 	trueloc := "http://" + proxy.genHost() + "/" + proxy.encryptClientRequest(cr)
 
-	if proxy.URLHeader == "" {
+	if !proxy.Policy.IsSet(PolicyForward) {
 		dnsloc = trueloc
 	}
 
 	req, _ := http.NewRequest("GET", dnsloc, nil)
 
-	if proxy.URLHeader != "" {
-		req.Header.Add(proxy.URLHeader, trueloc)
+	if proxy.Policy.IsSet(PolicyForward) {
+		req.Header.Add(fwdURLHeader, trueloc)
 	}
 
 	resp, err := proxy.tpq.RoundTrip(req)

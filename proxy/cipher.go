@@ -13,21 +13,29 @@ import (
 	"encoding/base64"
 )
 
+type _CipherMode byte
+
 const (
 	ivLen            = 16
 	sslRecordLen     = 18 * 1024 // 18kb
 	streamBufferSize = 512
 )
 
+const (
+	FullCipher _CipherMode = iota
+	PartialCipher
+	NoneCipher
+)
+
 type Cipher struct {
-	IO      io_t
-	Key     string
-	keyBuf  []byte
-	Block   cipher.Block
-	GCM     cipher.AEAD
-	Rand    *rand.Rand
-	Partial bool
-	Alias   string
+	IO     io_t
+	Key    string
+	keyBuf []byte
+	Block  cipher.Block
+	GCM    cipher.AEAD
+	Rand   *rand.Rand
+	Mode   _CipherMode
+	Alias  string
 }
 
 func (gc *Cipher) getCipherStream(key [ivLen]byte) cipher.Stream {
@@ -39,11 +47,11 @@ func (gc *Cipher) getCipherStream(key [ivLen]byte) cipher.Stream {
 }
 
 // NewCipher createa a new cipher object
-func NewCipher(key string, partial bool) *Cipher {
+func NewCipher(key string, mode _CipherMode) *Cipher {
 	gc := &Cipher{}
 
 	gc.Rand = rand.New()
-	gc.Partial = partial
+	gc.Mode = mode
 	gc.Key = key
 	gc.keyBuf = []byte(key)
 
@@ -107,6 +115,7 @@ type clientRequest struct {
 func (cr *clientRequest) Marshal() []byte {
 	buf := &bytes.Buffer{}
 	buf.WriteByte(byte(cr.Opt))
+	buf.WriteByte(byte(cr.Opt >> 8))
 	tmp := []byte(cr.Real)
 	tmp = append(tmp, 1)
 	tmp = append(tmp, []byte(cr.Query)...)
@@ -117,12 +126,12 @@ func (cr *clientRequest) Marshal() []byte {
 }
 
 func (cr *clientRequest) Unmarshal(buf []byte) error {
-	if len(buf) < 4 {
+	if len(buf) < 5 {
 		return fmt.Errorf("invalid buffer")
 	}
-	cr.Opt = Options(buf[0])
+	cr.Opt = Options(uint32(buf[1])<<8 + uint32(buf[0]))
 
-	buf = buf[1:]
+	buf = buf[2:]
 
 	tmp := msg64.Decode(buf)
 	if len(tmp) == 0 {
