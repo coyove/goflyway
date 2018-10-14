@@ -1,0 +1,224 @@
+通用命令：
+
+***
+-h
+显示简单帮助信息
+
+***
+-help
+显示详细帮助信息
+
+***
+-c path_to_file
+从文件加载配置，配置文件一般为 ini 格式。
+在使用 -help 输出帮助时，一个命令前如果有方括号括起的属性，则代表其可以写入配置文件中，如 -lv 的帮助如下：
+
+[loglevel] Logging level: {dbg0, dbg, log, info, warn, err, off}
+    ^~~
+
+则配置文件中可以写入：
+loglevel=dbg
+
+***
+-y config_section
+一个配置文件中可以包涵多个配置，如：
+
+[config1]
+upstream=server1
+[config2]
+upstream=server2
+
+用 -y config2 连接 server2。
+
+***
+-lv level
+日志输出层级，level 可为 dbg0, dbg, log, info, warn, err 或 off （关闭输出），更高级的用法请参见：https://github.com/coyove/common/tree/master/logg。
+
+***
+-a username:password
+在客户端使用该命令，且使用代理类型为 HTTP 时，其他程序需要使用认证 username:password 才可以连接客户端。（请注意之间的冒号）
+
+***
+-k password
+设置密码，服务端与客户端需保持一致。
+
+***
+-l address
+设置监听地址。
+对于服务端来说，该地址是客户端需要连接的地址；
+对于客户端来说，该地址是本地 HTTP/SOCKS5 代理绑定的地址。
+
+***
+-t seconds
+空闲 TCP 连接自动断开时间，单位为秒，默认 20，即没有数据传输 20 秒后连接关闭。设为 0 则表示永远不会自动关闭。
+
+***
+-U protocol
+设置底层连接协议。protocol 可以为 kcp，http 或 https。默认为 http。
+该命令必须同时在客户端和服务端启用并保持一致。
+
+***
+-hmac-mux
+启用 TCP 混流时，对每个流启用 HMAC-sha256 校验。
+该命令必须同时在客户端和服务端启用并保持一致。
+
+***
+-gen-ca
+生成一对新的 ca.pem 和 key.pem。生成完成后请不要变更它们的名字，也不要移动文件位置。
+
+***
+-acl path_to_acl
+加载 ACL 文件。
+ACL 是 shadowsocks 使用的一种访问控制规则。同时 goflyway 也支持简单的白名单列表（即一行一个域名，表示直连）。
+goflyway 默认加载的是同目录下的 chinalist.txt 白名单列表，如果找不到则会通过地理 IP 来判断：对于中国大陆 IP 一律直连。
+
+***
+-acl-cache size
+ACL 规则的缓存大小。
+
+服务端命令：
+
+***
+-throt bytes
+限速，单位字节每秒。该命令针对所有的客户端连接。
+
+***
+-throt-max bytes
+限流辅助设置参数，请至少设置为 -throt 值的 16 倍。
+
+***
+-disable-udp
+拒绝所有客户端 UDP 中继的请求。
+
+***
+-disable-localrp
+拒绝所有客户端 Remote Port Forwarding 请求。
+
+***
+-proxy-pass address
+对于无效的客户端请求，将其转发至 address：
+address 可以是一个 HTTP 服务，也可以是本地的一个路径。如果启用前者，goflyway 相当于一个反向代理；如果启用后者，goflyway 相当于一个静态文件服务器。
+
+***
+-lbind-timeout seconds
+设置 Remote Port Forwarding 请求的超时时间，单位秒。
+
+***
+-lbind-cap
+Remote Port Forwarding 的辅助参数。
+
+***
+-autocert www.example.com
+使用 Let’s Encrypt 获得证书，使用该命令则 goflyway 会默认打开 -U https 且监听 80 和 443 端口。请确保域名指向了服务端所在 IP。
+
+
+客户端命令：
+
+***
+-g
+全局代理。
+
+***
+-up address
+服务端地址。address 可以有以下几种格式：
+gfw://1.2.3.4:8100 直连服务端，gfw:// 可以省略
+ws://1.2.3.4:8100 使用 websocket 协议连接服务端
+cf://www.example.com:80 连接托管在 cloudflare 上的 www.example.com
+cfs://www.example.com:80 使用 HTTPS 连接托管在 cloudflare 上的 www.example.com
+http://1.2.3.4:8100 客户端启用中间人模式，使用该模式前先使用 -gen-ca 生成证书，并将生成的 ca.pem 加入至系统信任证书列表中
+https://10.20.30.40:3000/1.2.3.4:8100 使用 HTTPS 代理（10.20.30.40:3000）连接服务端
+http://10.20.30.40:3000/1.2.3.4:8100 使用 HTTP 代理（10.20.30.40:3000）连接服务端，客户端启用中间人
+
+***
+-cipher mode
+设置加密模式，mode 可以为 full, partial 或 none。除非使用 -U https，否则请不要使用 none。
+
+***
+-udp-tcp num
+使用 TCP 中继 UDP 时，该命令设置了对于同一个 UDP 目标地址，goflyway 使用 N 条 TCP 连接进行承载。N 默认为 1。
+
+***
+-web-port port
+Web 控制台监听的端口号，默认为 65536，代表控制台端口为客户端监听的端口号 +10。设为 0 禁用控制台，设为其他有效值，则端口号与其相符。
+
+***
+-mux
+设置 TCP 混流最大连接数，默认 0，代表禁用。
+
+***
+-mitm-dump path_to_file
+在启用中间人模式后，使用该命令对所有的 HTTP 请求和响应进行 dump。
+
+***
+-bind address
+启用 Local Port Forwarding。
+
+***
+-lbind
+启用 Remote Port Forwarding。
+
+***
+-lbind-conns
+Remote Port Forwarding 相关设置参数。
+
+CURL 命令：
+
+***
+-get URL
+GET 请求。
+
+***
+-post URL
+POST 请求。
+
+***
+-put URL
+PUT 请求。
+
+***
+-delete URL
+DELETE 请求。
+
+***
+-options URL
+OPTIONS 请求。
+
+***
+-trace URL
+TRACE 请求。
+
+***
+-patch URL
+PATCH 请求。
+
+***
+-F string
+设置请求表单，如：
+-F "a=1&b=2"
+-F "a=1&b=@path_to_file"
+
+***
+-H string
+设置请求 HTTP 头，如：
+-F "X-Header: abc\r\nX-Header2: 123”
+
+***
+-C string
+设置请求的 cookies。
+
+***
+-M
+设置请求的 Content-Type 为 multipart。
+
+***
+-pj
+假定返回的内容为 JSON 并对其美化输出。
+
+***
+以下命令为 Android 兼容命令，请不要使用：
+-u 
+-m 
+-b 
+-V 
+-fast-open
+-vpn
