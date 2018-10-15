@@ -584,9 +584,7 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 		ClientConfig: config,
 	}
 
-	if config.Policy.IsSet(PolicyMuxHMAC) {
-		proxy.pool.Key = config.Cipher.keyBuf
-	}
+	proxy.pool.Key = config.Cipher.keyBuf
 
 	if proxy.Policy.IsSet(PolicyHTTPS) {
 		proxy.pool.OnDial = func(addr string) (net.Conn, error) {

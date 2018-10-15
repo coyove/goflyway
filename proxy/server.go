@@ -403,9 +403,7 @@ func (proxy *ProxyServer) Start() (err error) {
 	}
 	proxy.Cipher.IO.Ob = proxy.Listener.(*tcpmux.ListenPool)
 
-	if proxy.Policy.IsSet(PolicyMuxHMAC) {
-		proxy.Listener.(*tcpmux.ListenPool).Key = proxy.Cipher.keyBuf
-	}
+	proxy.Listener.(*tcpmux.ListenPool).Key = proxy.Cipher.keyBuf
 
 	if proxy.Logger.GetLevel() == logg.LvDebug {
 		go func() {

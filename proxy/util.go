@@ -48,7 +48,6 @@ const (
 	PolicyWebSocket
 	PolicyHTTPS
 	PolicyKCP
-	PolicyMuxHMAC
 	PolicyDisableUDP
 	PolicyDisableLRP
 )

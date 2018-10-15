@@ -41,7 +41,6 @@ var (
 	cmdTimeout  = flag.Int64("t", 20, "[timeout] Connection timeout in seconds, 0 to disable")
 	cmdSection  = flag.String("y", "", "Config section to read, empty to disable")
 	cmdUnderlay = flag.String("U", "http", "[underlay] Underlay protocol: {http, kcp, https}")
-	cmdAuthMux  = flag.Bool("hmac-mux", false, "Enable HMAC on TCP multiplexer")
 	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
 	cmdACL      = flag.String("acl", "chinalist.txt", "[acl] Load ACL file")
 	cmdACLCache = flag.Int64("acl-cache", 1024, "[aclcache] ACL cache size")
@@ -271,7 +270,6 @@ func main() {
 	logger.If(*cmdKey == "0123456789abcdef").Warnf("Please change the default password: -k=<NEW PASSWORD>")
 	logger.If(*cmdCipher != "full").Infof("Cipher mode: %s", *cmdCipher)
 	logger.If(*cmdMux > 0).Infof("TCP multiplexer: %d masters", *cmdMux)
-	logger.If(*cmdAuthMux).Infof("HMAC-sha256 on TCP mux enabled")
 	logger.If(*cmdUnderlay == "kcp").Infof("KCP enabled")
 	logger.If(*cmdUnderlay == "https").Infof("HTTPS enabled")
 
@@ -303,7 +301,6 @@ func main() {
 		cc.Logger = logger
 		cc.Policy.SetBool(*cmdUnderlay == "kcp", proxy.PolicyKCP)
 		cc.Policy.SetBool(*cmdUnderlay == "https", proxy.PolicyHTTPS)
-		cc.Policy.SetBool(*cmdAuthMux, proxy.PolicyMuxHMAC)
 		cc.Policy.SetBool(*cmdGlobal, proxy.PolicyGlobal)
 		cc.Policy.SetBool(*cmdVPN, proxy.PolicyVPN)
 
@@ -332,7 +329,6 @@ func main() {
 
 		sc.Policy.SetBool(*cmdDisableUDP, proxy.PolicyDisableUDP)
 		sc.Policy.SetBool(*cmdDisableLRP, proxy.PolicyDisableLRP)
-		sc.Policy.SetBool(*cmdAuthMux, proxy.PolicyMuxHMAC)
 		sc.Policy.SetBool(*cmdUnderlay == "kcp", proxy.PolicyKCP)
 
 		if *cmdAuth != "" {
