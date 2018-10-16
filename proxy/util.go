@@ -26,7 +26,7 @@ const (
 
 const (
 	doConnect       = 1 << iota // Establish TCP tunnel
-	doForward                   // Forward plain HTTP request
+	doHTTPReq                   // Forward plain HTTP request
 	doWebSocket                 // Use Websocket protocol
 	doMuxWS                     // Multiplexer over WS
 	doDNS                       // DNS query request
@@ -43,6 +43,7 @@ const (
 const (
 	PolicyMITM = 1 << iota
 	PolicyForward
+	PolicyAgent
 	PolicyGlobal
 	PolicyVPN
 	PolicyWebSocket

@@ -414,10 +414,13 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if ans == rulePass {
 			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			resp, err = proxy.tpd.RoundTrip(r)
+		} else if proxy.Policy.IsSet(PolicyAgent) {
+			r = proxy.agentRequest(r)
+			resp, err = proxy.tpd.RoundTrip(r)
 		} else {
 			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			cr := proxy.newRequest()
-			cr.Opt.Set(doForward)
+			cr.Opt.Set(doHTTPReq)
 			iv = proxy.encryptRequest(r, cr)
 			resp, err = proxy.tp.RoundTrip(r)
 		}

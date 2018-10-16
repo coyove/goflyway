@@ -441,9 +441,10 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) (chain string) {
 		cc.Connect2Auth, cc.Connect2, cc.Upstream = parseAuthURL(upstream)
 		logger.If(cc.Mux > 0).Fatalf("Can't use an HTTPS proxy with TCP multiplexer (TODO)")
 		chain = "you->%s->" + cc.Connect2Auth + "@" + cc.Connect2 + "(proxy)->" + cc.Upstream
-	} else if gfw, http, ws, cf, cfs, fwd, fwdws :=
+	} else if gfw, http, ws, cf, cfs, fwd, fwdws, agent :=
 		is("gfw://"), is("http://"), is("ws://"),
-		is("cf://"), is("cfs://"), is("fwd://"), is("fwds://"); gfw || http || ws || cf || cfs || fwd || fwdws {
+		is("cf://"), is("cfs://"),
+		is("fwd://"), is("fwds://"), is("agent://"); gfw || http || ws || cf || cfs || fwd || fwdws || agent {
 
 		cc.Connect2Auth, cc.Upstream, cc.DummyDomain = parseAuthURL(upstream)
 		logger.If(*cmdLBind != "" && !gfw).Fatalf("Remote port forwarding can only be used schema 'gfw://'")
@@ -467,6 +468,10 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) (chain string) {
 			cc.Policy.Set(proxy.PolicyMITM)
 			cc.Policy.Set(proxy.PolicyForward)
 			chain = "you->mitm->%s->" + cc.Upstream + "(relay)->" + cc.DummyDomain
+		case agent:
+			cc.Policy.Set(proxy.PolicyMITM)
+			cc.Policy.Set(proxy.PolicyAgent)
+			chain = "you->mitm->%s->" + cc.Upstream + "(agent)"
 		case ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
 			if cc.DummyDomain == "" {

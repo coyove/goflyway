@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -160,12 +162,19 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				rURL = req.URL.Host
 			}
 
-			proxy.Logger.Dbgf("MITM - %s %s", req.Method, rURL)
-
 			var respBuf buffer
-			cr := proxy.newRequest()
-			cr.Opt.Set(doForward)
-			rkeybuf := proxy.encryptRequest(req, cr)
+			var rkeybuf [ivLen]byte
+			trans := proxy.tp
+
+			if proxy.Policy.IsSet(PolicyAgent) {
+				req = proxy.agentRequest(req)
+				trans = proxy.tpd
+			} else {
+				cr := proxy.newRequest()
+				cr.Opt.Set(doHTTPReq)
+				rkeybuf = proxy.encryptRequest(req, cr)
+				proxy.Logger.Dbgf("MITM - %s %s", req.Method, rURL)
+			}
 
 			if proxy.MITMDump != nil {
 				req.Body = proxy.Cipher.IO.NewReadCloser(&dumpReadWriteWrapper{
@@ -175,7 +184,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				}, rkeybuf)
 			}
 
-			resp, err := proxy.tp.RoundTrip(req)
+			resp, err := trans.RoundTrip(req)
 
 			if err != nil {
 				proxy.Logger.Errorf("Round trip %s: %v", rURL, err)
@@ -270,4 +279,38 @@ func wsReadFrame(src io.Reader) (payload []byte, err error) {
 	copy(payload[:buflen], buf[:buflen])
 	_, err = io.ReadAtLeast(src, payload[buflen:], ln)
 	return
+}
+
+func (proxy *ProxyClient) agentUpstream() string {
+	up, upport := splitHostPort(proxy.Upstream)
+	if upport == ":443" {
+		up = "https://" + up
+	} else {
+		up = "http://" + up
+	}
+	return up + "/index.php"
+}
+
+func (proxy *ProxyClient) agentRequest(req *http.Request) *http.Request {
+	buf, _ := httputil.DumpRequest(req, false)
+
+	var rd io.Reader = bytes.NewReader(buf)
+	if req.Body != nil {
+		rd = io.MultiReader(rd, req.Body)
+	}
+	xreq, _ := http.NewRequest("GET", proxy.agentUpstream(), rd)
+
+	host, hostport := req.URL.Host, "80"
+	if req.URL.Scheme == "https" {
+		host = "ssl://" + host
+		hostport = "443"
+	}
+
+	if numport, err := strconv.Atoi(host[strings.LastIndex(host, ":")+1:]); err == nil {
+		hostport = strconv.Itoa(numport)
+	}
+
+	xreq.Header.Add(fwdURLHeader, host+","+hostport)
+	proxy.Logger.Dbgf("Agent - %s %s:%s", xreq.Method, host, hostport)
+	return xreq
 }

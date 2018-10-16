@@ -90,12 +90,19 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 	}
 
 	req, _ := http.NewRequest("GET", dnsloc, nil)
+	trans := proxy.tpq
+
+	if proxy.Policy.IsSet(PolicyAgent) {
+		req, _ = http.NewRequest("GET", proxy.agentUpstream(), nil)
+		req.Header.Add(fwdURLHeader, host+",dns")
+		trans = proxy.tpd
+	}
 
 	if proxy.Policy.IsSet(PolicyForward) {
 		req.Header.Add(fwdURLHeader, trueloc)
 	}
 
-	resp, err := proxy.tpq.RoundTrip(req)
+	resp, err := trans.RoundTrip(req)
 	if err != nil {
 		if e, _ := err.(net.Error); e != nil && e.Timeout() {
 			// proxy.tpq.Dial = (&net.Dialer{Timeout: 2 * time.Second}).Dial

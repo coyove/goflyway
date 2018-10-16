@@ -341,7 +341,7 @@ DE_AGAIN:
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, cr.IV, ioc)
 		}
-	} else if cr.Opt.IsSet(doForward) {
+	} else if cr.Opt.IsSet(doHTTPReq) {
 		var err error
 
 		r.URL, err = url.Parse(dst)
