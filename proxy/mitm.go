@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math/big"
@@ -246,39 +245,88 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 	}()
 }
 
-func wsReadFrame(src io.Reader) (payload []byte, err error) {
-	buf := make([]byte, 10)
-	buflen := 2
-	if _, err = io.ReadAtLeast(src, buf[:2], 2); err != nil {
+func (proxy *ProxyClient) manInTheMiddleAgent(client net.Conn, host string) {
+	_host, _ := splitHostPort(host)
+	// try self signing a cert of this host
+	cert := proxy.sign(_host)
+	if cert == nil {
 		return
 	}
 
-	ln := int(buf[1] & 0x7f)
-	switch ln {
-	case 127:
-		if _, err = io.ReadAtLeast(src, buf[2:10], 8); err != nil {
+	client.Write(okHTTP)
+
+	go func() {
+		tlsClient := tls.Server(client, &tls.Config{
+			InsecureSkipVerify: true,
+			Certificates:       []tls.Certificate{*cert},
+		})
+
+		if err := tlsClient.Handshake(); err != nil {
+			proxy.Logger.Errorf("TLS handshake failed: %v", err)
 			return
 		}
-		ln = int(binary.BigEndian.Uint64(buf[2:10]))
-		buflen = 10
-	case 126:
-		if _, err = io.ReadAtLeast(src, buf[2:4], 2); err != nil {
-			return
+
+		bufTLSClient := bufio.NewReader(tlsClient)
+
+		for {
+			proxy.Cipher.IO.markActive(tlsClient, 0)
+
+			buf, err := bufTLSClient.Peek(3)
+			if err == io.EOF || len(buf) != 3 {
+				break
+			}
+
+			req, err := http.ReadRequest(bufTLSClient)
+			if err != nil {
+				if !isClosedConnErr(err) && buf[0] != ')' {
+					proxy.Logger.Errorf("Can't read request from TLS conn: %v", err)
+				}
+				break
+			}
+
+			req.Header.Del("Proxy-Authorization")
+			req.Header.Del("Proxy-Connection")
+
+			if !isHTTPSSchema.MatchString(req.URL.String()) {
+				// we can ignore 443 since it's by default
+				h := req.Host
+				if strings.HasSuffix(h, ":443") {
+					h = h[:len(h)-4]
+				}
+
+				req.URL, err = url.Parse("https://" + h + req.URL.String())
+			}
+
+			if proxy.agentRoundTrip(tlsClient, req) != nil {
+				break
+			}
 		}
-		ln = int(binary.BigEndian.Uint16(buf[2:4]))
-		buflen = 4
-	default:
-		// <= 125 bytes
+
+		tlsClient.Close()
+	}()
+}
+
+func (proxy *ProxyClient) agentRoundTrip(downstream net.Conn, req *http.Request) error {
+	rURL := req.URL.Host
+	req = proxy.agentRequest(req)
+	resp, err := proxy.tpd.RoundTrip(req)
+
+	if err != nil {
+		proxy.Logger.Errorf("Round trip %s: %v", rURL, err)
+		downstream.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n" + err.Error()))
+		return err
 	}
 
-	if (buf[1] & 0x80) > 0 {
-		ln += 4
+	nr, err := proxy.Cipher.IO.Copy(downstream, resp.Body, [ivLen]byte{}, IOConfig{
+		Mode: FullCipher,
+		Role: roleRecv,
+	})
+	if err != nil {
+		proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 	}
 
-	payload = make([]byte, buflen+ln)
-	copy(payload[:buflen], buf[:buflen])
-	_, err = io.ReadAtLeast(src, payload[buflen:], ln)
-	return
+	tryClose(resp.Body)
+	return nil
 }
 
 func (proxy *ProxyClient) agentUpstream() string {
@@ -292,7 +340,8 @@ func (proxy *ProxyClient) agentUpstream() string {
 }
 
 func (proxy *ProxyClient) agentRequest(req *http.Request) *http.Request {
-	buf, _ := httputil.DumpRequest(req, false)
+	req.Header.Set("Connection", "close")
+	buf, _ := httputil.DumpRequestOut(req, false)
 
 	var rd io.Reader = bytes.NewReader(buf)
 	if req.Body != nil {

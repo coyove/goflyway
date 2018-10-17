@@ -472,6 +472,10 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) (chain string) {
 			cc.Policy.Set(proxy.PolicyMITM)
 			cc.Policy.Set(proxy.PolicyAgent)
 			chain = "you->mitm->%s->" + cc.Upstream + "(agent)"
+			logger.Warnf("Agent is not safe, don't use it to access your important data")
+			if strings.HasSuffix(cc.Upstream, ":80") {
+				logger.Warnf("Please use an HTTPS agent")
+			}
 		case ws:
 			cc.Policy.Set(proxy.PolicyWebSocket)
 			if cc.DummyDomain == "" {

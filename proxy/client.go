@@ -381,7 +381,11 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.Logger.Logf("%s - %s", ext, r.RequestURI)
 			_, err = proxy.dialHost(proxyClient, host, okHTTP)
 		} else if proxy.Policy.IsSet(PolicyMITM) {
-			proxy.manInTheMiddle(proxyClient, host)
+			if proxy.Policy.IsSet(PolicyAgent) {
+				proxy.manInTheMiddleAgent(proxyClient, host)
+			} else {
+				proxy.manInTheMiddle(proxyClient, host)
+			}
 		} else {
 			proxy.Logger.Logf("%s - %s", ext, r.RequestURI)
 			_, err = proxy.DialUpstream(proxyClient, host, okHTTP, 0, 0)
@@ -415,8 +419,9 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			resp, err = proxy.tpd.RoundTrip(r)
 		} else if proxy.Policy.IsSet(PolicyAgent) {
-			r = proxy.agentRequest(r)
-			resp, err = proxy.tpd.RoundTrip(r)
+			client, _, _ := w.(http.Hijacker).Hijack()
+			proxy.agentRoundTrip(client, r)
+			return
 		} else {
 			proxy.Logger.Logf("%s - %s %s", ext, r.Method, r.Host)
 			cr := proxy.newRequest()
