@@ -162,18 +162,11 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 			}
 
 			var respBuf buffer
-			var rkeybuf [ivLen]byte
-			trans := proxy.tp
 
-			if proxy.Policy.IsSet(PolicyAgent) {
-				req = proxy.agentRequest(req)
-				trans = proxy.tpd
-			} else {
-				cr := proxy.newRequest()
-				cr.Opt.Set(doHTTPReq)
-				rkeybuf = proxy.encryptRequest(req, cr)
-				proxy.Logger.Dbgf("MITM - %s %s", req.Method, rURL)
-			}
+			cr := proxy.newRequest()
+			cr.Opt.Set(doHTTPReq)
+			rkeybuf := proxy.encryptRequest(req, cr)
+			proxy.Logger.Dbgf("MITM - %s %s", req.Method, rURL)
 
 			if proxy.MITMDump != nil {
 				req.Body = proxy.Cipher.IO.NewReadCloser(&dumpReadWriteWrapper{
@@ -183,7 +176,7 @@ func (proxy *ProxyClient) manInTheMiddle(client net.Conn, host string) {
 				}, rkeybuf)
 			}
 
-			resp, err := trans.RoundTrip(req)
+			resp, err := proxy.tp.RoundTrip(req)
 
 			if err != nil {
 				proxy.Logger.Errorf("Round trip %s: %v", rURL, err)
@@ -308,6 +301,7 @@ func (proxy *ProxyClient) manInTheMiddleAgent(client net.Conn, host string) {
 
 func (proxy *ProxyClient) agentRoundTrip(downstream net.Conn, req *http.Request) error {
 	rURL := req.URL.Host
+	oldreq := req
 	req = proxy.agentRequest(req)
 	resp, err := proxy.tpd.RoundTrip(req)
 
@@ -317,7 +311,24 @@ func (proxy *ProxyClient) agentRoundTrip(downstream net.Conn, req *http.Request)
 		return err
 	}
 
-	nr, err := proxy.Cipher.IO.Copy(downstream, resp.Body, [ivLen]byte{}, IOConfig{
+	defer tryClose(resp.Body)
+
+	respbody := bufio.NewReader(resp.Body)
+	trueresp, err := http.ReadResponse(respbody, oldreq)
+	if err != nil {
+		proxy.Logger.Errorf("ReadResponse: %v", err)
+		return err
+	}
+
+	trueresp.Header.Set("Connection", "close")
+	buf, _ := httputil.DumpResponse(trueresp, false)
+
+	if _, err := downstream.Write(buf); err != nil {
+		proxy.Logger.Errorf("Failed to write init response: %v", err)
+		return err
+	}
+
+	nr, err := proxy.Cipher.IO.Copy(downstream, respbody, [ivLen]byte{}, IOConfig{
 		Mode: FullCipher,
 		Role: roleRecv,
 	})
@@ -325,7 +336,6 @@ func (proxy *ProxyClient) agentRoundTrip(downstream net.Conn, req *http.Request)
 		proxy.Logger.Errorf("IO copy %d bytes: %v", nr, err)
 	}
 
-	tryClose(resp.Body)
 	return nil
 }
 
@@ -336,6 +346,8 @@ func (proxy *ProxyClient) agentUpstream() string {
 	} else {
 		up = "http://" + up
 	}
+
+	// index.php is a hard coded value
 	return up + "/index.php"
 }
 
