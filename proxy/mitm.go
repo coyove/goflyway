@@ -347,7 +347,7 @@ func (proxy *ProxyClient) agentRequest(req *http.Request) *http.Request {
 	if req.Body != nil {
 		rd = io.MultiReader(rd, req.Body)
 	}
-	xreq, _ := http.NewRequest("GET", proxy.agentUpstream(), rd)
+	xreq, _ := http.NewRequest("POST", proxy.agentUpstream(), rd)
 
 	host, hostport := req.URL.Host, "80"
 	if req.URL.Scheme == "https" {
@@ -360,6 +360,6 @@ func (proxy *ProxyClient) agentRequest(req *http.Request) *http.Request {
 	}
 
 	xreq.Header.Add(fwdURLHeader, host+","+hostport)
-	proxy.Logger.Dbgf("Agent - %s %s:%s", xreq.Method, host, hostport)
+	proxy.Logger.Dbgf("Agent - %s %s:%s", req.Method, host, hostport)
 	return xreq
 }
