@@ -16,7 +16,7 @@ if ($dest[1] == "dns") {
 $fp = fsockopen($dest[0], (int)$dest[1], $errno, $errstr, 30);
 if (!$fp)
 {
-    echo "$errstr ($errno)<br />\n";
+    echo "$errstr ($errno)";
 }
 else
 {

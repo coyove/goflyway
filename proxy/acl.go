@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/base64"
 	"net"
 	"net/http"
@@ -115,11 +116,18 @@ func (proxy *ProxyClient) canDirectConnect(host string) (r byte, ext string) {
 
 	tryClose(resp.Body)
 	ip, err := base64.StdEncoding.DecodeString(resp.Header.Get(dnsRespHeader))
+	if parts := bytes.Split(ip, []byte(".")); len(parts) == 4 {
+		ipstr = string(ip)
+		goto ACL_CHECK
+	}
+
 	if err != nil || ip == nil || len(ip) != net.IPv4len {
 		return r, "Bad response"
 	}
 
 	ipstr = net.IP(ip).String()
+
+ACL_CHECK:
 	switch rule, _, _ = proxy.ACL.Check(ipstr, true); rule {
 	case acr.RulePass, acr.RuleMatchedPass:
 		return rulePass, "Pass (by remote)"
