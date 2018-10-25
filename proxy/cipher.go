@@ -2,15 +2,13 @@ package proxy
 
 import (
 	"bytes"
-	"fmt"
-
-	"github.com/coyove/goflyway/pkg/msg64"
-
-	"github.com/coyove/common/rand"
-
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"fmt"
+
+	"github.com/coyove/common/rand"
+	"github.com/coyove/goflyway/pkg/msg64"
 )
 
 type _CipherMode byte
@@ -139,7 +137,7 @@ func (cr *clientRequest) Unmarshal(buf []byte) error {
 	}
 
 	parts := bytes.Split(tmp, []byte{1})
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		return fmt.Errorf("invalid buffer")
 	}
 	cr.Real = string(parts[0])

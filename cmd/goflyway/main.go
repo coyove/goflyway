@@ -4,6 +4,9 @@ import (
 	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
+	"flag"
+	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -11,6 +14,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coyove/common/config"
@@ -20,11 +24,6 @@ import (
 	"github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/goflyway/proxy"
 	"golang.org/x/crypto/acme/autocert"
-
-	"flag"
-	"fmt"
-	"io/ioutil"
-	"strings"
 )
 
 var version = "__devel__"
@@ -364,7 +363,7 @@ func main() {
 	}
 
 	if *cmdTimeout > 0 {
-		cipher.IO.StartPurgeConns(int(*cmdTimeout))
+		cipher.IO.Start(int(*cmdTimeout))
 	}
 
 	var localaddr string

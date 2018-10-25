@@ -13,7 +13,6 @@ import (
 	"unsafe"
 
 	"github.com/coyove/common/logg"
-
 	"github.com/coyove/goflyway/pkg/trafficmon"
 	"github.com/coyove/tcpmux"
 )
@@ -94,16 +93,14 @@ func (iot *io_t) Bridge(target, source net.Conn, key [ivLen]byte, options IOConf
 
 type io_t struct {
 	sync.Mutex
-	iid uint64
-	Tr  trafficmon.Survey // note 64bit align
-
-	started  bool
+	iid      uint64
+	Tr       trafficmon.Survey
+	stop     chan bool
 	sendStat bool
 	mconns   map[uintptr]*conn_state_t
 	idleTime int64
-
-	Ob     interface{}
-	Logger *logg.Logger
+	Ob       interface{}
+	Logger   *logg.Logger
 }
 
 type conn_state_t struct {
@@ -113,7 +110,7 @@ type conn_state_t struct {
 }
 
 func (iot *io_t) markActive(src interface{}, iid uint64) {
-	if !iot.started {
+	if iot.stop == nil {
 		return
 	}
 
@@ -153,13 +150,20 @@ REPEAT:
 
 const trafficSurveyinterval = 5
 
-func (iot *io_t) StartPurgeConns(maxIdleTime int) {
+func (iot *io_t) Stop() {
+	select {
+	case iot.stop <- true:
+	default:
+	}
+}
+
+func (iot *io_t) Start(maxIdleTime int) {
 	const keepConnectionsUnder = 200
-	if iot.started {
+	if iot.stop != nil {
 		return
 	}
 
-	iot.started = true
+	iot.stop = make(chan bool, 1)
 	iot.mconns = make(map[uintptr]*conn_state_t)
 	iot.idleTime = int64(maxIdleTime)
 	tcpmux.MasterTimeout = uint32(maxIdleTime)
@@ -169,58 +173,64 @@ func (iot *io_t) StartPurgeConns(maxIdleTime int) {
 		count := 0
 		// lastSent, lastRecved := uint64(0), uint64(0)
 
-		for tick := range time.Tick(time.Second) {
-			iot.Lock()
-			ns := tick.UnixNano()
+		for {
+			select {
+			case <-iot.stop:
+				iot.stop = nil
+				return
+			case tick := <-time.Tick(time.Second):
+				iot.Lock()
+				ns := tick.UnixNano()
 
-			purged := 0
-			for id, state := range iot.mconns {
-				if (ns - state.last) > int64(maxIdleTime)*1e9 {
-					state.conn.Close()
-					delete(iot.mconns, id)
-					purged++
-				}
-			}
-			count++
-
-			if count%trafficSurveyinterval == 0 {
-				iot.Tr.Update()
-			}
-
-			if count == 60 && iot.Logger.GetLevel() == logg.LvDebug {
-				count = 0
-				iot.Logger.If(len(iot.mconns) > 0).Dbgf("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
-
-				if ob, _ := iot.Ob.(*tcpmux.DialPool); ob != nil {
-					conns := ob.Count()
-					s, b := 0, bytes.Buffer{}
-					for _, c := range conns {
-						s += c
-						b.WriteString(" /" + strconv.Itoa(c))
+				purged := 0
+				for id, state := range iot.mconns {
+					if (ns - state.last) > int64(maxIdleTime)*1e9 {
+						state.conn.Close()
+						delete(iot.mconns, id)
+						purged++
 					}
-					iot.Logger.If(s > 0).Dbgf("Mux: %d masters, %d streams%s", len(conns), s, b.String())
-				} else if ob, _ := iot.Ob.(*tcpmux.ListenPool); ob != nil {
-					waitings, swaitings, conns := ob.Count()
-					s, v := 0, 0.0
-					if len(conns) >= 2 {
-						K := conns[0]
-						n, Ex, Ex2 := 0.0, 0.0, 0.0
+				}
+				count++
+
+				if count%trafficSurveyinterval == 0 {
+					iot.Tr.Update()
+				}
+
+				if count == 60 && iot.Logger.GetLevel() == logg.LvDebug {
+					count = 0
+					iot.Logger.If(len(iot.mconns) > 0).Dbgf("GC b+%ds: %d active, %d purged", maxIdleTime, len(iot.mconns), purged)
+
+					if ob, _ := iot.Ob.(*tcpmux.DialPool); ob != nil {
+						conns := ob.Count()
+						s, b := 0, bytes.Buffer{}
 						for _, c := range conns {
 							s += c
-							n = n + 1
-							Ex += float64(c - K)
-							Ex2 += float64((c - K) * (c - K))
+							b.WriteString(" /" + strconv.Itoa(c))
 						}
-						v = (Ex2 - (Ex*Ex)/n) / (n - 1)
-						iot.Logger.Dbgf("Mux: %d masters, %d streams (%.2f), %d + %d waitings", len(conns), s, v, waitings, swaitings)
+						iot.Logger.If(s > 0).Dbgf("Mux: %d masters, %d streams%s", len(conns), s, b.String())
+					} else if ob, _ := iot.Ob.(*tcpmux.ListenPool); ob != nil {
+						waitings, swaitings, conns := ob.Count()
+						s, v := 0, 0.0
+						if len(conns) >= 2 {
+							K := conns[0]
+							n, Ex, Ex2 := 0.0, 0.0, 0.0
+							for _, c := range conns {
+								s += c
+								n = n + 1
+								Ex += float64(c - K)
+								Ex2 += float64((c - K) * (c - K))
+							}
+							v = (Ex2 - (Ex*Ex)/n) / (n - 1)
+							iot.Logger.Dbgf("Mux: %d masters, %d streams (%.2f), %d + %d waitings", len(conns), s, v, waitings, swaitings)
+						}
 					}
 				}
-			}
 
-			iot.Unlock()
+				iot.Unlock()
 
-			if iot.sendStat {
-				sendTrafficStats(&iot.Tr)
+				if iot.sendStat {
+					sendTrafficStats(&iot.Tr)
+				}
 			}
 		}
 	}()

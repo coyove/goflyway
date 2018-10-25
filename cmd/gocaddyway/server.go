@@ -29,8 +29,8 @@ func setup(c *caddy.Controller) error {
 	}
 
 	cipher := proxy.NewCipher(c.Val(), proxy.FullCipher)
-	cipher.IO.StartPurgeConns(20)
 	cipher.IO.Logger = logg.NewLogger("off")
+	cipher.IO.Start(20)
 	sc := &proxy.ServerConfig{
 		Cipher:       cipher,
 		LBindTimeout: 10,
@@ -47,6 +47,11 @@ func setup(c *caddy.Controller) error {
 		}
 	}
 	cfg.AddMiddleware(mid)
+
+	c.OnShutdown(func() error {
+		cipher.IO.Stop()
+		return nil
+	})
 	return nil
 }
 
