@@ -148,27 +148,13 @@ func (proxy *ProxyServer) replyGood(downstreamConn net.Conn, cr *clientRequest, 
 	downstreamConn.Write(p.Bytes())
 }
 
-func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	replySomething := func() {
-		if proxy.rp == nil {
-			w.WriteHeader(404)
-			w.Write([]byte(`<html>
-<head><title>404 Not Found</title></head>
-<body bgcolor="white">
-<center><h1>404 Not Found</h1></center>
-<hr><center>nginx</center>
-</body>
-</html>`))
-		} else {
-			proxy.rp.ServeHTTP(w, r)
-		}
-	}
-
+// ServeHTTPImpl returns true if it successfully handled the goflyway request, false if any error occurred.
+// When succeed, ServeHTTPImpl will take over all controls of w and r, caller shall not alter them ever after.
+func (proxy *ProxyServer) ServeHTTPImpl(w http.ResponseWriter, r *http.Request) bool {
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		proxy.Logger.Warnf("Unknown address: %s", r.RemoteAddr)
-		replySomething()
-		return
+		return false
 	}
 
 	var rawReq []byte
@@ -200,7 +186,7 @@ DE_AGAIN:
 			case resp := <-cb:
 				if resp.err != nil {
 					userConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\nError: " + resp.err.Error()))
-					return
+					return true
 				}
 			case <-time.After(time.Duration(proxy.LBindTimeout) * time.Second):
 				proxy.Logger.Errorf("RP client didn't response")
@@ -216,7 +202,7 @@ DE_AGAIN:
 				}
 			}
 			proxy.localRP.Unlock()
-			return
+			return true
 		}
 
 		if fu := r.Header.Get(fwdURLHeader); fu != "" {
@@ -227,14 +213,13 @@ DE_AGAIN:
 
 		proxy.Logger.Dbgf("Invalid request from %s: %s", addr, proxy.stripURI(r.RequestURI))
 		proxy.blacklist.Add(addr, nil)
-		replySomething()
-		return
+		return false
 	}
 
 	if proxy.Users != nil {
 		if !proxy.auth(cr.Auth) {
 			proxy.Logger.Warnf("User auth failed from %s", addr)
-			return
+			return true
 		}
 	}
 
@@ -255,7 +240,7 @@ DE_AGAIN:
 		proxy.Logger.Dbgf("DNS answer of %s: %s", host, ip.String())
 		w.Header().Add(dnsRespHeader, base64.StdEncoding.EncodeToString([]byte(ip.IP.To4())))
 		w.WriteHeader(200)
-		return
+		return true
 	}
 
 	if cr.Opt.IsSet(doLocalRP) {
@@ -268,7 +253,7 @@ DE_AGAIN:
 			resp, ok := proxy.localRP.waiting[dst]
 			if !ok {
 				proxy.localRP.Unlock()
-				return
+				return true
 			}
 			proxy.localRP.Unlock()
 
@@ -276,28 +261,27 @@ DE_AGAIN:
 			proxy.replyGood(downstreamConn, cr, &ioc, r)
 			go proxy.Cipher.IO.Bridge(downstreamConn, resp.req.conn, cr.IV, ioc)
 			resp.req.callback <- resp
-			return
+			return true
 		}
 	}
 
 	if proxy.isBlocked(dst) {
 		w.WriteHeader(http.StatusForbidden)
 		proxy.Logger.Logf("%s is blocked", dst)
-		return
+		return true
 	}
 
 	if cr.Opt.IsSet(doConnect) {
 		host := dst
 		if host == "" {
 			proxy.Logger.Warnf("Valid rkey invalid host from %s", addr)
-			replySomething()
-			return
+			return false
 		}
 
 		proxy.Logger.Logf("Dial real host: %s", host)
 		downstreamConn := proxy.hijack(w)
 		if downstreamConn == nil {
-			return
+			return false
 		}
 
 		ioc := proxy.getIOConfig(cr)
@@ -309,7 +293,7 @@ DE_AGAIN:
 			if proxy.Policy.IsSet(PolicyDisableUDP) {
 				proxy.Logger.Warnf("Client UDP relay request rejected")
 				downstreamConn.Close()
-				return
+				return false
 			}
 
 			uaddr, _ := net.ResolveUDPAddr("udp", host)
@@ -329,7 +313,7 @@ DE_AGAIN:
 		if err != nil {
 			proxy.Logger.Errorf("Dial real host failed: %v", err)
 			downstreamConn.Close()
-			return
+			return false
 		}
 
 		proxy.replyGood(downstreamConn, cr, &ioc, r)
@@ -341,13 +325,13 @@ DE_AGAIN:
 		} else {
 			go proxy.Cipher.IO.Bridge(downstreamConn, targetSiteConn, cr.IV, ioc)
 		}
+		return true
 	} else if cr.Opt.IsSet(doHTTPReq) {
 		var err error
 
 		r.URL, err = url.Parse(dst)
 		if err != nil {
-			replySomething()
-			return
+			return false
 		}
 
 		r.Host = r.URL.Host
@@ -359,7 +343,7 @@ DE_AGAIN:
 		if err != nil {
 			proxy.Logger.Errorf("Round trip %s: %v", r.URL, err)
 			proxy.Write(w, cr.IV, []byte(err.Error()), http.StatusInternalServerError)
-			return
+			return true
 		}
 
 		copyHeaders(w.Header(), resp.Header, proxy.Cipher, true, cr.IV)
@@ -375,9 +359,27 @@ DE_AGAIN:
 		}
 
 		tryClose(resp.Body)
+		return true
 	} else {
 		proxy.blacklist.Add(addr, nil)
-		replySomething()
+		return false
+	}
+}
+
+func (proxy *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !proxy.ServeHTTPImpl(w, r) {
+		if proxy.rp == nil {
+			w.WriteHeader(404)
+			w.Write([]byte(`<html>
+<head><title>404 Not Found</title></head>
+<body bgcolor="white">
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>`))
+		} else {
+			proxy.rp.ServeHTTP(w, r)
+		}
 	}
 }
 
