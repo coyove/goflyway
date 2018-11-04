@@ -47,6 +47,7 @@ type ACL struct {
 
 	PrivateIPv4Table []ipRange
 	RemoteDNS        bool
+	IgnoreLocalDNS   bool
 	Legacy           bool
 	OmitRules        []string
 }
@@ -93,6 +94,7 @@ func LoadACL(path string) (*ACL, error) {
 	acl.Gray.Always = cf.HasSection("proxy_all")
 	acl.White.Always = cf.HasSection("bypass_all")
 	acl.RemoteDNS = !cf.HasSection("local_dns")
+	acl.IgnoreLocalDNS = cf.HasSection("ignore_local_dns")
 
 	if acl.Gray.Always && acl.White.Always {
 		return acl.postInit(), errors.New("proxy_all and bypass_all collide")
@@ -223,6 +225,10 @@ func (acl *ACL) Check(host string, trustIP bool) (rule byte, strIP string, err e
 		// We assume that local don't have the ability to resolve IPv6,
 		// so return RuleIPv6 and let the caller deal with it
 		return RuleIPv6, host, nil
+	}
+
+	if acl.IgnoreLocalDNS {
+		return RuleUnknown, host, nil
 	}
 
 	// Resolve at local in case host points to a private ip
