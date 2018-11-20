@@ -7,12 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	_url "net/url"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +45,8 @@ var (
 	cmdGenCA    = flag.Bool("gen-ca", false, "Generate certificate (ca.pem) and private key (key.pem)")
 	cmdACL      = flag.String("acl", "chinalist.txt", "[acl] Load ACL file")
 	cmdACLCache = flag.Int64("acl-cache", 1024, "[aclcache] ACL cache size")
+
+	cmdCPUProfile = flag.Bool("cpuprofile", false, "")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[throt] S. Traffic throttling in bytes")
@@ -191,6 +195,15 @@ func loadConfig() error {
 var logger *logg.Logger
 
 func main() {
+	if *cmdCPUProfile {
+		f, err := os.Create("cpuprofile")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	method, url := "", ""
 	flag.Parse()
 
