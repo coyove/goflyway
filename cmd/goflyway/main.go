@@ -195,6 +195,9 @@ func loadConfig() error {
 var logger *logg.Logger
 
 func main() {
+
+	method, url := "", ""
+	flag.Parse()
 	if *cmdCPUProfile {
 		f, err := os.Create("cpuprofile")
 		if err != nil {
@@ -203,9 +206,6 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
-
-	method, url := "", ""
-	flag.Parse()
 
 	if *cmdHelp2 {
 		flag.Usage()
