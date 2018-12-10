@@ -128,11 +128,11 @@ REPEAT:
 		goto REPEAT
 	case *udpBridgeConn:
 		srcConn = src.(*udpBridgeConn)
-	case net.Conn:
-		srcConn = src.(net.Conn)
 	case *tcpmux.Stream:
 		// Stream has its own management of timeout
 		return
+	case net.Conn:
+		srcConn = src.(net.Conn)
 	default:
 		return
 	}
