@@ -34,7 +34,7 @@ var (
 	// General flags
 	cmdHelp         = flag.Bool("h", false, "Display help message")
 	cmdHelp2        = flag.Bool("help", false, "Display long help message")
-	cmdConfig       = flag.String("c", "", "Config file path")
+	cmdConfig       = flag.String("c", "gfw.conf", "Config file path")
 	cmdLogLevel     = flag.String("lv", "info", "[loglevel] Logging level: {dbg0, dbg, log, info, warn, err, off}")
 	cmdAuth         = flag.String("a", "", "[auth] Proxy authentication, form: username:password (remember the colon)")
 	cmdKey          = flag.String("k", "0123456789abcdef", "[password] Password, do not use the default one")
@@ -100,14 +100,6 @@ var (
 
 func loadConfig() error {
 	path := *cmdConfig
-	if path == "" {
-		if runtime.GOOS == "windows" {
-			path = os.Getenv("USERPROFILE") + "/gfw.conf"
-		} else {
-			path = os.Getenv("HOME") + "/gfw.conf"
-		}
-	}
-
 	if _, err := os.Stat(path); err != nil {
 		return nil
 	}
@@ -140,13 +132,17 @@ func loadConfig() error {
 		return nil
 	}
 
-	if *cmdSection == "" {
-		return nil
-	}
-
 	cf, err := config.ParseConf(string(buf))
 	if err != nil {
 		return err
+	}
+
+	if cf.HasSection("default_section") {
+		*cmdSection = cf.GetString("default_section", "value", "")
+	}
+
+	if *cmdSection == "" {
+		return nil
 	}
 
 	func(args ...interface{}) {
