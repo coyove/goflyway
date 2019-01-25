@@ -5,13 +5,16 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
 )
 
-var M interface{} = new(int)
+var L interface{} = new(int)
+var R interface{} = new(int)
+var O interface{} = new(int)
 
 type xmlbuffer struct {
 	stack  []string
@@ -114,9 +117,9 @@ func (l *Logger) print(lv string, args ...interface{}) {
 		return
 	}
 
-	p := xmlbuffer{indent: lv == "Error"}
+	p := xmlbuffer{indent: lv != "Debug"}
 
-	t := time.Now().Format("2006-01-02T15:04:05Z")
+	t := time.Now().Format("2006-01-02T15:04:05.000Z")
 
 	if l.Verbose == 'v' || l.Verbose == 'V' {
 		_, fn, line, _ := runtime.Caller(2)
@@ -126,10 +129,24 @@ func (l *Logger) print(lv string, args ...interface{}) {
 	}
 
 	for i := 0; i < len(args); i += 2 {
+		if args[i] == R {
+			i-- // we want i = i + 1 next loop
+			p.End()
+			continue
+		}
+
 		key := args[i].(string)
-		p.Begin(key)
 		arg := args[i+1]
-		if arg == M {
+
+		if arg == O {
+			arg = args[i+2]
+			i++ // we want i = i + 3 next loop
+			p.OneLine(key, stringify(arg))
+			continue
+		}
+
+		p.Begin(key)
+		if arg == L {
 			continue
 		}
 
@@ -147,7 +164,7 @@ func (l *Logger) print(lv string, args ...interface{}) {
 
 			p.OneLine("Message", (tryShortenWSAError(arg)))
 		default:
-			p.Write(fmt.Sprintf("%v", arg))
+			p.Write(stringify(arg))
 		}
 		p.End()
 	}
@@ -156,9 +173,10 @@ func (l *Logger) print(lv string, args ...interface{}) {
 	fmt.Println(p.buf.String())
 }
 
-func (l *Logger) Dbg(args ...interface{})  { l.print("Debug", args...) }
-func (l *Logger) Info(args ...interface{}) { l.print("Info", args...) }
-func (l *Logger) Err(args ...interface{})  { l.print("Error", args...) }
+func (l *Logger) Dbg(args ...interface{})   { l.print("Debug", args...) }
+func (l *Logger) Info(args ...interface{})  { l.print("Info", args...) }
+func (l *Logger) Err(args ...interface{})   { l.print("Error", args...) }
+func (l *Logger) Fatal(args ...interface{}) { l.print("Error", args...); os.Exit(1) }
 
 func (l *Logger) If(b bool) *Logger {
 	if b {
@@ -169,6 +187,41 @@ func (l *Logger) If(b bool) *Logger {
 
 const ERROR = "Error"
 const PROTOCOL = "Protocol"
-const CIPHER = "Cipher"
+const MESSAGE = "Message"
 const CONFIG = "Config"
 const ACL = "ACL"
+const STATUS = "Status"
+const CLIENT = "Client"
+
+func stringify(v interface{}) string {
+	if v == nil {
+		return "null"
+	}
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	}
+
+	if x, ok := v.(interface {
+		String() string
+	}); ok {
+		return x.String()
+	}
+
+	if x, ok := v.(interface {
+		GoString() string
+	}); ok {
+		return x.GoString()
+	}
+
+	return fmt.Sprintf("%v", v)
+}

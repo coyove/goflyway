@@ -273,33 +273,41 @@ func main() {
 	case "none", "disabled", "n":
 		cipher = proxy.NewCipher(*cmdKey, proxy.NoneCipher)
 	}
+
 	cipher.IO.Logger = logger
+	fields := []interface{}{}
 
 	xlog := &xl.Logger{Verbose: 'V'}
-	xlog.Info("Version", version)
-	xlog.If(*cmdSection != "").Info(xl.CONFIG, xl.M, "Section", *cmdSection)
-	xlog.If(configerr != nil).Err(xl.CONFIG, xl.M, xl.ERROR, configerr)
-	xlog.If(*cmdKey == "0123456789abcdef").Err(xl.CIPHER, xl.M, "WeakPassword", "Please change the default password: -k=NEW_PASSWORD")
-	xlog.Info(xl.CIPHER, xl.M, "Mode", *cmdCipher)
-	xlog.If(*cmdMux > 0).Info("TCP multiplexer: %d masters", *cmdMux)
-	xlog.Info(xl.PROTOCOL, *cmdUnderlay)
+	fields = append(fields, "Version", xl.O, version)
+	fields = append(fields, "ConfigSection", xl.O, *cmdSection)
+	fields = append(fields, "ConfigError", xl.O, configerr)
+	if *cmdKey == "0123456789abcdef" {
+		fields = append(fields, "WeakPassword", xl.O, "Please change the default password: -k=NEW_PASSWORD")
+	}
+	fields = append(fields, "CipherMode", xl.O, *cmdCipher)
+	fields = append(fields, "TCPMux", xl.O, *cmdMux)
+	fields = append(fields, "Protocol", xl.O, *cmdUnderlay)
 
 	acl, err := aclrouter.LoadACL(*cmdACL)
+	fields = append(fields, "ACL", xl.L)
 	if err != nil {
-		xlog.Err(xl.ACL, xl.M, xl.ERROR, err)
+		fields = append(fields, "Error", xl.O, err)
 	} else {
-		xlog.Dbg(xl.ACL, xl.M,
-			"Path", *cmdACL,
-			"BlackRules", acl.Black.Size,
-			"WhiteRules", acl.White.Size,
-			"GrayRules", acl.Gray.Size)
+		fields = append(fields,
+			"Path", xl.O, *cmdACL,
+			"BlackRules", xl.O, acl.Black.Size,
+			"WhiteRules", xl.O, acl.White.Size,
+			"GrayRules", xl.O, acl.Gray.Size,
+			"OmittedRules",
+			xl.L)
 		for _, r := range acl.OmitRules {
-			xlog.Dbg(xl.ACL, xl.M, "OmittedRule", r)
+			fields = append(fields, "Value", r)
 		}
+		fields = append(fields, xl.R)
 	}
+	fields = append(fields, xl.R)
 
 	var cc *proxy.ClientConfig
-	var ccchain string
 	var sc *proxy.ServerConfig
 
 	if *cmdUpstream != "" {
@@ -319,10 +327,14 @@ func main() {
 		cc.Policy.SetBool(*cmdGlobal, proxy.PolicyGlobal)
 		cc.Policy.SetBool(*cmdVPN, proxy.PolicyVPN)
 
-		ccchain = parseUpstream(cc, *cmdUpstream)
+		parseUpstream(cc, *cmdUpstream)
 
-		xlog.If(*cmdGlobal).Info(xl.ACL, xl.M, "Global", "True")
-		logger.If(*cmdVPN).Infof("Android shadowsocks compatible mode enabled")
+		if *cmdGlobal {
+			fields = append(fields, "GlobalProxy", xl.O, true)
+		}
+		if *cmdVPN {
+			fields = append(fields, "AndroidMode", xl.O, true)
+		}
 
 		if *cmdMITMDump != "" {
 			cc.MITMDump, _ = os.Create(*cmdMITMDump)
@@ -415,7 +427,9 @@ func main() {
 				logger.Infof("Remote port forwarding bind at local %s", client.ClientConfig.LocalRPBind)
 				client.StartLocalRP(int(*cmdLBindConn))
 			} else {
+				var wait chan bool
 				if *cmdWebConPort != 0 {
+					wait = make(chan bool)
 					go func() {
 						addr := fmt.Sprintf("127.0.0.1:%d", *cmdWebConPort)
 						if *cmdWebConPort == 65536 {
@@ -424,12 +438,22 @@ func main() {
 						}
 
 						http.HandleFunc("/", lib.WebConsoleHTTPHandler(client))
-						logger.Infof("Web console started at %s", addr).Fatal(http.ListenAndServe(addr, nil))
+						fields = append(fields, "WebConsoleAddress", xl.O, addr)
+						wait <- true
+						if err := (http.ListenAndServe(addr, nil)); err != nil {
+							xlog.Fatal(xl.MESSAGE, err)
+						}
 					}()
 				}
-				logger.
-					Infof("Client %s started: "+ccchain, cipher.Alias, client.Localaddr).
-					Fatal(client.Start())
+
+				if wait != nil {
+					<-wait
+				}
+				fields = append(fields, "CipherAlias", xl.O, cipher.Alias, "LocalAddress", xl.O, client.Localaddr)
+				xlog.Info(fields...)
+				if err := client.Start(); err != nil {
+					xlog.Fatal(xl.MESSAGE, err)
+				}
 			}
 		}
 	} else {
@@ -447,80 +471,79 @@ func main() {
 	}
 }
 
-func parseUpstream(cc *proxy.ClientConfig, upstream string) (chain string) {
-	logger.Infof("Upstream config: %s", upstream)
-	chain = "you->%s->" + upstream
+func parseUpstream(cc *proxy.ClientConfig, upstream string) ([]interface{}, error) {
+	chain := []interface{}{}
 	is := func(in string) bool { return strings.HasPrefix(upstream, in) }
+	up, err := _url.Parse(upstream)
+	if err != nil {
+		return nil, err
+	}
 
-	if is("https://") {
-		cc.Connect2Auth, cc.Connect2, cc.Upstream = parseAuthURL(upstream)
-		logger.If(cc.Mux > 0).Fatalf("Can't use an HTTPS proxy with TCP multiplexer (TODO)")
-		chain = "you->%s->" + cc.Connect2Auth + "@" + cc.Connect2 + "(proxy)->" + cc.Upstream
-	} else if gfw, http, ws, cf, cfs, fwd, fwdws, agent :=
-		is("gfw://"), is("http://"), is("ws://"),
-		is("cf://"), is("cfs://"),
-		is("fwd://"), is("fwds://"), is("agent://"); gfw || http || ws || cf || cfs || fwd || fwdws || agent {
+	if up.User != nil {
+		cc.Connect2Auth = up.User.String()
+		chain = append(chain, "HTTPAuth", cc.Connect2Auth)
+	}
 
-		cc.Connect2Auth, cc.Upstream, cc.DummyDomain = parseAuthURL(upstream)
-		logger.If(*cmdLBind != "" && !gfw).Fatalf("Remote port forwarding can only be used schema 'gfw://'")
-		logger.If(cc.Policy.IsSet(proxy.PolicyKCP) && !gfw).Fatalf("KCP can only be used schema 'gfw://'")
+	if *cmdLBind != "" && up.Scheme != "gfw" {
+		return nil, fmt.Errorf("remote port forwarding can only be used with scheme 'gfw://'")
+	}
 
-		switch {
-		case cf:
-			cc.Policy.Set(proxy.PolicyWebSocket)
-			cc.DummyDomain = cc.Upstream
-			chain = "you->%s->cloudflare->" + cc.DummyDomain
-		case cfs:
-			cc.Policy.Set(proxy.PolicyWebSocket)
-			cc.Policy.Set(proxy.PolicyHTTPS)
-			cc.DummyDomain = cc.Upstream
-			chain = "you->%s->wss->cloudflare->" + cc.DummyDomain
-		case fwdws:
-			cc.Policy.Set(proxy.PolicyWebSocket)
-			cc.Policy.Set(proxy.PolicyForward)
-			chain = "you->%s->" + cc.Upstream + "(relay)->ws->" + cc.DummyDomain
-		case fwd:
-			cc.Policy.Set(proxy.PolicyMITM)
-			cc.Policy.Set(proxy.PolicyForward)
-			chain = "you->mitm->%s->" + cc.Upstream + "(relay)->" + cc.DummyDomain
-		case agent:
-			cc.Policy.Set(proxy.PolicyMITM)
-			cc.Policy.Set(proxy.PolicyAgent)
-			chain = "you->mitm->%s->" + cc.Upstream + "(agent)"
-			logger.Warnf("Agent is not safe, don't use it to access your important data")
-			if strings.HasSuffix(cc.Upstream, ":80") {
-				logger.Warnf("Please use an HTTPS agent")
-			}
-		case ws:
-			cc.Policy.Set(proxy.PolicyWebSocket)
-			if cc.DummyDomain == "" {
-				chain = "you->%s->ws->" + cc.Upstream
-			} else {
-				chain = "you->%s->" + cc.DummyDomain + "(fake)->ws->" + cc.Upstream
-			}
-		case http:
-			cc.Policy.Set(proxy.PolicyMITM)
-			if cc.DummyDomain == "" {
-				chain = "you->mitm->%s->" + cc.Upstream
-			} else {
-				chain = "you->mitm->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
-			}
-		case gfw:
-			if cc.DummyDomain == "" {
-				chain = "you->%s->" + cc.Upstream
-			} else {
-				chain = "you->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
-			}
+	if cc.Policy.IsSet(proxy.PolicyKCP) && up.Scheme != "gfw" {
+		return nil, fmt.Errorf("KCP can only be used with scheme 'gfw://'")
+	}
+
+	cc.Upstream, cc.DummyDomain = up.Host, up.Query().Get("d")
+	switch up.Scheme {
+	case "cf":
+		cc.Policy.Set(proxy.PolicyWebSocket)
+		cc.DummyDomain = cc.Upstream
+		chain = append(chain, "Cloudflare", cc.DummyDomain)
+	case "fwds":
+		cc.Policy.Set(proxy.PolicyWebSocket)
+		cc.Policy.Set(proxy.PolicyForward)
+		chain = "you->%s->" + cc.Upstream + "(relay)->ws->" + cc.DummyDomain
+		chain = append(chain, "Websocket", true)
+	case "fwd":
+		cc.Policy.Set(proxy.PolicyMITM)
+		cc.Policy.Set(proxy.PolicyForward)
+		chain = "you->mitm->%s->" + cc.Upstream + "(relay)->" + cc.DummyDomain
+	case "agent":
+		cc.Policy.Set(proxy.PolicyMITM)
+		cc.Policy.Set(proxy.PolicyAgent)
+		chain = "you->mitm->%s->" + cc.Upstream + "(agent)"
+		logger.Warnf("Agent is not safe, don't use it to access your important data")
+		if strings.HasSuffix(cc.Upstream, ":80") {
+			logger.Warnf("Please use an HTTPS agent")
 		}
-
-		if cc.Policy.IsSet(proxy.PolicyMITM) {
-			var cl, kl int
-			cc.CA, cl, kl = lib.TryLoadCert()
-			logger.If(cl == 0).Warnf("MITM can't find cert.pem, use the default one")
-			logger.If(kl == 0).Warnf("MITM can't find key.pem, use the default one")
+	case "ws":
+		cc.Policy.Set(proxy.PolicyWebSocket)
+		if cc.DummyDomain == "" {
+			chain = "you->%s->ws->" + cc.Upstream
+		} else {
+			chain = "you->%s->" + cc.DummyDomain + "(fake)->ws->" + cc.Upstream
+		}
+	case "http":
+		cc.Policy.Set(proxy.PolicyMITM)
+		if cc.DummyDomain == "" {
+			chain = "you->mitm->%s->" + cc.Upstream
+		} else {
+			chain = "you->mitm->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
+		}
+	case "gfw":
+		if cc.DummyDomain == "" {
+			chain = "you->%s->" + cc.Upstream
+		} else {
+			chain = "you->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
 		}
 	}
-	return
+
+	if cc.Policy.IsSet(proxy.PolicyMITM) {
+		var cl, kl int
+		cc.CA, cl, kl = lib.TryLoadCert()
+		chain = append(chain, "MITMCertSize", cl, "MITMKeySize", kl)
+	}
+	chain = append(chain, "Upstream", cc.Upstream)
+	return chain, nil
 }
 
 func parseAuthURL(in string) (auth string, upstream string, dummy string) {
