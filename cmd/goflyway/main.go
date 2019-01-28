@@ -24,7 +24,6 @@ import (
 	"github.com/coyove/common/lru"
 	"github.com/coyove/goflyway/cmd/goflyway/lib"
 	"github.com/coyove/goflyway/pkg/aclrouter"
-	"github.com/coyove/goflyway/pkg/xl"
 	"github.com/coyove/goflyway/proxy"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -275,26 +274,22 @@ func main() {
 	}
 	cipher.IO.Logger = logger
 
-	xlog := &xl.Logger{Verbose: 'V'}
-	xlog.Info("Version", version)
-	xlog.If(*cmdSection != "").Info(xl.CONFIG, xl.M, "Section", *cmdSection)
-	xlog.If(configerr != nil).Err(xl.CONFIG, xl.M, xl.ERROR, configerr)
-	xlog.If(*cmdKey == "0123456789abcdef").Err(xl.CIPHER, xl.M, "WeakPassword", "Please change the default password: -k=NEW_PASSWORD")
-	xlog.Info(xl.CIPHER, xl.M, "Mode", *cmdCipher)
-	xlog.If(*cmdMux > 0).Info("TCP multiplexer: %d masters", *cmdMux)
-	xlog.Info(xl.PROTOCOL, *cmdUnderlay)
+	logger.Infof("goflyway %s", version)
+	logger.If(*cmdSection != "").Infof("Config section: %v", *cmdSection)
+	logger.If(configerr != nil).Warnf("Config reading failed: %v", configerr)
+	logger.If(*cmdKey == "0123456789abcdef").Warnf("Please change the default password: -k=<NEW PASSWORD>")
+	logger.If(*cmdCipher != "full").Infof("Cipher mode: %s", *cmdCipher)
+	logger.If(*cmdMux > 0).Infof("TCP multiplexer: %d masters", *cmdMux)
+	logger.If(*cmdUnderlay == "kcp").Infof("KCP enabled")
+	logger.If(*cmdUnderlay == "https").Infof("HTTPS enabled")
 
 	acl, err := aclrouter.LoadACL(*cmdACL)
 	if err != nil {
-		xlog.Err(xl.ACL, xl.M, xl.ERROR, err)
+		logger.Warnf("Failed to read ACL config: %v", err)
 	} else {
-		xlog.Dbg(xl.ACL, xl.M,
-			"Path", *cmdACL,
-			"BlackRules", acl.Black.Size,
-			"WhiteRules", acl.White.Size,
-			"GrayRules", acl.Gray.Size)
+		logger.Dbgf("ACL %s: %d black rules, %d white rules, %d gray rules", *cmdACL, acl.Black.Size, acl.White.Size, acl.Gray.Size)
 		for _, r := range acl.OmitRules {
-			xlog.Dbg(xl.ACL, xl.M, "OmittedRule", r)
+			logger.Infof("ACL omitted rule: %s", r)
 		}
 	}
 
@@ -321,7 +316,7 @@ func main() {
 
 		ccchain = parseUpstream(cc, *cmdUpstream)
 
-		xlog.If(*cmdGlobal).Info(xl.ACL, xl.M, "Global", "True")
+		logger.If(*cmdGlobal).Infof("Global proxy enabled")
 		logger.If(*cmdVPN).Infof("Android shadowsocks compatible mode enabled")
 
 		if *cmdMITMDump != "" {
