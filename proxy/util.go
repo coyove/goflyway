@@ -164,8 +164,8 @@ func (proxy *ProxyClient) encryptRequest(req *http.Request, r *clientRequest) [i
 		req.URL, _ = urlBuf.R().Writes("http://", req.Host, "/", proxy.encryptClientRequest(r)).ToURL()
 	}
 
-	if proxy.Policy.IsSet(PolicyMITM) && proxy.Connect2Auth != "" {
-		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
+	if proxy.Policy.IsSet(PolicyMITM) && proxy.ProxyAuth != "" {
+		x := "Basic " + base64.StdEncoding.EncodeToString([]byte(proxy.ProxyAuth))
 		req.Header.Add("Proxy-Authorization", x)
 		req.Header.Add("Authorization", x)
 	}

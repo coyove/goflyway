@@ -1,17 +1,19 @@
-package proxy
+package lib
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	pp "github.com/coyove/goflyway/proxy"
 )
 
-func (proxy *ProxyClient) servePACFile(w http.ResponseWriter, r *http.Request) {
+func ServePACFile(w http.ResponseWriter, r *http.Request, proxy *pp.ProxyClient) {
 	table, _ := json.Marshal(proxy.ACL.White.DomainFastMatch)
 	table2 := proxy.ACL.White.DomainSlowMatch
 	t := "SOCKS5"
-	if proxy.Policy.IsSet(PolicyMITM) {
+	if proxy.Policy.IsSet(pp.PolicyMITM) {
 		t = "PROXY"
 	}
 

@@ -13,14 +13,12 @@ import (
 
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -31,10 +29,9 @@ type ResponseHook interface {
 type ClientConfig struct {
 	Upstream       string
 	UserAuth       string
+	ProxyAuth      string
 	UDPRelayCoconn int64
 	Mux            int64
-	Connect2       string
-	Connect2Auth   string
 	DummyDomain    string
 	LocalRPBind    string
 	MITMDump       *os.File
@@ -44,6 +41,8 @@ type ClientConfig struct {
 	ACL            *acr.ACL
 	Logger         *logg.Logger
 	Policy         Options
+
+	RequestPreprocess func(w http.ResponseWriter, r *http.Request) bool
 
 	*Cipher
 }
@@ -64,140 +63,24 @@ type ProxyClient struct {
 
 func (proxy *ProxyClient) dial(dialStyle byte) (conn net.Conn, err error) {
 	lat := time.Now().UnixNano()
-	if proxy.Connect2 == "" {
-		switch dialStyle {
-		case 'd':
-			switch {
-			case proxy.Policy.IsSet(PolicyKCP):
-				conn, err = kcp.Dial(proxy.Upstream)
-			case proxy.Policy.IsSet(PolicyHTTPS):
-				conn, err = tls.Dial("tcp", proxy.Upstream, tlsSkip)
-			default:
-				conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
-			}
-		case 'v':
-			conn, err = vpnDial(proxy.Upstream)
+	switch dialStyle {
+	case 'd':
+		switch {
+		case proxy.Policy.IsSet(PolicyKCP):
+			conn, err = kcp.Dial(proxy.Upstream)
+		case proxy.Policy.IsSet(PolicyHTTPS):
+			conn, err = tls.Dial("tcp", proxy.Upstream, tlsSkip)
 		default:
-			conn, err = proxy.pool.DialTimeout(timeoutDial)
+			conn, err = net.DialTimeout("tcp", proxy.Upstream, timeoutDial)
 		}
-
-		proxy.IO.Tr.Latency(time.Now().UnixNano() - lat)
-		return
-	}
-
-	connectConn, err := net.DialTimeout("tcp", proxy.Connect2, timeoutDial)
-	if err != nil {
-		return nil, err
-	}
-
-	up, auth := proxy.Upstream, ""
-	if proxy.Connect2Auth != "" {
-		// if proxy.Connect2Auth == "socks5" || true {
-		// 	connectConn.SetWriteDeadline(time.Now().Add(timeoutOp))
-		// 	if _, err = connectConn.Write(socksHandshake); err != nil {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	buf := make([]byte, 263)
-		// 	connectConn.SetReadDeadline(time.Now().Add(timeoutOp))
-		// 	if _, err = connectConn.Read(buf); err != nil {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	if buf[0] != socksVersion5 || buf[1] != 0 {
-		// 		connectConn.Close()
-		// 		return nil, errors.New("unsupported SOCKS5 authentication: " + strconv.Itoa(int(buf[1])))
-		// 	}
-
-		// 	host, _port, err := net.SplitHostPort(proxy.Upstream)
-		// 	port, _ := strconv.Atoi(_port)
-		// 	if err != nil {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	payload := []byte{socksVersion5, 1, 0, socksAddrDomain, byte(len(host))}
-		// 	payload = append(payload, []byte(host+"00")...)
-		// 	binary.BigEndian.PutUint16(payload[len(payload)-2:], uint16(port))
-
-		// 	connectConn.SetWriteDeadline(time.Now().Add(timeoutOp))
-		// 	if _, err = connectConn.Write(payload); err != nil {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	connectConn.SetReadDeadline(time.Now().Add(timeoutOp))
-		// 	if n, err := io.ReadAtLeast(connectConn, buf[:5], 5); err != nil || n < 5 {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	if buf[1] != 0 {
-		// 		connectConn.Close()
-		// 		return nil, errors.New("SOCKS5 returned error: " + strconv.Itoa(int(buf[1])))
-		// 	}
-
-		// 	ln := 0
-		// 	switch buf[3] {
-		// 	case socksAddrIPv4:
-		// 		ln = net.IPv4len - 1 + 2
-		// 	case socksAddrIPv6:
-		// 		ln = net.IPv6len - 1 + 2
-		// 	case socksAddrDomain:
-		// 		ln = int(buf[4]) + 2
-		// 	default:
-		// 		connectConn.Close()
-		// 		return nil, errors.New("unexpected address type: " + strconv.Itoa(int(buf[3])))
-		// 	}
-
-		// 	connectConn.SetReadDeadline(time.Now().Add(timeoutOp))
-		// 	if n, err := io.ReadAtLeast(connectConn, buf[5:5+ln], ln); err != nil || n < ln {
-		// 		connectConn.Close()
-		// 		return nil, err
-		// 	}
-
-		// 	return connectConn, nil
-		// _, addr, err := parseUDPHeader(nil, buf, true)
-		// connectConn.Close()
-		// if err != nil {
-		// 	return nil, err
-		// }
-
-		// proxy.Logger.Dbgf("Client","dial ", addr.String())
-		// return net.DialTimeout("tcp", addr.String(), timeoutDial)
-		// }
-
-		x := base64.StdEncoding.EncodeToString([]byte(proxy.Connect2Auth))
-		auth = fmt.Sprintf("Proxy-Authorization: Basic %s\r\nAuthorization: Basic %s\r\n", x, x)
-	}
-
-	connect := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n", up, up, auth)
-	connectConn.SetWriteDeadline(time.Now().Add(timeoutOp))
-	if _, err = connectConn.Write([]byte(connect)); err != nil {
-		connectConn.Close()
-		return nil, err
-	}
-
-	respbuf, err := readUntil(connectConn, "\r\n\r\n")
-	if err != nil {
-		connectConn.Close()
-		return nil, err
-	}
-
-	if !bytes.Contains(respbuf, []byte(" 200 ")) { //
-		x := string(respbuf)
-		if x = x[strings.Index(x, " ")+1:]; len(x) > 3 {
-			x = x[:3]
-		}
-
-		connectConn.Close()
-		return nil, errors.New("connect2: cannot connect to the HTTPS proxy (" + x + ")")
+	case 'v':
+		conn, err = vpnDial(proxy.Upstream)
+	default:
+		conn, err = proxy.pool.DialTimeout(timeoutDial)
 	}
 
 	proxy.IO.Tr.Latency(time.Now().UnixNano() - lat)
-	return connectConn, nil
+	return
 }
 
 func (proxy *ProxyClient) DialUpstream(conn net.Conn, host string, resp []byte, extra uint32, dialStyle byte) (net.Conn, error) {
@@ -355,8 +238,7 @@ func (proxy *ProxyClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if r.RequestURI == "/proxy.pac" {
-		proxy.servePACFile(w, r)
+	if (proxy.RequestPreprocess != nil) && !proxy.RequestPreprocess(w, r) {
 		return
 	}
 
@@ -631,7 +513,7 @@ func NewClient(localaddr string, config *ClientConfig) (*ProxyClient, error) {
 		}
 	}
 
-	if proxy.Connect2 != "" || proxy.Mux != 0 {
+	if proxy.Mux != 0 {
 		proxy.tp.Proxy, proxy.tpq.Proxy = nil, nil
 		proxy.tpq.Dial = func(network, address string) (net.Conn, error) { return proxy.dial(0) }
 		proxy.tp.Dial = proxy.tpq.Dial

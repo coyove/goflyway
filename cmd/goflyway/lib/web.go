@@ -158,7 +158,7 @@ var webConsoleHTML, _ = template.New("console").Parse(`<!DOCTYPE html>
         if (el) el.setAttribute("log", Math.abs(el.getAttribute("log") - 1));
         
         var log = document.getElementById('traffic').getAttribute("log") == 1;
-        document.getElementById('traffic').src = "/traffic.svg?" + (log ? "log=1&c=" : "c=") + (new Date().getTime());
+        document.getElementById('traffic').src = "/stat?traffic=1&" + (log ? "log=1&c=" : "c=") + (new Date().getTime());
         document.cookie = "log=" + (log ? "1" : "0") + "; expires=Sat, 1 Jan 2050 00:00:00 GMT; path=/";
     }
 
@@ -245,123 +245,120 @@ func toString(ans byte) string {
 	return []string{"Proxy", "Pass", "Block"}[ans]
 }
 
-func WebConsoleHTTPHandler(proxy *pp.ProxyClient) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
+func ServeWebConsole(w http.ResponseWriter, r *http.Request, proxy *pp.ProxyClient) {
+	if r.Method == "GET" {
+		if r.FormValue("traffic") == "1" {
+			w.Header().Add("Content-Type", "image/svg+xml")
+			w.Write(proxy.IO.Tr.SVG(300, 50, r.FormValue("log") == "1").Bytes())
+			return
+		}
 
-			if strings.HasPrefix(r.RequestURI, "/traffic.svg") {
-				w.Header().Add("Content-Type", "image/svg+xml")
-				w.Write(proxy.IO.Tr.SVG(300, 50, r.FormValue("log") == "1").Bytes())
-				return
+		payload := struct {
+			Global       bool
+			Entries      int
+			EntriesRatio int
+			DNS          string
+			I18N         map[string]string
+		}{}
+
+		buf, count := &bytes.Buffer{}, 0
+
+		proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64, w int64) {
+			count++
+			rule := v.(*pp.Rule)
+			ip, r := rule.IP, rule.R
+
+			if aclrouter.IPv4ToInt(ip) > 0 {
+				ips := make([]string, 4)
+				for i, s := range strings.Split(ip, ".") {
+					if ips[i] = s; len(s) < 3 {
+						ips[i] = "<span class=p" + strconv.Itoa(len(s)) + ">" + s + "</span>"
+					}
+				}
+				ip = fmt.Sprintf("<a href='http://freeapi.ipip.net/%v' target=_blank>%v</a>", ip, strings.Join(ips, "."))
+			} else {
+				ip = "<a><span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span></a>"
 			}
 
-			payload := struct {
-				Global       bool
-				Entries      int
-				EntriesRatio int
-				DNS          string
-				I18N         map[string]string
-			}{}
+			buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host" host="%v">%v (%d)</td><td class="fit ip">%s</td>%s%s%s<!--%s--></tr>`,
+				k, k, h, ip, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r], toString(rule.OldAns)))
+		})
 
-			buf, count := &bytes.Buffer{}, 0
+		buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
 
+		payload.DNS = buf.String()
+		payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
+		payload.Entries = count
+		payload.EntriesRatio = count * 100 / int(proxy.DNSCache.MaxWeight())
+
+		// use lang=en to force english display
+		if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
+			payload.I18N = _i18n["zh"]
+		} else {
+			payload.I18N = _i18n["en"]
+		}
+
+		webConsoleHTML.Execute(w, payload)
+	} else if r.Method == "POST" {
+		if r.FormValue("cleardns") != "" {
+			proxy.DNSCache.Clear()
+			w.WriteHeader(200)
+			return
+		}
+
+		if r.FormValue("reset") != "" {
+			keys := []string{}
 			proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64, w int64) {
-				count++
-				rule := v.(*pp.Rule)
-				ip, r := rule.IP, rule.R
-
-				if aclrouter.IPv4ToInt(ip) > 0 {
-					ips := make([]string, 4)
-					for i, s := range strings.Split(ip, ".") {
-						if ips[i] = s; len(s) < 3 {
-							ips[i] = "<span class=p" + strconv.Itoa(len(s)) + ">" + s + "</span>"
-						}
-					}
-					ip = fmt.Sprintf("<a href='http://freeapi.ipip.net/%v' target=_blank>%v</a>", ip, strings.Join(ips, "."))
-				} else {
-					ip = "<a><span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span>.<span class=p1>-</span></a>"
+				if r := v.(*pp.Rule); r.OldAns != r.Ans {
+					keys = append(keys, k.(string))
 				}
-
-				buf.WriteString(fmt.Sprintf(`<tr class=citem><td class="fit host" host="%v">%v (%d)</td><td class="fit ip">%s</td>%s%s%s<!--%s--></tr>`,
-					k, k, h, ip, ruleMappingLeft[r], ruleMapping[r], ruleMappingRight[r], toString(rule.OldAns)))
 			})
 
-			buf.WriteString(fmt.Sprintf("<tr class=last-tr><td></td><td></td>%s</tr>", strings.Repeat("<td class=side-rule></td>", 13)))
-
-			payload.DNS = buf.String()
-			payload.Global = proxy.Policy.IsSet(pp.PolicyGlobal)
-			payload.Entries = count
-			payload.EntriesRatio = count * 100 / int(proxy.DNSCache.MaxWeight())
-
-			// use lang=en to force english display
-			if strings.Contains(r.Header.Get("Accept-Language"), "zh") && r.FormValue("lang") != "en" {
-				payload.I18N = _i18n["zh"]
-			} else {
-				payload.I18N = _i18n["en"]
-			}
-
-			webConsoleHTML.Execute(w, payload)
-		} else if r.Method == "POST" {
-			if r.FormValue("cleardns") != "" {
-				proxy.DNSCache.Clear()
-				w.WriteHeader(200)
-				return
-			}
-
-			if r.FormValue("reset") != "" {
-				keys := []string{}
-				proxy.DNSCache.Info(func(k lru.Key, v interface{}, h int64, w int64) {
-					if r := v.(*pp.Rule); r.OldAns != r.Ans {
-						keys = append(keys, k.(string))
-					}
-				})
-
-				for _, k := range keys {
-					if v, ok := proxy.DNSCache.Get(k); ok {
-						v.(*pp.Rule).Ans = v.(*pp.Rule).OldAns
-						proxy.DNSCache.Add(k, v)
-					}
+			for _, k := range keys {
+				if v, ok := proxy.DNSCache.Get(k); ok {
+					v.(*pp.Rule).Ans = v.(*pp.Rule).OldAns
+					proxy.DNSCache.Add(k, v)
 				}
-
-				w.WriteHeader(200)
-				return
 			}
 
-			if r.FormValue("proxy") != "" {
-				if proxy.Policy.IsSet(pp.PolicyGlobal) {
-					proxy.Policy.UnSet(pp.PolicyGlobal)
-				} else {
-					proxy.Policy.Set(pp.PolicyGlobal)
-				}
-				w.WriteHeader(200)
-				return
-			}
-
-			if rule := r.FormValue("update"); rule != "" {
-				target := r.FormValue("target")
-				if v, ok := proxy.DNSCache.Get(target); ok {
-					oldRule := v.(*pp.Rule)
-					old := oldRule.OldAns
-					switch rule {
-					case "Proxy":
-						oldRule.Ans = 0
-						oldRule.R = aclrouter.RuleProxy
-					case "Pass":
-						oldRule.Ans = 1
-						oldRule.R = aclrouter.RulePass
-					case "Block":
-						oldRule.Ans = 2
-						oldRule.R = aclrouter.RuleBlock
-					}
-					proxy.DNSCache.Add(target, oldRule)
-					w.Write([]byte(toString(old)))
-				} else {
-					w.Write([]byte("error"))
-				}
-				return
-			}
-
-			w.Write([]byte("error"))
+			w.WriteHeader(200)
+			return
 		}
+
+		if r.FormValue("proxy") != "" {
+			if proxy.Policy.IsSet(pp.PolicyGlobal) {
+				proxy.Policy.UnSet(pp.PolicyGlobal)
+			} else {
+				proxy.Policy.Set(pp.PolicyGlobal)
+			}
+			w.WriteHeader(200)
+			return
+		}
+
+		if rule := r.FormValue("update"); rule != "" {
+			target := r.FormValue("target")
+			if v, ok := proxy.DNSCache.Get(target); ok {
+				oldRule := v.(*pp.Rule)
+				old := oldRule.OldAns
+				switch rule {
+				case "Proxy":
+					oldRule.Ans = 0
+					oldRule.R = aclrouter.RuleProxy
+				case "Pass":
+					oldRule.Ans = 1
+					oldRule.R = aclrouter.RulePass
+				case "Block":
+					oldRule.Ans = 2
+					oldRule.R = aclrouter.RuleBlock
+				}
+				proxy.DNSCache.Add(target, oldRule)
+				w.Write([]byte(toString(old)))
+			} else {
+				w.Write([]byte("error"))
+			}
+			return
+		}
+
+		w.Write([]byte("error"))
 	}
 }

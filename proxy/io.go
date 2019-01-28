@@ -168,6 +168,7 @@ func (iot *io_t) Start(maxIdleTime int) {
 	iot.idleTime = int64(maxIdleTime)
 	tcpmux.MasterTimeout = uint32(maxIdleTime)
 	iot.Tr.Init(20*60, trafficSurveyinterval) // 20 mins
+	sectk := time.NewTicker(time.Second)
 
 	go func() {
 		count := 0
@@ -177,8 +178,9 @@ func (iot *io_t) Start(maxIdleTime int) {
 			select {
 			case <-iot.stop:
 				iot.stop = nil
+				sectk.Stop()
 				return
-			case tick := <-time.Tick(time.Second):
+			case tick := <-sectk.C:
 				iot.Lock()
 				ns := tick.UnixNano()
 
