@@ -427,6 +427,9 @@ func main() {
 }
 
 func parseUpstream(cc *proxy.ClientConfig, upstream string) {
+	if !strings.Contains(upstream, "://") {
+		upstream = "gfw://" + upstream
+	}
 	logger.Infof("Upstream config: %s", upstream)
 	up, err := _url.Parse(upstream)
 	if err != nil {
@@ -436,11 +439,11 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 	if up.User != nil {
 		cc.DummyDomain = up.User.String()
 	}
-	cc.Upstream = up.Host
-	gfw := up.Scheme == "gfw" || up.Scheme == ""
 
-	logger.If(*cmdLBind != "" && !gfw).Fatalf("Remote port forwarding can only be used with scheme 'gfw://'")
-	logger.If(cc.Policy.IsSet(proxy.PolicyKCP) && !gfw).Fatalf("KCP can only be used with scheme 'gfw://'")
+	cc.Upstream = up.Host
+
+	logger.If(*cmdLBind != "" && up.Scheme != "gfw").Fatalf("Remote port forwarding can only be used with scheme 'gfw://'")
+	logger.If(cc.Policy.IsSet(proxy.PolicyKCP) && up.Scheme != "gfw").Fatalf("KCP can only be used with scheme 'gfw://'")
 	logger.If(cc.DummyDomain != "").Infof("Found 'h' parameter: %s", cc.DummyDomain)
 
 	switch up.Scheme {
@@ -464,6 +467,9 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) {
 		cc.Policy.Set(proxy.PolicyWebSocket)
 	case "http":
 		cc.Policy.Set(proxy.PolicyMITM)
+	case "gfw":
+	default:
+		logger.Fatalf("Invalid scheme: %s", up.Scheme)
 	}
 
 	if cc.Policy.IsSet(proxy.PolicyMITM) {

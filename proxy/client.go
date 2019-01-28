@@ -9,7 +9,7 @@ import (
 	acr "github.com/coyove/goflyway/pkg/aclrouter"
 	"github.com/coyove/tcpmux"
 
-	"github.com/xtaci/kcp-go"
+	kcp "github.com/xtaci/kcp-go"
 
 	"bytes"
 	"encoding/base64"
