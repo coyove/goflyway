@@ -7,14 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	_url "net/url"
 	"os"
 	"runtime"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +45,6 @@ var (
 	cmdACL          = flag.String("acl", "chinalist.txt", "[acl] Load ACL file")
 	cmdACLCache     = flag.Int64("acl-cache", 1024, "[aclcache] ACL cache size")
 	cmdSingleThread = flag.Bool("st", false, "Single thread multiple goroutines")
-	cmdCPUProfile   = flag.Bool("cpuprofile", false, "")
 
 	// Server flags
 	cmdThrot      = flag.Int64("throt", 0, "[throt] S. Traffic throttling in bytes")
@@ -61,16 +58,21 @@ var (
 
 	// Client flags
 	cmdGlobal     = flag.Bool("g", false, "[global] C. Global proxy")
-	cmdUpstream   = flag.String("up", "", "[upstream] C. Upstream server address")
+	cmdUpstream   = flag.String("up", "", "[upstream] C. Upstream server address, IP:PORT")
 	cmdCipher     = flag.String("cipher", "full", "[cipher] C. Set the cipher {full, partial, none}")
 	cmdUDPonTCP   = flag.Int64("udp-tcp", 1, "[udptcp] C. Use N TCP connections to relay UDP")
 	cmdWebConPort = flag.Int64("web-port", 65536, "[webconport] C. Web console listening port, 0 to disable, 65536 to auto select")
 	cmdMux        = flag.Int64("mux", 0, "[mux] C. TCP multiplexer master count, 0 to disable")
-	cmdVPN        = flag.Bool("vpn", false, "C. VPN mode, used on Android only")
 	cmdMITMDump   = flag.String("mitm-dump", "", "[mitmdump] C. Dump HTTPS requests to file")
 	cmdBind       = flag.String("bind", "", "[bind] C. Bind to an address at server")
 	cmdLBind      = flag.String("lbind", "", "[lbind] C. Bind a local address to server")
 	cmdLBindConn  = flag.Int64("lbind-conns", 1, "[lbindconns] C. Local bind request connections")
+	cmdMITM       = flag.Bool("M", false, "[mitm] C. Man-in-the-middle proxy")
+	cmdWebsocket  = flag.Bool("W", false, "[websocket] C. Websocket relay to upstream")
+	cmdForward    = flag.Bool("F", false, "[forward] C. Forward requests to upstream")
+	cmdAgent      = flag.Bool("A", false, "[agent] C. Forward agent requests to upstream")
+	cmdHost       = flag.String("host", "", "[host] C. Set 'Host' header in HTTP requests, random by default")
+	cmdVPN        = flag.Bool("vpn", false, "C. VPN mode, used on Android only")
 
 	// curl flags
 	cmdGet     = flag.String("get", "", "Cu. Issue a GET request")
@@ -81,11 +83,11 @@ var (
 	cmdOptions = flag.String("options", "", "Cu. Issue an OPTIONS request")
 	cmdTrace   = flag.String("trace", "", "Cu. Issue a TRACE request")
 	cmdPatch   = flag.String("patch", "", "Cu. Issue a PATCH request")
-	cmdForm    = flag.String("F", "", "Cu. Set post form of the request")
-	cmdHeaders = flag.String("H", "", "Cu. Set headers of the request")
-	cmdCookie  = flag.String("C", "", "Cu. set cookies of the request")
+	cmdForm    = flag.String("form", "", "Cu. Set post form of the request")
+	cmdHeaders = flag.String("headers", "", "Cu. Set headers of the request")
+	cmdCookie  = flag.String("cookies", "", "Cu. set cookies of the request")
 
-	cmdMultipart  = flag.Bool("M", false, "Cu. Set content type to multipart")
+	cmdMultipart  = flag.Bool("mp", false, "Cu. Set content type to multipart")
 	cmdPrettyJSON = flag.Bool("pj", false, "Cu. JSON pretty output")
 
 	// Shadowsocks compatible flags
@@ -195,14 +197,6 @@ func main() {
 
 	method, url := "", ""
 	flag.Parse()
-	if *cmdCPUProfile {
-		f, err := os.Create("cpuprofile")
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
 
 	if *cmdHelp2 {
 		flag.Usage()
@@ -284,9 +278,6 @@ func main() {
 	if *cmdKey == "0123456789abcdef" {
 		fields = append(fields, "WeakPassword", xl.O, "Please change the default password: -k=NEW_PASSWORD")
 	}
-	fields = append(fields, "CipherMode", xl.O, *cmdCipher)
-	fields = append(fields, "TCPMux", xl.O, *cmdMux)
-	fields = append(fields, "Protocol", xl.O, *cmdUnderlay)
 
 	acl, err := aclrouter.LoadACL(*cmdACL)
 	fields = append(fields, "ACL", xl.L)
@@ -327,14 +318,11 @@ func main() {
 		cc.Policy.SetBool(*cmdGlobal, proxy.PolicyGlobal)
 		cc.Policy.SetBool(*cmdVPN, proxy.PolicyVPN)
 
-		parseUpstream(cc, *cmdUpstream)
-
-		if *cmdGlobal {
-			fields = append(fields, "GlobalProxy", xl.O, true)
+		chain, err := parseUpstream(cc, *cmdUpstream)
+		if err != nil {
+			xlog.Fatal(xl.MESSAGE, err)
 		}
-		if *cmdVPN {
-			fields = append(fields, "AndroidMode", xl.O, true)
-		}
+		fields = append(fields, chain...)
 
 		if *cmdMITMDump != "" {
 			cc.MITMDump, _ = os.Create(*cmdMITMDump)
@@ -472,11 +460,14 @@ func main() {
 }
 
 func parseUpstream(cc *proxy.ClientConfig, upstream string) ([]interface{}, error) {
-	chain := []interface{}{}
-	is := func(in string) bool { return strings.HasPrefix(upstream, in) }
 	up, err := _url.Parse(upstream)
 	if err != nil {
 		return nil, err
+	}
+
+	chain := []interface{}{}
+	if *cmdLBind != "" || cc.Policy.IsSet(proxy.PolicyKCP) {
+		return chain, nil
 	}
 
 	if up.User != nil {
@@ -484,105 +475,24 @@ func parseUpstream(cc *proxy.ClientConfig, upstream string) ([]interface{}, erro
 		chain = append(chain, "HTTPAuth", cc.Connect2Auth)
 	}
 
-	if *cmdLBind != "" && up.Scheme != "gfw" {
-		return nil, fmt.Errorf("remote port forwarding can only be used with scheme 'gfw://'")
-	}
-
-	if cc.Policy.IsSet(proxy.PolicyKCP) && up.Scheme != "gfw" {
-		return nil, fmt.Errorf("KCP can only be used with scheme 'gfw://'")
-	}
-
-	cc.Upstream, cc.DummyDomain = up.Host, up.Query().Get("d")
-	switch up.Scheme {
-	case "cf":
-		cc.Policy.Set(proxy.PolicyWebSocket)
+	cc.Upstream, cc.DummyDomain = up.Host, *cmdHost
+	if *cmdHost == "." {
 		cc.DummyDomain = cc.Upstream
-		chain = append(chain, "Cloudflare", cc.DummyDomain)
-	case "fwds":
-		cc.Policy.Set(proxy.PolicyWebSocket)
-		cc.Policy.Set(proxy.PolicyForward)
-		chain = "you->%s->" + cc.Upstream + "(relay)->ws->" + cc.DummyDomain
-		chain = append(chain, "Websocket", true)
-	case "fwd":
-		cc.Policy.Set(proxy.PolicyMITM)
-		cc.Policy.Set(proxy.PolicyForward)
-		chain = "you->mitm->%s->" + cc.Upstream + "(relay)->" + cc.DummyDomain
-	case "agent":
-		cc.Policy.Set(proxy.PolicyMITM)
-		cc.Policy.Set(proxy.PolicyAgent)
-		chain = "you->mitm->%s->" + cc.Upstream + "(agent)"
-		logger.Warnf("Agent is not safe, don't use it to access your important data")
-		if strings.HasSuffix(cc.Upstream, ":80") {
-			logger.Warnf("Please use an HTTPS agent")
-		}
-	case "ws":
-		cc.Policy.Set(proxy.PolicyWebSocket)
-		if cc.DummyDomain == "" {
-			chain = "you->%s->ws->" + cc.Upstream
-		} else {
-			chain = "you->%s->" + cc.DummyDomain + "(fake)->ws->" + cc.Upstream
-		}
-	case "http":
-		cc.Policy.Set(proxy.PolicyMITM)
-		if cc.DummyDomain == "" {
-			chain = "you->mitm->%s->" + cc.Upstream
-		} else {
-			chain = "you->mitm->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
-		}
-	case "gfw":
-		if cc.DummyDomain == "" {
-			chain = "you->%s->" + cc.Upstream
-		} else {
-			chain = "you->%s->" + cc.DummyDomain + "(fake)->" + cc.Upstream
-		}
 	}
+
+	cc.Policy.SetBool(*cmdWebsocket, proxy.PolicyWebSocket)
+	cc.Policy.SetBool(*cmdForward, proxy.PolicyForward)
+	cc.Policy.SetBool(*cmdMITM, proxy.PolicyMITM)
+	cc.Policy.SetBool(*cmdAgent, proxy.PolicyAgent)
 
 	if cc.Policy.IsSet(proxy.PolicyMITM) {
 		var cl, kl int
 		cc.CA, cl, kl = lib.TryLoadCert()
-		chain = append(chain, "MITMCertSize", cl, "MITMKeySize", kl)
+		chain = append(chain, "MITMCertSize", xl.O, cl, "MITMKeySize", xl.O, kl)
 	}
-	chain = append(chain, "Upstream", cc.Upstream)
+	chain = append(chain, "Upstream", xl.O, cc.Upstream, "Host", xl.O, cc.DummyDomain)
+	chain = append(chain, "UpstreamOptions", xl.O, strconv.FormatInt(int64(cc.Policy), 2))
 	return chain, nil
-}
-
-func parseAuthURL(in string) (auth string, upstream string, dummy string) {
-	// <scheme>://[<username>:<password>@]<host>:<port>[/<dummy_host>:<dummy_port>]
-	if idx := strings.Index(in, "://"); idx > -1 {
-		in = in[idx+3:]
-	}
-
-	if idx := strings.Index(in, "/"); idx > -1 {
-		dummy = in[idx+1:]
-		in = in[:idx]
-	}
-
-	upstream = in
-	if idx := strings.Index(in, "@"); idx > -1 {
-		auth = in[:idx]
-		upstream = in[idx+1:]
-	}
-
-	if _, _, err := net.SplitHostPort(upstream); err != nil {
-		if strings.Count(upstream, ":") > 1 {
-			lc := strings.LastIndex(upstream, ":")
-			port := upstream[lc+1:]
-			upstream = upstream[:lc]
-			upip := net.ParseIP(upstream)
-			if bs := []byte(upip); len(bs) == net.IPv6len {
-				upstream = "["
-				for i := 0; i < 16; i += 2 {
-					upstream += strconv.FormatInt(int64(bs[i])*256+int64(bs[i+1]), 16) + ":"
-				}
-				upstream = upstream[:len(upstream)-1] + "]:" + port
-				return
-			}
-		}
-
-		logger.Fatalf("Invalid server destination: %s, %v", upstream, err)
-	}
-
-	return
 }
 
 func curl(client *proxy.ProxyClient, method string, url string, cookies []*http.Cookie) {
