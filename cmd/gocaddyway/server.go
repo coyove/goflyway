@@ -3,10 +3,10 @@ package gocaddyway
 import (
 	"net/http"
 
+	"github.com/caddyserver/caddy"
+	"github.com/caddyserver/caddy/caddyhttp/httpserver"
 	"github.com/coyove/common/logg"
 	"github.com/coyove/goflyway/proxy"
-	"github.com/mholt/caddy"
-	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
 type gofwHandler struct {
