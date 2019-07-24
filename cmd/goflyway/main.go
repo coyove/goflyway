@@ -11,22 +11,25 @@ import (
 	"github.com/coyove/goflyway/proxy"
 )
 
-var version = "__devel__"
+var (
+	version    = "__devel__"
+	remoteAddr string
+	localAddr  string
+	addr       string
+	cconfig    = &proxy.ClientConfig{}
+	sconfig    = &proxy.ServerConfig{}
+)
 
-func printHelp() {
-	fmt.Println("usage: goflyway")
+func printHelp(a ...interface{}) {
+	if len(a) > 0 {
+		fmt.Printf("goflyway: ")
+		fmt.Println(a...)
+	}
+	fmt.Println("usage: goflyway -hvVKgpktL [address]")
 	os.Exit(0)
 }
 
 func main() {
-	var (
-		remoteAddr string
-		localAddr  string
-		addr       string
-		cconfig    = &proxy.ClientConfig{}
-		sconfig    = &proxy.ServerConfig{}
-	)
-
 	for i, last := 1, rune(0); i < len(os.Args); i++ {
 		p := strings.TrimLeft(os.Args[i], "-")
 		if len(p) != len(os.Args[i]) {
@@ -44,8 +47,7 @@ func main() {
 					sconfig.KCP, cconfig.KCP = true, true
 				default:
 					if last == 0 {
-						fmt.Println("goflyway: illegal option --", string(c))
-						printHelp()
+						printHelp("illegal option --", string(c))
 					}
 					p = p[i:]
 					goto PARSE
@@ -66,8 +68,7 @@ func main() {
 			case 4:
 				localAddr, remoteAddr = parts[0]+":"+parts[1], parts[2]+":"+parts[3]
 			default:
-				fmt.Println("goflyway: illegal option --", string(last), p)
-				printHelp()
+				printHelp("illegal option --", string(last), p)
 			}
 		case 'g':
 			sconfig.ProxyPassAddr = p
@@ -83,8 +84,7 @@ func main() {
 	}
 
 	if addr == "" {
-		fmt.Println("goflyway: missing address")
-		printHelp()
+		printHelp("missing address")
 	}
 
 	if localAddr != "" && remoteAddr == "" {
@@ -92,8 +92,7 @@ func main() {
 		host, _, err2 := net.SplitHostPort(addr)
 		remoteAddr = host + ":" + port
 		if err1 != nil || err2 != nil {
-			fmt.Println("goflyway: invalid address --", localAddr, addr)
-			printHelp()
+			printHelp("invalid address --", localAddr, addr)
 		}
 	}
 
