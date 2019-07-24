@@ -2,6 +2,8 @@
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
+`master` is the active develop branch and containing v2 code, for the stable v1 release (though it was once called v2.0), please refer to [v1.0 branch](https://github.com/coyove/goflyway/tree/v1.0).
+
 goflyway is a simple HTTP server which serves data over secure connections, featuring:
 
 1. HTTP/SOCKS5 proxy with websocket relay
