@@ -41,8 +41,7 @@ func main() {
 					last = c
 				case 'v':
 				case 'K':
-					sconfig.Policy.Set(proxy.PolicyKCP)
-					cconfig.Policy.Set(proxy.PolicyKCP)
+					sconfig.KCP, cconfig.KCP = true, true
 				default:
 					if last == 0 {
 						fmt.Println("goflyway: illegal option --", string(c))
@@ -80,6 +79,7 @@ func main() {
 		default:
 			addr = p
 		}
+		last = 0
 	}
 
 	if addr == "" {
@@ -100,20 +100,8 @@ func main() {
 	if localAddr != "" && remoteAddr != "" {
 		cconfig.Bind = remoteAddr
 		cconfig.Upstream = addr
-		client, err := proxy.NewClient(localAddr, cconfig)
-		if err != nil {
-			fmt.Println("goflyway: invalid address --", err)
-			printHelp()
-		}
-
-		log.Println(client.Start())
+		log.Println(proxy.NewClient(localAddr, cconfig))
 	} else {
-		server, err := proxy.NewServer(addr, sconfig)
-		if err != nil {
-			fmt.Println("goflyway: invalid address --", err)
-			printHelp()
-		}
-
-		log.Println(server.Start())
+		log.Println(proxy.NewServer(addr, sconfig))
 	}
 }
