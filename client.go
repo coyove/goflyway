@@ -1,4 +1,4 @@
-package proxy
+package goflyway
 
 import (
 	. "github.com/coyove/goflyway/v"

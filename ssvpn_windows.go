@@ -1,8 +1,9 @@
-package proxy
+package goflyway
 
 import (
-	"github.com/coyove/goflyway/pkg/trafficmon"
 	"net"
+
+	"github.com/coyove/goflyway/pkg/trafficmon"
 )
 
 func vpnDial(address string) (net.Conn, error) {

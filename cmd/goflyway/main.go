@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/coyove/common/sched"
-	"github.com/coyove/goflyway/proxy"
+	"github.com/coyove/goflyway"
 )
 
 var (
@@ -16,8 +16,8 @@ var (
 	remoteAddr string
 	localAddr  string
 	addr       string
-	cconfig    = &proxy.ClientConfig{}
-	sconfig    = &proxy.ServerConfig{}
+	cconfig    = &goflyway.ClientConfig{}
+	sconfig    = &goflyway.ServerConfig{}
 )
 
 func printHelp(a ...interface{}) {
@@ -85,7 +85,7 @@ func main() {
 			sconfig.ProxyPassAddr = p
 		case 'T':
 			speed, _ := strconv.ParseInt(p, 10, 64)
-			sconfig.SpeedThrot = proxy.NewTokenBucket(speed, speed*25)
+			sconfig.SpeedThrot = goflyway.NewTokenBucket(speed, speed*25)
 		case 't':
 			*(*int64)(&cconfig.Timeout), _ = strconv.ParseInt(p+"000000000", 10, 64)
 			sconfig.Timeout = cconfig.Timeout
@@ -123,9 +123,9 @@ func main() {
 		cconfig.Upstream = addr
 
 		fmt.Println("goflyway client binds", remoteAddr, "at", addr, "to", localAddr, with)
-		panic(proxy.NewClient(localAddr, cconfig))
+		panic(goflyway.NewClient(localAddr, cconfig))
 	} else {
 		fmt.Println("goflyway server listens on", addr, with)
-		panic(proxy.NewServer(addr, sconfig))
+		panic(goflyway.NewServer(addr, sconfig))
 	}
 }

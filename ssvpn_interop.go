@@ -1,6 +1,6 @@
 // +build darwin dragonfly freebsd linux netbsd openbsd solaris
 
-package proxy
+package goflyway
 
 import (
 	"encoding/binary"
