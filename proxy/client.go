@@ -55,7 +55,15 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			downconn := toh.NewBufConn(conn)
 			defer conn.Close()
 
-			up, err := dialer.Dial()
+			var up net.Conn
+			var err error
+
+			if config.KCP {
+				up, err = kcp.Dial(config.Upstream)
+			} else {
+				up, err = dialer.Dial()
+			}
+
 			if err != nil {
 				log.Println(err)
 				return

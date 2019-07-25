@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -84,6 +85,7 @@ func NewServer(listen string, config *ServerConfig) error {
 			}
 			defer up.Close()
 
+			log.Println(222)
 			down.Write([]byte("OK\n"))
 			Bridge(down, up, config.SpeedThrot)
 		}(conn)

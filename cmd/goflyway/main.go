@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strconv"
@@ -25,7 +24,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -hvVKgpktTL [address]")
+	fmt.Println("usage: goflyway -LhvVkKgptTw [address]")
 	os.Exit(0)
 }
 
@@ -42,6 +41,8 @@ func main() {
 				case 'L', 'g', 'p', 'k', 't', 'T':
 					last = c
 				case 'v':
+				case 'w':
+					cconfig.WebSocket = true
 				case 'K':
 					sconfig.KCP, cconfig.KCP = true, true
 				case '=':
@@ -106,11 +107,22 @@ func main() {
 		}
 	}
 
+	with := ""
+	switch {
+	case cconfig.WebSocket:
+		with = "using websocket"
+	case cconfig.KCP, sconfig.KCP:
+		with = "using KCP"
+	}
+
 	if localAddr != "" && remoteAddr != "" {
 		cconfig.Bind = remoteAddr
 		cconfig.Upstream = addr
-		log.Println(proxy.NewClient(localAddr, cconfig))
+
+		fmt.Println("goflyway client binds", remoteAddr, "at", addr, "to", localAddr, with)
+		panic(proxy.NewClient(localAddr, cconfig))
 	} else {
-		log.Println(proxy.NewServer(addr, sconfig))
+		fmt.Println("goflyway server listens on", addr, with)
+		panic(proxy.NewServer(addr, sconfig))
 	}
 }
