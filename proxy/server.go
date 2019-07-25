@@ -28,6 +28,7 @@ func (config *commonConfig) check() {
 type ServerConfig struct {
 	commonConfig
 	ProxyPassAddr string
+	SpeedThrot    *TokenBucket
 }
 
 func NewServer(listen string, config *ServerConfig) error {
@@ -84,7 +85,7 @@ func NewServer(listen string, config *ServerConfig) error {
 			defer up.Close()
 
 			down.Write([]byte("OK\n"))
-			Bridge(down, up)
+			Bridge(down, up, config.SpeedThrot)
 		}(conn)
 	}
 }

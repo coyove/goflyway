@@ -74,7 +74,7 @@ func NewClient(localaddr string, config *ClientConfig) error {
 				return
 			}
 
-			Bridge(downconn, upconn)
+			Bridge(downconn, upconn, nil)
 		}(conn)
 	}
 }

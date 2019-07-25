@@ -25,7 +25,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -hvVKgpktL [address]")
+	fmt.Println("usage: goflyway -hvVKgpktTL [address]")
 	os.Exit(0)
 }
 
@@ -38,13 +38,15 @@ func main() {
 				case 'h':
 					printHelp()
 				case 'V':
-					fmt.Println("goflyway v2 (" + version + ")")
-					os.Exit(0)
-				case 'L', 'g', 'p', 'k', 't':
+					printHelp(version)
+				case 'L', 'g', 'p', 'k', 't', 'T':
 					last = c
 				case 'v':
 				case 'K':
 					sconfig.KCP, cconfig.KCP = true, true
+				case '=':
+					i++
+					fallthrough
 				default:
 					if last == 0 {
 						printHelp("illegal option --", string(c))
@@ -56,6 +58,11 @@ func main() {
 			continue
 		}
 	PARSE:
+		if strings.HasPrefix(p, "\"") {
+			if p, _ = strconv.Unquote(p); p == "" {
+				printHelp("illegal option --", string(last))
+			}
+		}
 		switch last {
 		case 'L':
 			switch parts := strings.Split(p, ":"); len(parts) {
@@ -72,6 +79,9 @@ func main() {
 			}
 		case 'g':
 			sconfig.ProxyPassAddr = p
+		case 'T':
+			speed, _ := strconv.ParseInt(p, 10, 64)
+			sconfig.SpeedThrot = proxy.NewTokenBucket(speed, speed*25)
 		case 't':
 			*(*int64)(&cconfig.Timeout), _ = strconv.ParseInt(p+"000000000", 10, 64)
 			sconfig.Timeout = cconfig.Timeout
