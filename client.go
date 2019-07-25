@@ -1,8 +1,8 @@
 package goflyway
 
 import (
+	"github.com/coyove/goflyway/toh"
 	. "github.com/coyove/goflyway/v"
-	"github.com/coyove/tcpmux/toh"
 	kcp "github.com/xtaci/kcp-go"
 
 	"net"

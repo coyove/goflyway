@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coyove/goflyway/toh"
 	. "github.com/coyove/goflyway/v"
-	"github.com/coyove/tcpmux/toh"
 	"github.com/xtaci/kcp-go"
 )
 
@@ -79,10 +79,11 @@ func NewServer(listen string, config *ServerConfig) error {
 			}
 
 			host := string(bytes.TrimRight(buf, "\n"))
-			Vprint(Stacktrace, host)
+			Vprint("dial", host)
 
 			up, err := net.Dial("tcp", host)
 			if err != nil {
+				Vprint(host, err)
 				down.Write([]byte(err.Error() + "\n"))
 				return
 			}
