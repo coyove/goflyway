@@ -2,21 +2,22 @@ package proxy
 
 import (
 	"io"
-	"log"
 	"net"
+
+	. "github.com/coyove/goflyway/v"
 )
 
 func Bridge(target, source net.Conn, timeout *TokenBucket) {
 	go func() {
 		if _, err := ioCopy(target, source, timeout); err != nil {
-			log.Println("Bridge:", err)
+			Vprint("Bridge:", err)
 		}
 		target.Close()
 		source.Close()
 	}()
 
 	if _, err := ioCopy(source, target, timeout); err != nil {
-		log.Println("Bridge:", err)
+		Vprint("Bridge:", err)
 	}
 
 	// Multiple closes, but for tcpmux/toh they are just fine

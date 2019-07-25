@@ -1,10 +1,8 @@
 package proxy
 
 import (
-	"log"
-
+	. "github.com/coyove/goflyway/v"
 	"github.com/coyove/tcpmux/toh"
-
 	kcp "github.com/xtaci/kcp-go"
 
 	"net"
@@ -65,20 +63,20 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			}
 
 			if err != nil {
-				log.Println(err)
+				Vprint(err)
 				return
 			}
 			defer up.Close()
 
 			upconn := toh.NewBufConn(up)
 			if _, err := upconn.Write([]byte(config.Bind + "\n")); err != nil {
-				log.Println(err)
+				Vprint(err)
 				return
 			}
 
 			resp, err := upconn.ReadBytes('\n')
 			if err != nil || string(resp) != "OK\n" {
-				log.Println(err, string(resp))
+				Vprint(err, string(resp))
 				return
 			}
 

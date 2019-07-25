@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/coyove/goflyway/v"
 	"github.com/coyove/tcpmux/toh"
 	"github.com/xtaci/kcp-go"
 )
@@ -74,10 +74,13 @@ func NewServer(listen string, config *ServerConfig) error {
 
 			buf, err := down.ReadBytes('\n')
 			if err != nil || len(buf) < 2 {
+				Vprint(err)
 				return
 			}
 
 			host := string(bytes.TrimRight(buf, "\n"))
+			Vprint(Stacktrace, host)
+
 			up, err := net.Dial("tcp", host)
 			if err != nil {
 				down.Write([]byte(err.Error() + "\n"))
@@ -85,7 +88,6 @@ func NewServer(listen string, config *ServerConfig) error {
 			}
 			defer up.Close()
 
-			log.Println(222)
 			down.Write([]byte("OK\n"))
 			Bridge(down, up, config.SpeedThrot)
 		}(conn)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coyove/common/sched"
 	"github.com/coyove/goflyway/proxy"
 )
 
@@ -24,11 +25,13 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhvVkKgptTw [address]")
+	fmt.Println("usage: goflyway -LhvVkKgptTw address")
 	os.Exit(0)
 }
 
 func main() {
+	sched.Verbose = false
+
 	for i, last := 1, rune(0); i < len(os.Args); i++ {
 		p := strings.TrimLeft(os.Args[i], "-")
 		if len(p) != len(os.Args[i]) {
