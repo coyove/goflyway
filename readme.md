@@ -4,23 +4,19 @@
 
 `master` is the active develop branch and containing v2 code, for the stable v1 release (though it was once called v2.0), please refer to [v1.0 branch](https://github.com/coyove/goflyway/tree/v1.0).
 
-goflyway is a simple HTTP server which serves data over secure connections, featuring:
+goflyway v2 is a special tool to forward local ports to a remote server securly, just like `ssh -L`.
 
-1. HTTP/SOCKS5 proxy with websocket relay
-2. Man-in-the-middle
-2. UDP over TCP tunneling
-2. Local port forwarding / Remote HTTP(S) forwarding 
-2. [Caddy](https://github.com/mholt/caddy) plugin
+goflyway uses pure HTTP POST requests to relay TCP connections. There is no CONNECT involved nor needed because goflyway is designed mainly for those people who are behind a CONNECT-less HTTP proxy or want to accelerate connections through basic CDNs.
 
-For more info, please refer to the [中文wiki](https://github.com/coyove/goflyway/wiki/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B).
+However pure HTTP requesting is definitely a waste of bandwidth if you already have a better network environment, so use `-w` to turn on WebSocket relay, or `-K` to turn on KCP relay if possible.
 
-For detailed command help, please refer to [manual](https://github.com/coyove/goflyway/blob/master/script/man.md).
+## Usage
+```
+Forward localhost:1080 to server:1080
 
-## Android Client
+    ./goflyway -L 1080::1080 server:port -p password
 
-1. https://github.com/coyove/goflyway/wiki/Android-%E5%AE%A2%E6%88%B7%E7%AB%AF
-2. https://github.com/koolwiki/goflyway_android (third party)
+Forward localhost:1080 to server2:1080 through server:port
 
-## iOS/macOS Client
-
-No plan yet.
+    ./goflyway -L 1080:server2:1080 server:port -p password
+```
