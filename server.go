@@ -15,14 +15,19 @@ import (
 )
 
 type commonConfig struct {
-	KCP     bool
-	Key     string
-	Timeout time.Duration
+	WriteBuffer int64
+	KCP         bool
+	Key         string
+	URLPath     string
+	Timeout     time.Duration
 }
 
 func (config *commonConfig) check() {
 	if config.Timeout == 0 {
 		config.Timeout = time.Second * 15
+	}
+	if config.WriteBuffer == 0 {
+		config.WriteBuffer = 1024 * 1024 // 1M
 	}
 }
 
@@ -40,6 +45,10 @@ func NewServer(listen string, config *ServerConfig) error {
 	)
 
 	config.check()
+
+	rp = append(rp,
+		toh.WithMaxWriteBuffer(int(config.WriteBuffer)),
+		toh.WithPath(config.URLPath))
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
@@ -79,14 +88,16 @@ func NewServer(listen string, config *ServerConfig) error {
 			}
 
 			host := string(bytes.TrimRight(buf, "\n"))
-			Vprint("dial", host)
 
-			up, err := net.Dial("tcp", host)
+			dialstart := time.Now()
+			up, err := net.DialTimeout("tcp", host, config.Timeout)
 			if err != nil {
 				Vprint(host, err)
 				down.Write([]byte(err.Error() + "\n"))
 				return
 			}
+
+			Vprint("dial ", host, " in ", time.Since(dialstart).Nanoseconds()/1e6, "ms")
 			defer up.Close()
 
 			down.Write([]byte("OK\n"))

@@ -41,7 +41,7 @@ func (d *Dialer) startOrch() {
 			}
 
 			if loopcount%20 == 0 || positives > 0 {
-				v.Vprint("orch pings: ", pings, "(+", positives, "), directs: ", directs)
+				v.VVprint("orch pings: ", pings, "(+", positives, "), directs: ", directs)
 				directs, pings, positives = 0, 0, 0
 			}
 
@@ -102,7 +102,7 @@ func (d *Dialer) startOrch() {
 					if c := conns[connIdx]; c != nil && !c.read.closed && c.read.err == nil {
 						switch connState {
 						case PING_CLOSED:
-							v.Vprint(c, " the other side is closed")
+							v.Vprint(c, " server side has closed")
 							c.read.feedError(errClosedConn)
 							c.Close()
 						case PING_OK_VOID:

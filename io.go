@@ -10,17 +10,17 @@ import (
 func Bridge(target, source net.Conn, timeout *TokenBucket) {
 	go func() {
 		if _, err := ioCopy(target, source, timeout); err != nil {
-			Vprint("Bridge:", err)
+			Vprint("Bridge: ", err)
 		}
 		target.Close()
 		source.Close()
 	}()
 
 	if _, err := ioCopy(source, target, timeout); err != nil {
-		Vprint("Bridge:", err)
+		Vprint("Bridge: ", err)
 	}
 
-	// Multiple closes, but for tcpmux/toh they are just fine
+	// Multiple closes, but for tohConn they are just fine
 	target.Close()
 	source.Close()
 }

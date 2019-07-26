@@ -36,7 +36,9 @@ func NewClient(localaddr string, config *ClientConfig) error {
 	dialer := toh.NewDialer(config.Key, config.Upstream,
 		toh.WithWebSocket(config.WebSocket),
 		toh.WithInactiveTimeout(config.Timeout),
-		toh.WithTransport(&tr))
+		toh.WithTransport(&tr),
+		toh.WithMaxWriteBuffer(int(config.WriteBuffer)),
+		toh.WithPath(config.URLPath))
 
 	mux, err := net.Listen("tcp", localaddr)
 	if err != nil {
@@ -63,20 +65,20 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			}
 
 			if err != nil {
-				Vprint(err)
+				Vprint("dial server: ", err)
 				return
 			}
 			defer up.Close()
 
 			upconn := toh.NewBufConn(up)
 			if _, err := upconn.Write([]byte(config.Bind + "\n")); err != nil {
-				Vprint(err)
+				Vprint("failed to req: ", err)
 				return
 			}
 
 			resp, err := upconn.ReadBytes('\n')
 			if err != nil || string(resp) != "OK\n" {
-				Vprint(err, string(resp))
+				Vprint("server failed to ack: ", err, ", resp: ", string(resp))
 				return
 			}
 

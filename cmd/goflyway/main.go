@@ -9,6 +9,7 @@ import (
 
 	"github.com/coyove/common/sched"
 	"github.com/coyove/goflyway"
+	"github.com/coyove/goflyway/v"
 )
 
 var (
@@ -25,7 +26,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhvVkKgptTw address")
+	fmt.Println("usage: goflyway -LhIvVkKgptTwW address:port")
 	os.Exit(0)
 }
 
@@ -41,9 +42,10 @@ func main() {
 					printHelp()
 				case 'V':
 					printHelp(version)
-				case 'L', 'g', 'p', 'k', 't', 'T':
+				case 'L', 'g', 'p', 'k', 't', 'T', 'W', 'I':
 					last = c
 				case 'v':
+					v.Verbose++
 				case 'w':
 					cconfig.WebSocket = true
 				case 'K':
@@ -86,11 +88,16 @@ func main() {
 		case 'T':
 			speed, _ := strconv.ParseInt(p, 10, 64)
 			sconfig.SpeedThrot = goflyway.NewTokenBucket(speed, speed*25)
+		case 'W':
+			writebuffer, _ := strconv.ParseInt(p, 10, 64)
+			sconfig.WriteBuffer, cconfig.WriteBuffer = writebuffer, writebuffer
 		case 't':
 			*(*int64)(&cconfig.Timeout), _ = strconv.ParseInt(p+"000000000", 10, 64)
 			sconfig.Timeout = cconfig.Timeout
 		case 'p', 'k':
 			sconfig.Key, cconfig.Key = p, p
+		case 'I':
+			sconfig.URLPath, cconfig.URLPath = p, p
 		default:
 			addr = p
 		}
@@ -98,7 +105,7 @@ func main() {
 	}
 
 	if addr == "" {
-		printHelp("missing address")
+		printHelp("missing address:port")
 	}
 
 	if localAddr != "" && remoteAddr == "" {
@@ -123,6 +130,14 @@ func main() {
 		cconfig.Upstream = addr
 
 		fmt.Println("goflyway client binds", remoteAddr, "at", addr, "to", localAddr, with)
+
+		if a := os.Getenv("http_proxy") + os.Getenv("HTTP_PROXY"); a != "" {
+			fmt.Println("note: system HTTP proxy is set to:", a)
+		}
+		if a := os.Getenv("https_proxy") + os.Getenv("HTTPS_PROXY"); a != "" {
+			fmt.Println("note: system HTTPS proxy is set to:", a)
+		}
+
 		panic(goflyway.NewClient(localAddr, cconfig))
 	} else {
 		fmt.Println("goflyway server listens on", addr, with)

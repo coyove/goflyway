@@ -120,7 +120,7 @@ REWRITE:
 	}
 
 	if len(c.write.buf) > c.dialer.MaxWriteBuffer {
-		v.Vprint("write buffer is full")
+		v.Vprint(c, " write buffer is full")
 		time.Sleep(time.Second)
 		goto REWRITE
 	}
@@ -232,7 +232,7 @@ func (c *ClientConn) respLoop() {
 		k.Cancel()
 		body.Close()
 	}
-	v.Vprint(c, " resp out")
+	v.VVprint(c, " resp out")
 }
 
 func (c *ClientConn) Read(p []byte) (n int, err error) {
@@ -240,5 +240,5 @@ func (c *ClientConn) Read(p []byte) (n int, err error) {
 }
 
 func (c *ClientConn) String() string {
-	return fmt.Sprintf("<C:%x,r:%d,w:%d>", c.idx, c.read.counter, c.write.counter)
+	return fmt.Sprintf("<C:%s,r:%d,w:%d>", formatConnIdx(c.idx), c.read.counter, c.write.counter)
 }

@@ -54,7 +54,7 @@ func (f *frame) marshal(blk cipher.Block) io.Reader {
 
 func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {
 	k := sched.Schedule(func() {
-		v.Vprint("[ParseFrame] waiting too long")
+		v.VVprint("[ParseFrame] waiting too long")
 		r.Close()
 	}, time.Minute)
 	defer k.Cancel()
@@ -100,5 +100,5 @@ func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {
 }
 
 func (f frame) String() string {
-	return fmt.Sprintf("<F:%d,conn:%d,opt:%d,len:%d>", f.idx, f.connIdx, f.options, len(f.data))
+	return fmt.Sprintf("<F:%d,conn:%s,opt:%d,len:%d>", f.idx, formatConnIdx(f.connIdx), f.options, len(f.data))
 }

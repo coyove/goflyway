@@ -13,12 +13,18 @@ import (
 )
 
 var (
-	Verbose    = true
+	Verbose    = 0
 	Stacktrace = new(int)
 )
 
-func Vprint(v ...interface{}) {
-	if !Verbose {
+func Vprint(v ...interface{}) { vprint(1, v...) }
+
+func VVprint(v ...interface{}) { vprint(2, v...) }
+
+func VVVprint(v ...interface{}) { vprint(3, v...) }
+
+func vprint(b int, v ...interface{}) {
+	if b > Verbose {
 		return
 	}
 
@@ -29,7 +35,7 @@ func Vprint(v ...interface{}) {
 		if v[i] == Stacktrace {
 			p := bytes.Buffer{}
 			pc := make([]uintptr, 32)
-			n := runtime.Callers(2, pc)
+			n := runtime.Callers(3, pc)
 			frame := runtime.CallersFrames(pc[:n])
 
 			for {
@@ -60,10 +66,11 @@ func Vprint(v ...interface{}) {
 		}
 	}
 
-	_, fn, line, _ := runtime.Caller(1)
-	now := time.Now().Format("Jan _2 15:04:05.000")
-	str := fmt.Sprint(v...)
-	fmt.Fprintf(os.Stdout, "%s %s:%d] %s\n", now, filepath.Base(fn), line, str)
+	_, fn, line, _ := runtime.Caller(2)
+	str, now := fmt.Sprint(v...), time.Now()
+	fmt.Fprintf(os.Stdout, "dbg%d %s%02d %02d:%02d:%02d %s:%-3d ] %s\n", b,
+		"123456789OXZ"[now.Month()-1:now.Month()], now.Day(), now.Hour(), now.Minute(), now.Second(),
+		filepath.Base(fn), line, str)
 }
 
 // Widnows WSA error messages are way too long to print

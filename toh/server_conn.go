@@ -91,7 +91,7 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 		c := l.conns[hdr.connIdx]
 		l.connsmu.Unlock()
 		if c != nil {
-			v.Vprint(c, " is closing because the other side has closed")
+			v.Vprint(c, " received close ping, client side has closed")
 			c.Close()
 		}
 	case optPing:
@@ -147,7 +147,7 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 		l.connsmu.Unlock()
 
 		l.pendingConns <- conn
-		v.Vprint("server: new conn: ", conn)
+		v.Vprint("accpet new conn: ", conn)
 		conn.reschedDeath()
 		//conn.writeTo(w)
 		return
@@ -172,7 +172,10 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (conn *ServerConn) reschedDeath() {
-	conn.schedPurge.Reschedule(func() { conn.Close() }, conn.rev.Timeout)
+	conn.schedPurge.Reschedule(func() {
+		v.VVVprint(conn, " will die as scheduled")
+		conn.Close()
+	}, conn.rev.Timeout)
 }
 
 func (conn *ServerConn) writeTo(w io.Writer) {
@@ -205,7 +208,7 @@ func (conn *ServerConn) writeTo(w io.Writer) {
 			if time.Now().Before(deadline) {
 				goto AGAIN
 			}
-			v.Vprint("failed to response to client, error: ", err)
+			v.Vprint(conn, " failed to response, error: ", err)
 			conn.read.feedError(err)
 			conn.Close()
 			return
@@ -238,7 +241,7 @@ REWRITE:
 	}
 
 	if len(c.write.buf) > c.rev.MaxWriteBuffer {
-		v.Vprint("write buffer is full")
+		v.Vprint(c, " write buffer is full")
 		time.Sleep(time.Second)
 		goto REWRITE
 	}
@@ -258,7 +261,7 @@ func (c *ServerConn) Close() error {
 		return nil
 	}
 
-	v.Vprint("server: close conn: ", c)
+	v.Vprint(c, " closing")
 	c.schedPurge.Cancel()
 	c.read.close()
 	c.rev.connsmu.Lock()
@@ -277,5 +280,5 @@ func (c *ServerConn) LocalAddr() net.Addr {
 }
 
 func (c *ServerConn) String() string {
-	return fmt.Sprintf("<S:%x,r:%d,w:%d>", c.idx, c.read.counter, c.write.counter)
+	return fmt.Sprintf("<S:%s,r:%d,w:%d>", formatConnIdx(c.idx), c.read.counter, c.write.counter)
 }

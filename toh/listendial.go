@@ -75,7 +75,7 @@ func Listen(network string, address string, options ...Option) (net.Listener, er
 		l.httpServeErr <- http.Serve(ln, mux)
 	}()
 
-	if v.Verbose {
+	if v.Verbose > 0 {
 		go func() {
 			for range time.Tick(time.Second * 5) {
 				ln := 0
@@ -85,7 +85,7 @@ func Listen(network string, address string, options ...Option) (net.Listener, er
 					//v.Vprint(conn, len(conn.write.buf))
 				}
 				l.connsmu.Unlock()
-				v.Vprint("listener active connections: ", len(l.conns), ", pending bytes: ", ln)
+				v.VVprint("listener active connections: ", len(l.conns), ", pending bytes: ", ln)
 			}
 		}()
 	}
