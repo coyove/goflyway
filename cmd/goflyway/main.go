@@ -27,7 +27,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhIvVkKgptTwW address:port")
+	fmt.Println("usage: goflyway -LhuIvVkKpPtTwW address:port")
 	os.Exit(0)
 }
 
@@ -43,7 +43,7 @@ func main() {
 					printHelp()
 				case 'V':
 					printHelp(version)
-				case 'L', 'g', 'p', 'k', 't', 'T', 'W', 'I':
+				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'I', 'u':
 					last = c
 				case 'v':
 					v.Verbose++
@@ -84,7 +84,7 @@ func main() {
 			default:
 				printHelp("illegal option --", string(last), p)
 			}
-		case 'g':
+		case 'P':
 			sconfig.ProxyPassAddr = p
 		case 'T':
 			speed, _ := strconv.ParseInt(p, 10, 64)
@@ -99,6 +99,8 @@ func main() {
 			sconfig.Key, cconfig.Key = p, p
 		case 'I':
 			sconfig.URLPath, cconfig.URLPath = p, p
+		case 'u':
+			cconfig.URLHeader = p
 		default:
 			addr = p
 		}
@@ -132,22 +134,27 @@ func main() {
 		cconfig.Stat = &goflyway.Traffic{}
 
 		go func() {
+			f := func(v float64) string {
+				return strconv.FormatFloat(v, 'f', 3, 64)
+			}
+
 			p := func(v int64) string {
 				if v > 1024*1024*1024*10 {
-					return fmt.Sprintf("%.3fG", float64(v)/1024/1024/1024)
+					return f(float64(v)/1024/1024/1024) + "G"
 				}
-				return fmt.Sprintf("%.3fM", float64(v)/1024/1024)
+				return f(float64(v)/1024/1024) + "M"
 			}
 
 			var lastSent, lastRecv int64
 
 			for range time.Tick(time.Second * 5) {
 				s, r := *cconfig.Stat.Sent(), *cconfig.Stat.Recv()
-				ss := strconv.FormatFloat(float64(s-lastSent)/1024/1024/5, 'f', 3, 64)
-				rs := strconv.FormatFloat(float64(r-lastRecv)/1024/1024/5, 'f', 3, 64)
+				sv, rv := float64(s-lastSent)/1024/1024/5, float64(r-lastRecv)/1024/1024/5
 				lastSent, lastRecv = s, r
 
-				v.Vprint("client send: ", p(s), " (", ss, "M/s), recv: ", p(r), " (", rs, "M/s)")
+				if sv >= 0.001 || rv >= 0.001 {
+					v.Vprint("client send: ", p(s), " (", f(sv), "M/s), recv: ", p(r), " (", f(rv), "M/s)")
+				}
 			}
 		}()
 

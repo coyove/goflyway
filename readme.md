@@ -14,18 +14,17 @@ However pure HTTP requesting is definitely a waste of bandwidth if you already h
 ```
 Forward localhost:1080 to server:1080
 
-    Server: ./goflyway :port
+    Server: ./goflyway :80
     Client: ./goflyway -L 1080::1080 server:port -p password
 
-Forward localhost:1080 to server2:1080 through server:port using WebSocket
+Forward localhost:1080 to server2:1080 through server:80 using WebSocket
 
-    Server: ./goflyway :port
-    Client: ./goflyway -w -L 1080:server2:1080 server:port -p password
+    Server: ./goflyway :80
+    Client: ./goflyway -w -L 1080:server2:1080 server:80 -p password
 
-Server as well as an HTTP reversed proxy or static file server on the same port:
+Port forward server as well as an HTTP reverse proxy or static file server on the same port:
 
-    Server: ./goflyway :port -I http://127.0.0.1:8080
-    Server: ./goflyway :port -I /var/www/html
+    Server: ./goflyway :80 -P http://127.0.0.1:8080 or ./goflyway :80 -P /var/www/html
 ```
 
 ## Write Buffer

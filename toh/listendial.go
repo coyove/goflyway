@@ -100,6 +100,7 @@ type Dialer struct {
 
 	Transport http.RoundTripper
 	WebSocket bool
+	URLHeader string
 	CommonOptions
 }
 

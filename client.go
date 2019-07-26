@@ -13,6 +13,7 @@ type ClientConfig struct {
 	commonConfig
 	Upstream  string
 	Bind      string
+	URLHeader string
 	WebSocket bool
 	VPN       bool
 }
@@ -38,7 +39,8 @@ func NewClient(localaddr string, config *ClientConfig) error {
 		toh.WithInactiveTimeout(config.Timeout),
 		toh.WithTransport(&tr),
 		toh.WithMaxWriteBuffer(int(config.WriteBuffer)),
-		toh.WithPath(config.URLPath))
+		toh.WithPath(config.URLPath),
+		toh.WithHeader(config.URLHeader))
 
 	mux, err := net.Listen("tcp", localaddr)
 	if err != nil {

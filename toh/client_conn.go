@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +213,12 @@ func (c *ClientConn) send(f frame) (resp *http.Response, err error) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://"+c.dialer.endpoint+c.dialer.URLPath, f.marshal(c.read.blk))
+
+	if parts := strings.Split(c.dialer.URLHeader, "="); len(parts) == 2 {
+		v.Vprint(parts)
+		req.Header.Add(parts[0], parts[1])
+	}
+
 	resp, err = client.Do(req)
 	if err != nil {
 		return nil, err

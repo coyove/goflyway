@@ -68,6 +68,13 @@ var (
 			}
 		})
 	}
+	WithHeader = func(hdr string) Option {
+		return Option(func(d *Dialer, ln *Listener) {
+			if d != nil {
+				d.URLHeader = hdr
+			}
+		})
+	}
 	WithBadRequest = func(callback http.HandlerFunc) Option {
 		return Option(func(d *Dialer, ln *Listener) {
 			if ln != nil {
