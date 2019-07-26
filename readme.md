@@ -1,4 +1,4 @@
-# goflyway - an encrypted HTTP server
+# goflyway v2 - an HTTP-based local port forwarder
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
@@ -14,9 +14,22 @@ However pure HTTP requesting is definitely a waste of bandwidth if you already h
 ```
 Forward localhost:1080 to server:1080
 
-    ./goflyway -L 1080::1080 server:port -p password
+    Server: ./goflyway :port
+    Client: ./goflyway -L 1080::1080 server:port -p password
 
-Forward localhost:1080 to server2:1080 through server:port
+Forward localhost:1080 to server2:1080 through server:port using WebSocket
 
-    ./goflyway -L 1080:server2:1080 server:port -p password
+    Server: ./goflyway :port
+    Client: ./goflyway -w -L 1080:server2:1080 server:port -p password
+
+Server as well as an HTTP reversed proxy or static file server on the same port:
+
+    Server: ./goflyway :port -I http://127.0.0.1:8080
+    Server: ./goflyway :port -I /var/www/html
 ```
+
+## Write Buffer
+
+In HTTP mode when server received some data it can't just send them to the client directly because HTTP is not bi-directional, instead the server must wait until the client requests them, which means these data will be stored in memory for some time.
+
+You can use `-W bytes` to limit the maximum bytes a server can buffer (for each connection), by default it is 1048576 (1M). If the buffer reaches the limit, the following bytes will be blocked until the buffer has free space for them.

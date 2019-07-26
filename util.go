@@ -67,3 +67,22 @@ func (tb *TokenBucket) Consume(n int64) {
 	tb.capacity = 0
 	tb.lastConsume = time.Now()
 }
+
+type Traffic struct {
+	sent     int64
+	received int64
+}
+
+func (t *Traffic) Sent() *int64 {
+	if t == nil {
+		return nil
+	}
+	return &t.sent
+}
+
+func (t *Traffic) Recv() *int64 {
+	if t == nil {
+		return nil
+	}
+	return &t.received
+}

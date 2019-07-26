@@ -3,20 +3,21 @@ package goflyway
 import (
 	"io"
 	"net"
+	"sync/atomic"
 
 	. "github.com/coyove/goflyway/v"
 )
 
-func Bridge(target, source net.Conn, timeout *TokenBucket) {
+func Bridge(target, source net.Conn, timeout *TokenBucket, stat *Traffic) {
 	go func() {
-		if _, err := ioCopy(target, source, timeout); err != nil {
+		if err := ioCopy(target, source, timeout, stat.Sent()); err != nil {
 			Vprint("Bridge: ", err)
 		}
 		target.Close()
 		source.Close()
 	}()
 
-	if _, err := ioCopy(source, target, timeout); err != nil {
+	if err := ioCopy(source, target, timeout, stat.Recv()); err != nil {
 		Vprint("Bridge: ", err)
 	}
 
@@ -25,7 +26,7 @@ func Bridge(target, source net.Conn, timeout *TokenBucket) {
 	source.Close()
 }
 
-func ioCopy(dst io.WriteCloser, src io.ReadCloser, bk *TokenBucket) (written int64, err error) {
+func ioCopy(dst io.WriteCloser, src io.ReadCloser, bk *TokenBucket, bytes *int64) (err error) {
 	buf := make([]byte, 32*1024)
 
 	for {
@@ -37,8 +38,9 @@ func ioCopy(dst io.WriteCloser, src io.ReadCloser, bk *TokenBucket) (written int
 			}
 
 			nw, ew := dst.Write(buf[0:nr])
-			if nw > 0 {
-				written += int64(nw)
+
+			if nw > 0 && bytes != nil {
+				atomic.AddInt64(bytes, int64(nw))
 			}
 
 			if ew != nil {
@@ -52,8 +54,6 @@ func ioCopy(dst io.WriteCloser, src io.ReadCloser, bk *TokenBucket) (written int
 				err = io.ErrShortWrite
 				break
 			}
-
-			// retries = 0
 		}
 
 		if er != nil {
@@ -64,5 +64,5 @@ func ioCopy(dst io.WriteCloser, src io.ReadCloser, bk *TokenBucket) (written int
 		}
 	}
 
-	return written, err
+	return err
 }

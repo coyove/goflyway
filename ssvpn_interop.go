@@ -10,9 +10,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/coyove/goflyway/pkg/trafficmon"
-
-	"github.com/coyove/goflyway/pkg/fd"
+	"github.com/coyove/goflyway/fd"
 )
 
 func vpnDial(address string) (net.Conn, error) {
@@ -72,7 +70,7 @@ func protectFD(fd int) error {
 	return nil
 }
 
-func sendTrafficStats(stat *trafficmon.Survey) error {
+func sendTrafficStats(recv, send int64) error {
 	const errm = "sending traffic stats failed"
 
 	sock, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
@@ -88,9 +86,8 @@ func sendTrafficStats(stat *trafficmon.Survey) error {
 	}
 
 	payload := make([]byte, 16)
-	totalRecved, totalSent := stat.Data()
-	binary.LittleEndian.PutUint64(payload, uint64(totalSent))
-	binary.LittleEndian.PutUint64(payload[8:], uint64(totalRecved))
+	binary.LittleEndian.PutUint64(payload, uint64(send))
+	binary.LittleEndian.PutUint64(payload[8:], uint64(recv))
 
 	if n, err := syscall.Write(sock, payload); err != nil {
 		return err

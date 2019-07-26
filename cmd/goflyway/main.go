@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coyove/common/sched"
 	"github.com/coyove/goflyway"
@@ -128,6 +129,27 @@ func main() {
 	if localAddr != "" && remoteAddr != "" {
 		cconfig.Bind = remoteAddr
 		cconfig.Upstream = addr
+		cconfig.Stat = &goflyway.Traffic{}
+
+		go func() {
+			p := func(v int64) string {
+				if v > 1024*1024*1024*10 {
+					return fmt.Sprintf("%.3fG", float64(v)/1024/1024/1024)
+				}
+				return fmt.Sprintf("%.3fM", float64(v)/1024/1024)
+			}
+
+			var lastSent, lastRecv int64
+
+			for range time.Tick(time.Second * 5) {
+				s, r := *cconfig.Stat.Sent(), *cconfig.Stat.Recv()
+				ss := strconv.FormatFloat(float64(s-lastSent)/1024/1024/5, 'f', 3, 64)
+				rs := strconv.FormatFloat(float64(r-lastRecv)/1024/1024/5, 'f', 3, 64)
+				lastSent, lastRecv = s, r
+
+				v.Vprint("client send: ", p(s), " (", ss, "M/s), recv: ", p(r), " (", rs, "M/s)")
+			}
+		}()
 
 		fmt.Println("goflyway client binds", remoteAddr, "at", addr, "to", localAddr, with)
 

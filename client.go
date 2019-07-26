@@ -82,7 +82,7 @@ func NewClient(localaddr string, config *ClientConfig) error {
 				return
 			}
 
-			Bridge(downconn, upconn, nil)
+			Bridge(upconn, downconn, nil, config.Stat)
 		}(conn)
 	}
 }

@@ -20,6 +20,7 @@ type commonConfig struct {
 	Key         string
 	URLPath     string
 	Timeout     time.Duration
+	Stat        *Traffic
 }
 
 func (config *commonConfig) check() {
@@ -101,7 +102,7 @@ func NewServer(listen string, config *ServerConfig) error {
 			defer up.Close()
 
 			down.Write([]byte("OK\n"))
-			Bridge(down, up, config.SpeedThrot)
+			Bridge(up, down, config.SpeedThrot, config.Stat)
 		}(conn)
 	}
 }
