@@ -62,16 +62,11 @@ func (l *Listener) randomReply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
-	if l.URLPath != "" && r.URL.Path != l.URLPath {
-		l.randomReply(w, r)
-		return
-	}
-
 	if strings.ToLower(r.Header.Get("Sec-WebSocket-Key")) != "" {
 		conn, err := l.wsHandShake(w, r)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
+			v.Vprint("websocket handshake error: ", err)
 		} else {
 			l.pendingConns <- conn
 		}
@@ -116,7 +111,7 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 		l.connsmu.Unlock()
 
 		f := frame{options: optPing, data: p.Bytes()}
-		io.Copy(w, f.marshal(l.blk))
+		w.Write(f.marshal(l.blk))
 		return
 	default:
 		l.randomReply(w, r)
@@ -204,7 +199,7 @@ func (conn *ServerConn) writeTo(w io.Writer) {
 
 		deadline := time.Now().Add(conn.rev.Timeout - time.Second)
 	AGAIN:
-		if _, err := io.Copy(w, f.marshal(conn.read.blk)); err != nil {
+		if _, err := w.Write(f.marshal(conn.read.blk)); err != nil {
 			if time.Now().Before(deadline) {
 				goto AGAIN
 			}

@@ -30,7 +30,7 @@ type frame struct {
 }
 
 // connection id 8b | data idx 4b | data length 4b | hash 3b | option 1b
-func (f *frame) marshal(blk cipher.Block) io.Reader {
+func (f *frame) marshal(blk cipher.Block) []byte {
 	buf := [20]byte{}
 	binary.BigEndian.PutUint32(buf[:4], f.idx)
 	binary.BigEndian.PutUint64(buf[4:], f.connIdx)
@@ -46,10 +46,15 @@ func (f *frame) marshal(blk cipher.Block) io.Reader {
 	blk.Encrypt(buf[:], buf[:])
 	blk.Encrypt(buf[4:], buf[4:])
 
-	if f.next == nil {
-		return io.MultiReader(bytes.NewReader(buf[:]), bytes.NewReader(x))
+	p := new(bytes.Buffer)
+	p.Write(buf[:])
+	p.Write(x)
+
+	if f.next != nil {
+		p.Write(f.next.marshal(blk))
 	}
-	return io.MultiReader(bytes.NewReader(buf[:]), bytes.NewReader(x), f.next.marshal(blk))
+
+	return p.Bytes()
 }
 
 func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {

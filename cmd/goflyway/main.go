@@ -27,7 +27,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhuIvVkKpPtTwW address:port")
+	fmt.Println("usage: goflyway -LhuvVkKpPtTwW address:port")
 	os.Exit(0)
 }
 
@@ -43,7 +43,7 @@ func main() {
 					printHelp()
 				case 'V':
 					printHelp(version)
-				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'I', 'u':
+				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u':
 					last = c
 				case 'v':
 					v.Verbose++
@@ -97,8 +97,6 @@ func main() {
 			sconfig.Timeout = cconfig.Timeout
 		case 'p', 'k':
 			sconfig.Key, cconfig.Key = p, p
-		case 'I':
-			sconfig.URLPath, cconfig.URLPath = p, p
 		case 'u':
 			cconfig.URLHeader = p
 		default:
@@ -134,17 +132,6 @@ func main() {
 		cconfig.Stat = &goflyway.Traffic{}
 
 		go func() {
-			f := func(v float64) string {
-				return strconv.FormatFloat(v, 'f', 3, 64)
-			}
-
-			p := func(v int64) string {
-				if v > 1024*1024*1024*10 {
-					return f(float64(v)/1024/1024/1024) + "G"
-				}
-				return f(float64(v)/1024/1024) + "M"
-			}
-
 			var lastSent, lastRecv int64
 
 			for range time.Tick(time.Second * 5) {
@@ -153,7 +140,7 @@ func main() {
 				lastSent, lastRecv = s, r
 
 				if sv >= 0.001 || rv >= 0.001 {
-					v.Vprint("client send: ", p(s), " (", f(sv), "M/s), recv: ", p(r), " (", f(rv), "M/s)")
+					v.Vprint("client send: ", float64(s)/1024/1024, "M (", sv, "M/s), recv: ", float64(r)/1024/1024, "M (", rv, "M/s)")
 				}
 			}
 		}()

@@ -1,11 +1,13 @@
 package toh
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math/rand"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,6 +46,7 @@ func (d *Dialer) Dial() (net.Conn, error) {
 }
 
 func (d *Dialer) newClientConn() (net.Conn, error) {
+
 	c := &ClientConn{dialer: d}
 	c.idx = newConnectionIdx()
 	c.write.survey.pendingSize = 1
@@ -212,11 +215,17 @@ func (c *ClientConn) send(f frame) (resp *http.Response, err error) {
 		Transport: c.dialer.Transport,
 	}
 
-	req, _ := http.NewRequest("POST", "http://"+c.dialer.endpoint+c.dialer.URLPath, f.marshal(c.read.blk))
+	body := f.marshal(c.read.blk)
+	req, _ := http.NewRequest("POST", "http://"+c.dialer.endpoint+"/"+strconv.FormatUint(rand.Uint64(), 10), bytes.NewReader(body))
 
 	if parts := strings.Split(c.dialer.URLHeader, "="); len(parts) == 2 {
 		v.Vprint(parts)
 		req.Header.Add(parts[0], parts[1])
+	}
+
+	if len(body) > 1024*4 {
+		// log of sending big payload
+		v.VVVprint(c, " heavy sending ", float64(len(body))/1024, "K")
 	}
 
 	resp, err = client.Do(req)

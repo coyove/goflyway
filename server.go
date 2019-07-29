@@ -18,7 +18,6 @@ type commonConfig struct {
 	WriteBuffer int64
 	KCP         bool
 	Key         string
-	URLPath     string
 	Timeout     time.Duration
 	Stat        *Traffic
 }
@@ -47,9 +46,7 @@ func NewServer(listen string, config *ServerConfig) error {
 
 	config.check()
 
-	rp = append(rp,
-		toh.WithMaxWriteBuffer(int(config.WriteBuffer)),
-		toh.WithPath(config.URLPath))
+	rp = append(rp, toh.WithMaxWriteBuffer(int(config.WriteBuffer)))
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {

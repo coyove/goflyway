@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 var (
 	Verbose    = 0
 	Stacktrace = new(int)
+	FloatPrec  = 3
 )
 
 func Vprint(v ...interface{}) { vprint(1, v...) }
@@ -31,6 +33,12 @@ func vprint(b int, v ...interface{}) {
 	for i := range v {
 		if err, _ := v[i].(error); err != nil {
 			v[i] = tryShortenWSAError(err)
+		}
+		if num, ok := v[i].(float64); ok && float64(int64(num)) != num {
+			v[i] = strconv.FormatFloat(num, 'f', FloatPrec, 64)
+		}
+		if num, ok := v[i].(float32); ok && float32(int32(num)) != num {
+			v[i] = strconv.FormatFloat(float64(num), 'f', FloatPrec, 64)
 		}
 		if v[i] == Stacktrace {
 			p := bytes.Buffer{}

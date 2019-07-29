@@ -6,7 +6,6 @@ import (
 	kcp "github.com/xtaci/kcp-go"
 
 	"net"
-	"net/http"
 )
 
 type ClientConfig struct {
@@ -21,25 +20,27 @@ type ClientConfig struct {
 func NewClient(localaddr string, config *ClientConfig) error {
 	config.check()
 
-	tr := *http.DefaultTransport.(*http.Transport)
-	tr.MaxConnsPerHost = 100
-	tr.Dial = func(network string, address string) (net.Conn, error) {
-		switch {
-		case config.KCP:
-			return kcp.Dial(address)
-		case config.VPN:
-			return vpnDial(address)
-		default:
-			return net.Dial(network, address)
-		}
-	}
+	//tr := *http.DefaultTransport.(*http.Transport)
+	//tr.MaxConnsPerHost = 100
+	//http.DefaultTransport.(*http.Transport).DialContext = func(ctx context.Context, network string, address string) (net.Conn, error) {
+	//	switch {
+	//	case config.KCP:
+	//		return kcp.Dial(address)
+	//	case config.VPN:
+	//		return vpnDial(address)
+	//	default:
+	//		conn, err := net.Dial(network, address)
+	//		Vprint(conn.Write([]byte("POST /1.txt HTTP/1.1\r\nHost: toh22.test.upcdn.net:80\r\nContent-Length: 2\r\nContent-Type: application/x-www-form-urlencoded\r\nUser-Agent: curl/7.54.0\r\n\r\n\x01\x02")))
+	//		Vprint(conn)
+	//		return conn, err
+	//	}
+	//}
 
 	dialer := toh.NewDialer(config.Key, config.Upstream,
 		toh.WithWebSocket(config.WebSocket),
 		toh.WithInactiveTimeout(config.Timeout),
-		toh.WithTransport(&tr),
+		// toh.WithTransport(&tr),
 		toh.WithMaxWriteBuffer(int(config.WriteBuffer)),
-		toh.WithPath(config.URLPath),
 		toh.WithHeader(config.URLHeader))
 
 	mux, err := net.Listen("tcp", localaddr)

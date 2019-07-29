@@ -7,7 +7,6 @@ import (
 )
 
 type CommonOptions struct {
-	URLPath        string
 	MaxWriteBuffer int
 	Timeout        time.Duration
 }
@@ -55,16 +54,6 @@ var (
 			}
 			if ln != nil {
 				ln.MaxWriteBuffer = size
-			}
-		})
-	}
-	WithPath = func(path string) Option {
-		return Option(func(d *Dialer, ln *Listener) {
-			if d != nil {
-				d.URLPath = path
-			}
-			if ln != nil {
-				ln.URLPath = path
 			}
 		})
 	}
