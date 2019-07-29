@@ -1,4 +1,4 @@
-# goflyway v2 - an HTTP-based local port forwarder
+# goflyway v2 - a local port forwarder built on HTTP
 
 ![](https://raw.githubusercontent.com/coyove/goflyway/gdev/.misc/logo.png)
 
@@ -6,25 +6,30 @@
 
 goflyway v2 is a special tool to forward local ports to a remote server securly, just like `ssh -L`.
 
-goflyway uses pure HTTP POST requests to relay TCP connections. There is no CONNECT involved nor needed because goflyway is designed mainly for those people who are behind a CONNECT-less HTTP proxy or want to accelerate connections through basic CDNs.
+goflyway uses pure HTTP POST requests to relay TCP connections. There is no CONNECT involved nor needed because goflyway is designed mainly for those people who are behind a CONNECT-less HTTP proxy or want to accelerate connections through static CDNs.
 
 However pure HTTP requesting is definitely a waste of bandwidth if you already have a better network environment, so use `-w` to turn on WebSocket relay, or `-K` to turn on KCP relay if possible.
 
 ## Usage
+Forward `localhost:1080` to `server:1080` through `server:80`
+
 ```
-Forward localhost:1080 to server:1080
-
     Server: ./goflyway :80
-    Client: ./goflyway -L 1080::1080 server:port -p password
+    Client: ./goflyway -L 1080::1080 server:80 -p password
+```
 
-Forward localhost:1080 to server2:1080 through server:80 using WebSocket
+Forward `localhost:1080` to `server2:1080` through `server:80` using WebSocket
 
+```
     Server: ./goflyway :80
     Client: ./goflyway -w -L 1080:server2:1080 server:80 -p password
+```
 
-Port forward server as well as an HTTP reverse proxy or static file server on the same port:
+HTTP reverse proxy or static file server on the same port:
 
-    Server: ./goflyway :80 -P http://127.0.0.1:8080 or ./goflyway :80 -P /var/www/html
+```
+    ./goflyway :80 -P http://127.0.0.1:8080 
+    ./goflyway :80 -P /var/www/html
 ```
 
 ## Write Buffer
