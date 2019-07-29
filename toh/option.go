@@ -64,6 +64,13 @@ var (
 			}
 		})
 	}
+	WithPathPattern = func(pattern string) Option {
+		return Option(func(d *Dialer, ln *Listener) {
+			if d != nil {
+				d.PathPattern = pattern
+			}
+		})
+	}
 	WithBadRequest = func(callback http.HandlerFunc) Option {
 		return Option(func(d *Dialer, ln *Listener) {
 			if ln != nil {

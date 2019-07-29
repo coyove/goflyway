@@ -4,8 +4,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -98,9 +101,10 @@ type Dialer struct {
 	orch     chan *ClientConn
 	blk      cipher.Block
 
-	Transport http.RoundTripper
-	WebSocket bool
-	URLHeader string
+	Transport   http.RoundTripper
+	WebSocket   bool
+	URLHeader   string
+	PathPattern string
 	CommonOptions
 }
 
@@ -121,7 +125,18 @@ func NewDialer(network string, endpoint string, options ...Option) *Dialer {
 	if !d.WebSocket {
 		d.startOrch()
 	}
+	if !strings.HasPrefix(d.PathPattern, "/") {
+		d.PathPattern = "/"
+	}
 	d.check()
 
 	return d
+}
+
+func (d *Dialer) Path() string {
+	r := strconv.FormatUint(rand.Uint64(), 10)
+	if strings.HasSuffix(d.PathPattern, "/") {
+		return d.PathPattern + r
+	}
+	return d.PathPattern + "/" + r
 }

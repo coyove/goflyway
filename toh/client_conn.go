@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -216,7 +215,8 @@ func (c *ClientConn) send(f frame) (resp *http.Response, err error) {
 	}
 
 	body := f.marshal(c.read.blk)
-	req, _ := http.NewRequest("POST", "http://"+c.dialer.endpoint+"/"+strconv.FormatUint(rand.Uint64(), 10), bytes.NewReader(body))
+	path := "http://" + c.dialer.endpoint + c.dialer.Path()
+	req, _ := http.NewRequest("POST", path, bytes.NewReader(body))
 
 	if parts := strings.Split(c.dialer.URLHeader, "="); len(parts) == 2 {
 		v.Vprint(parts)

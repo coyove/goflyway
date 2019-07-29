@@ -27,7 +27,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhuvVkKpPtTwW address:port")
+	fmt.Println("usage: goflyway -LhuUvVkKpPtTwW address:port")
 	os.Exit(0)
 }
 
@@ -43,7 +43,7 @@ func main() {
 					printHelp()
 				case 'V':
 					printHelp(version)
-				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u':
+				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u', 'U':
 					last = c
 				case 'v':
 					v.Verbose++
@@ -86,6 +86,8 @@ func main() {
 			}
 		case 'P':
 			sconfig.ProxyPassAddr = p
+		case 'U':
+			cconfig.PathPattern = p
 		case 'T':
 			speed, _ := strconv.ParseInt(p, 10, 64)
 			sconfig.SpeedThrot = goflyway.NewTokenBucket(speed, speed*25)
@@ -121,7 +123,7 @@ func main() {
 	with := ""
 	switch {
 	case cconfig.WebSocket:
-		with = "using websocket"
+		with = "using WebSocket"
 	case cconfig.KCP, sconfig.KCP:
 		with = "using KCP"
 	}

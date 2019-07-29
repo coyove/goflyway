@@ -10,11 +10,12 @@ import (
 
 type ClientConfig struct {
 	commonConfig
-	Upstream  string
-	Bind      string
-	URLHeader string
-	WebSocket bool
-	VPN       bool
+	Upstream    string
+	Bind        string
+	URLHeader   string
+	PathPattern string
+	WebSocket   bool
+	VPN         bool
 }
 
 func NewClient(localaddr string, config *ClientConfig) error {
