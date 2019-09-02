@@ -171,6 +171,10 @@ func (c *ClientConn) sendWriteBuf() {
 		return
 	}
 
+	if c.read.closed {
+		return
+	}
+
 	f := frame{
 		idx:     rand.Uint32(),
 		connIdx: c.idx,

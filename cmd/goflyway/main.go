@@ -43,7 +43,7 @@ func main() {
 					printHelp()
 				case 'V':
 					printHelp(version)
-				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u', 'U':
+				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u', 'U', 'D':
 					last = c
 				case 'v':
 					v.Verbose++
@@ -71,6 +71,9 @@ func main() {
 			}
 		}
 		switch last {
+		case 'D':
+			cconfig.Dynamic = true
+			fallthrough
 		case 'L':
 			switch parts := strings.Split(p, ":"); len(parts) {
 			case 1:
