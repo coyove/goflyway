@@ -73,6 +73,10 @@ type Traffic struct {
 	received int64
 }
 
+func (t *Traffic) Set(s, r int64) {
+	t.sent, t.received = s, r
+}
+
 func (t *Traffic) Sent() *int64 {
 	if t == nil {
 		return nil

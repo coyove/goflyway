@@ -78,16 +78,17 @@ func vprint(b int, v ...interface{}) {
 
 	var (
 		_, fn, line, _ = runtime.Caller(2)
-		str            = strings.TrimRightFunc(fmt.Sprint(v...), func(r rune) bool { return r == '\r' || r == '\n' })
+		str            = strings.TrimRightFunc(fmt.Sprint(v...), trimNewline)
 		now            = time.Now()
 		lead           = "dbg" + strconv.Itoa(b)
+		out            = os.Stdout
 	)
 
 	if b == 0 {
-		lead = "error"
+		lead, out = "error", os.Stderr
 	}
 
-	fmt.Fprintf(os.Stdout, lead+" %s%02d %02d:%02d:%02d %s:%-3d ] %s\n",
+	fmt.Fprintf(out, lead+" %s%02d %02d:%02d:%02d %s:%-3d ] %s\n",
 		"123456789OXZ"[now.Month()-1:now.Month()], now.Day(), now.Hour(), now.Minute(), now.Second(),
 		filepath.Base(fn), line, str)
 }
@@ -115,4 +116,8 @@ func tryShortenWSAError(err interface{}) (ret string) {
 
 	ret = err.(*net.OpError).Err.Error()
 	return
+}
+
+func trimNewline(r rune) bool {
+	return r == '\r' || r == '\n'
 }

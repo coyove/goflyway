@@ -25,6 +25,13 @@ Forward `localhost:1080` to `server2:1080` through `server:80` using WebSocket
     Client: ./goflyway -w -L 1080:server2:1080 server:80 -p password
 ```
 
+Dynamically forward `localhost:1080` to `server:80` 
+
+```
+    Server: ./goflyway :80
+    Client: ./goflyway -D 1080 server:80 -p password
+```
+
 HTTP reverse proxy or static file server on the same port:
 
 ```

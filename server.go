@@ -11,12 +11,10 @@ import (
 
 	"github.com/coyove/goflyway/toh"
 	. "github.com/coyove/goflyway/v"
-	"github.com/xtaci/kcp-go"
 )
 
 type commonConfig struct {
 	WriteBuffer int64
-	KCP         bool
 	Key         string
 	Timeout     time.Duration
 	Stat        *Traffic
@@ -38,15 +36,9 @@ type ServerConfig struct {
 }
 
 func NewServer(listen string, config *ServerConfig) error {
-	var (
-		err      error
-		listener net.Listener
-		rp       []toh.Option
-	)
-
 	config.check()
 
-	rp = append(rp, toh.WithMaxWriteBuffer(int(config.WriteBuffer)))
+	rp := append([]toh.Option{}, toh.WithMaxWriteBuffer(int(config.WriteBuffer)))
 
 	if config.ProxyPassAddr != "" {
 		if strings.HasPrefix(config.ProxyPassAddr, "http") {
@@ -60,11 +52,7 @@ func NewServer(listen string, config *ServerConfig) error {
 		}
 	}
 
-	if config.KCP {
-		listener, err = kcp.Listen(listen)
-	} else {
-		listener, err = toh.Listen(config.Key, listen, rp...)
-	}
+	listener, err := toh.Listen(config.Key, listen, rp...)
 	if err != nil {
 		return err
 	}

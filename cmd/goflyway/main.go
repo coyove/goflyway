@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,12 +17,13 @@ import (
 )
 
 var (
-	version    = "__devel__"
-	remoteAddr string
-	localAddr  string
-	addr       string
-	cconfig    = &goflyway.ClientConfig{}
-	sconfig    = &goflyway.ServerConfig{}
+	version      = "__devel__"
+	remoteAddr   string
+	localAddr    string
+	addr         string
+	resetTraffic bool
+	cconfig      = &goflyway.ClientConfig{}
+	sconfig      = &goflyway.ServerConfig{}
 )
 
 func printHelp(a ...interface{}) {
@@ -27,7 +31,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -DLhuUvVkKqpPtTwW address:port")
+	fmt.Println("usage: goflyway -DLhuUvVkqpPtTwWy address:port")
 	os.Exit(0)
 }
 
@@ -51,8 +55,8 @@ func main() {
 					v.Verbose = -1
 				case 'w':
 					cconfig.WebSocket = true
-				case 'K':
-					sconfig.KCP, cconfig.KCP = true, true
+				case 'y':
+					resetTraffic = true
 				case '=':
 					i++
 					fallthrough
@@ -130,49 +134,58 @@ func main() {
 		}
 	}
 
-	with := ""
-	switch {
-	case cconfig.WebSocket:
-		with = "using WebSocket"
-	case cconfig.KCP, sconfig.KCP:
-		with = "using KCP"
-	}
-
 	if localAddr != "" && remoteAddr != "" {
 		cconfig.Bind = remoteAddr
 		cconfig.Upstream = addr
 		cconfig.Stat = &goflyway.Traffic{}
 
-		go func() {
-			var lastSent, lastRecv int64
-
-			for range time.Tick(time.Second * 5) {
-				s, r := *cconfig.Stat.Sent(), *cconfig.Stat.Recv()
-				sv, rv := float64(s-lastSent)/1024/1024/5, float64(r-lastRecv)/1024/1024/5
-				lastSent, lastRecv = s, r
-
-				if sv >= 0.001 || rv >= 0.001 {
-					v.Vprint("client send: ", float64(s)/1024/1024, "M (", sv, "M/s), recv: ", float64(r)/1024/1024, "M (", rv, "M/s)")
-				}
-			}
-		}()
-
-		if cconfig.Dynamic {
-			v.Vprint("forward dynamically (SOCKS5) at local:", localAddr, "to remote:", addr, with)
-		} else {
-			v.Vprint("bind", remoteAddr, "at remote:", addr, "to local:", localAddr, with)
+		if v.Verbose > 0 {
+			go watchTraffic(cconfig, resetTraffic)
 		}
-
+		if cconfig.Dynamic {
+			v.Vprint("dynamic: forward ", localAddr, " to * through ", addr)
+		} else {
+			v.Vprint("forward ", localAddr, " to ", remoteAddr, " through ", addr)
+		}
+		if cconfig.WebSocket {
+			v.Vprint("relay: use Websocket protocol")
+		}
 		if a := os.Getenv("http_proxy") + os.Getenv("HTTP_PROXY"); a != "" {
-			v.Vprint("note: system HTTP proxy is set to:", a)
+			v.Vprint("note: system HTTP proxy is set to: ", a)
 		}
 		if a := os.Getenv("https_proxy") + os.Getenv("HTTPS_PROXY"); a != "" {
-			v.Vprint("note: system HTTPS proxy is set to:", a)
+			v.Vprint("note: system HTTPS proxy is set to: ", a)
 		}
 
 		v.Eprint(goflyway.NewClient(localAddr, cconfig))
 	} else {
-		v.Vprint("server listens on", addr, with)
+		v.Vprint("server listen on ", addr)
 		v.Eprint(goflyway.NewServer(addr, sconfig))
+	}
+}
+
+func watchTraffic(cconfig *goflyway.ClientConfig, reset bool) {
+	path := filepath.Join(os.TempDir(), "goflyway_traffic")
+
+	tmpbuf, _ := ioutil.ReadFile(path)
+	if len(tmpbuf) != 16 || reset {
+		tmpbuf = make([]byte, 16)
+	}
+
+	cconfig.Stat.Set(int64(binary.BigEndian.Uint64(tmpbuf)), int64(binary.BigEndian.Uint64(tmpbuf[8:])))
+
+	var lastSent, lastRecv int64
+	for range time.Tick(time.Second * 5) {
+		s, r := *cconfig.Stat.Sent(), *cconfig.Stat.Recv()
+		sv, rv := float64(s-lastSent)/1024/1024/5, float64(r-lastRecv)/1024/1024/5
+		lastSent, lastRecv = s, r
+
+		if sv >= 0.001 || rv >= 0.001 {
+			v.Vprint("client send: ", float64(s)/1024/1024, "M (", sv, "M/s), recv: ", float64(r)/1024/1024, "M (", rv, "M/s)")
+		}
+
+		binary.BigEndian.PutUint64(tmpbuf, uint64(s))
+		binary.BigEndian.PutUint64(tmpbuf[8:], uint64(r))
+		ioutil.WriteFile(path, tmpbuf, 0644)
 	}
 }

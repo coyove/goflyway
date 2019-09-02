@@ -8,7 +8,6 @@ import (
 
 	"github.com/coyove/goflyway/toh"
 	"github.com/coyove/goflyway/v"
-	kcp "github.com/xtaci/kcp-go"
 
 	"net"
 )
@@ -65,8 +64,6 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			downconn := toh.NewBufConn(conn)
 			defer conn.Close()
 
-			var up net.Conn
-			var err error
 			var bind = config.Bind
 
 			if config.Dynamic {
@@ -79,11 +76,7 @@ func NewClient(localaddr string, config *ClientConfig) error {
 				v.Vprint("SOCKS5 destination: ", dst)
 			}
 
-			if config.KCP {
-				up, err = kcp.Dial(config.Upstream)
-			} else {
-				up, err = dialer.Dial()
-			}
+			up, err := dialer.Dial()
 
 			if err != nil {
 				v.Eprint("dial server: ", err)

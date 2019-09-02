@@ -102,7 +102,7 @@ func (d *Dialer) startOrch() {
 					if c := conns[connIdx]; c != nil && !c.read.closed && c.read.err == nil {
 						switch connState {
 						case PING_CLOSED:
-							v.Vprint(c, " server side has closed")
+							v.VVprint(c, " server side has closed")
 							c.read.feedError(errClosedConn)
 							c.Close()
 						case PING_OK_VOID:
