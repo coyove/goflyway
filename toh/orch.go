@@ -85,7 +85,7 @@ func (d *Dialer) startOrch() {
 			go func(pingframe frame, lastconn *ClientConn, conns map[uint64]*ClientConn) {
 				resp, err := lastconn.send(pingframe)
 				if err != nil {
-					v.Vprint("send error: ", err)
+					v.Eprint("send error: ", err)
 					return
 				}
 				defer resp.Body.Close()

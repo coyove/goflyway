@@ -69,7 +69,7 @@ func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {
 		if err == io.EOF {
 			ok = true
 		} else {
-			v.Vprint(err)
+			v.Eprint(err)
 		}
 		return
 	}
@@ -86,14 +86,14 @@ func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {
 	datalen := int(binary.LittleEndian.Uint32(header[12:]))
 	data := make([]byte, datalen)
 	if n, err := io.ReadAtLeast(r, data, datalen); err != nil || n != datalen {
-		v.Vprint(err)
+		v.Eprint(err)
 		return
 	}
 
 	gcm, err := cipher.NewGCM(blk)
 	data, err = gcm.Open(nil, header[:12], data, nil)
 	if err != nil {
-		v.Vprint(err)
+		v.Eprint(err)
 		return
 	}
 

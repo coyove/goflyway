@@ -19,6 +19,8 @@ var (
 	FloatPrec  = 3
 )
 
+func Eprint(v ...interface{}) { vprint(0, v...) }
+
 func Vprint(v ...interface{}) { vprint(1, v...) }
 
 func VVprint(v ...interface{}) { vprint(2, v...) }
@@ -74,9 +76,18 @@ func vprint(b int, v ...interface{}) {
 		}
 	}
 
-	_, fn, line, _ := runtime.Caller(2)
-	str, now := fmt.Sprint(v...), time.Now()
-	fmt.Fprintf(os.Stdout, "dbg%d %s%02d %02d:%02d:%02d %s:%-3d ] %s\n", b,
+	var (
+		_, fn, line, _ = runtime.Caller(2)
+		str            = strings.TrimRightFunc(fmt.Sprint(v...), func(r rune) bool { return r == '\r' || r == '\n' })
+		now            = time.Now()
+		lead           = "dbg" + strconv.Itoa(b)
+	)
+
+	if b == 0 {
+		lead = "error"
+	}
+
+	fmt.Fprintf(os.Stdout, lead+" %s%02d %02d:%02d:%02d %s:%-3d ] %s\n",
 		"123456789OXZ"[now.Month()-1:now.Month()], now.Day(), now.Hour(), now.Minute(), now.Second(),
 		filepath.Base(fn), line, str)
 }

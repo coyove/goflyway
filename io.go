@@ -11,14 +11,14 @@ import (
 func Bridge(target, source net.Conn, timeout *TokenBucket, stat *Traffic) {
 	go func() {
 		if err := ioCopy(target, source, timeout, stat.Sent()); err != nil {
-			Vprint("Bridge: ", err)
+			Eprint("bridge: ", err)
 		}
 		target.Close()
 		source.Close()
 	}()
 
 	if err := ioCopy(source, target, timeout, stat.Recv()); err != nil {
-		Vprint("Bridge: ", err)
+		Eprint("bridge: ", err)
 	}
 
 	// Multiple closes, but for tohConn they are just fine

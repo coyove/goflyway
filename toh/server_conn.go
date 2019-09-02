@@ -66,7 +66,7 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 		conn, err := l.wsHandShake(w, r)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			v.Vprint("websocket handshake error: ", err)
+			v.Eprint("websocket handshake error: ", err)
 		} else {
 			l.pendingConns <- conn
 		}
@@ -149,7 +149,7 @@ func (l *Listener) handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if datalen, err := conn.read.feedframes(r.Body); err != nil {
-		v.Vprint("listener feed frames, error: ", err, ", ", conn, " will be deleted")
+		v.Eprint("listener feed frames, error: ", err, ", ", conn, " will be deleted")
 		conn.Close()
 		return
 	} else if datalen == 0 && len(conn.write.buf) == 0 {
@@ -203,7 +203,7 @@ func (conn *ServerConn) writeTo(w io.Writer) {
 			if time.Now().Before(deadline) {
 				goto AGAIN
 			}
-			v.Vprint(conn, " failed to response, error: ", err)
+			v.Eprint(conn, " failed to response, error: ", err)
 			conn.read.feedError(err)
 			conn.Close()
 			return

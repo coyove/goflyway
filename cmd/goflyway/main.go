@@ -27,7 +27,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -LhuUvVkKpPtTwW address:port")
+	fmt.Println("usage: goflyway -DLhuUvVkKqpPtTwW address:port")
 	os.Exit(0)
 }
 
@@ -47,6 +47,8 @@ func main() {
 					last = c
 				case 'v':
 					v.Verbose++
+				case 'q':
+					v.Verbose = -1
 				case 'w':
 					cconfig.WebSocket = true
 				case 'K':
@@ -111,7 +113,12 @@ func main() {
 	}
 
 	if addr == "" {
-		printHelp("missing address:port")
+		if localAddr == "" {
+			v.Vprint("assume you want a default server at :8100")
+			addr = ":8100"
+		} else {
+			printHelp("missing address:port to listen/connect")
+		}
 	}
 
 	if localAddr != "" && remoteAddr == "" {
@@ -150,18 +157,22 @@ func main() {
 			}
 		}()
 
-		fmt.Println("goflyway client binds", remoteAddr, "at", addr, "to", localAddr, with)
+		if cconfig.Dynamic {
+			v.Vprint("forward dynamically (SOCKS5) at local:", localAddr, "to remote:", addr, with)
+		} else {
+			v.Vprint("bind", remoteAddr, "at remote:", addr, "to local:", localAddr, with)
+		}
 
 		if a := os.Getenv("http_proxy") + os.Getenv("HTTP_PROXY"); a != "" {
-			fmt.Println("note: system HTTP proxy is set to:", a)
+			v.Vprint("note: system HTTP proxy is set to:", a)
 		}
 		if a := os.Getenv("https_proxy") + os.Getenv("HTTPS_PROXY"); a != "" {
-			fmt.Println("note: system HTTPS proxy is set to:", a)
+			v.Vprint("note: system HTTPS proxy is set to:", a)
 		}
 
-		panic(goflyway.NewClient(localAddr, cconfig))
+		v.Eprint(goflyway.NewClient(localAddr, cconfig))
 	} else {
-		fmt.Println("goflyway server listens on", addr, with)
-		panic(goflyway.NewServer(addr, sconfig))
+		v.Vprint("server listens on", addr, with)
+		v.Eprint(goflyway.NewServer(addr, sconfig))
 	}
 }

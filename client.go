@@ -72,7 +72,7 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			if config.Dynamic {
 				dst, err := handleSOCKS5(downconn)
 				if err != nil {
-					v.Vprint("SOCKS5 server error: ", err)
+					v.Eprint("SOCKS5 server error: ", err)
 					return
 				}
 				bind = dst
@@ -86,20 +86,20 @@ func NewClient(localaddr string, config *ClientConfig) error {
 			}
 
 			if err != nil {
-				v.Vprint("dial server: ", err)
+				v.Eprint("dial server: ", err)
 				return
 			}
 			defer up.Close()
 
 			upconn := toh.NewBufConn(up)
 			if _, err := upconn.Write([]byte(bind + "\n")); err != nil {
-				v.Vprint("failed to req: ", err)
+				v.Eprint("failed to req: ", err)
 				return
 			}
 
 			resp, err := upconn.ReadBytes('\n')
 			if err != nil || string(resp) != "OK\n" {
-				v.Vprint("server failed to ack: ", err, ", resp: ", string(resp))
+				v.Eprint("server failed to ack: ", err, ", resp: ", string(resp))
 				return
 			}
 
@@ -152,6 +152,7 @@ func handleSOCKS5(conn net.Conn) (string, error) {
 	case 0x04:
 		addrsize = net.IPv6len + 2
 	case 0x03:
+		// read one extra byte that indicates the length of the domain
 		if _, err := io.ReadFull(conn, buf[:1]); err != nil {
 			return "", fmt.Errorf("failed to read domain destination: %v", err)
 		}

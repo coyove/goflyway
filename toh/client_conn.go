@@ -123,7 +123,7 @@ REWRITE:
 	}
 
 	if len(c.write.buf) > c.dialer.MaxWriteBuffer {
-		v.Vprint(c, " write buffer is full")
+		v.Eprint(c, " write buffer is full")
 		time.Sleep(time.Second)
 		goto REWRITE
 	}
