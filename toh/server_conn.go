@@ -256,7 +256,7 @@ func (c *ServerConn) Close() error {
 		return nil
 	}
 
-	v.Vprint(c, " closing")
+	v.VVprint(c, " closing")
 	c.schedPurge.Cancel()
 	c.read.close()
 	c.rev.connsmu.Lock()

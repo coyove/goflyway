@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,7 +101,7 @@ func (c *ClientConn) Close() error {
 		return nil
 	}
 
-	v.Vprint(c, " closing")
+	v.VVprint(c, " closing")
 	c.write.sched.Cancel()
 	c.read.close()
 	c.write.respChOnce.Do(func() {
@@ -237,8 +239,9 @@ func (c *ClientConn) send(f frame) (resp *http.Response, err error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		xx, _ := ioutil.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("remote is unavailable: %s", resp.Status)
+		return nil, fmt.Errorf("remote is unavailable: %s, resp: %v", resp.Status, strconv.Quote(string(xx)))
 	}
 	return resp, nil
 }

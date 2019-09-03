@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -31,7 +32,7 @@ func printHelp(a ...interface{}) {
 		fmt.Printf("goflyway: ")
 		fmt.Println(a...)
 	}
-	fmt.Println("usage: goflyway -DLhuUvVkqpPtTwWy address:port")
+	fmt.Println("usage: goflyway -DLhHUvkqpPtTwWy address:port")
 	os.Exit(0)
 }
 
@@ -40,14 +41,23 @@ func main() {
 
 	for i, last := 1, rune(0); i < len(os.Args); i++ {
 		p := strings.TrimLeft(os.Args[i], "-")
+
+		// HACK: ss-local compatible command flags
+		if p == "fast-open" || p == "V" || p == "u" || p == "m" || p == "b" {
+			if i < len(os.Args)-1 && !strings.HasPrefix(os.Args[i+1], "-") {
+				i++
+			}
+			continue
+		}
+
 		if len(p) != len(os.Args[i]) {
 			for i, c := range p {
 				switch c {
 				case 'h':
 					printHelp()
-				case 'V':
-					printHelp(version)
-				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'u', 'U', 'D':
+				//case 'V':
+				//	printHelp(version)
+				case 'L', 'P', 'p', 'k', 't', 'T', 'W', 'H', 'U', 'D', 'c':
 					last = c
 				case 'v':
 					v.Verbose++
@@ -108,8 +118,17 @@ func main() {
 			sconfig.Timeout = cconfig.Timeout
 		case 'p', 'k':
 			sconfig.Key, cconfig.Key = p, p
-		case 'u':
+		case 'H':
 			cconfig.URLHeader = p
+		case 'c':
+			buf, _ := ioutil.ReadFile(p)
+			cmds := make(map[string]interface{})
+			json.Unmarshal(buf, &cmds)
+			cconfig.Key, cconfig.VPN = cmds["password"].(string), true
+			addr = fmt.Sprintf("%v:%v", cmds["server"], cmds["server_port"])
+
+			v.Verbose = 3
+			v.Vprint(os.Args, " config: ", cmds)
 		default:
 			addr = p
 		}
