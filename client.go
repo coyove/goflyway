@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/coyove/goflyway/toh"
 	"github.com/coyove/goflyway/v"
@@ -159,6 +160,11 @@ func handleSOCKS5(conn net.Conn) (string, error) {
 		host = net.IP(buf[:addrsize-2]).String()
 	default:
 		host = string(buf[:addrsize-2])
+	}
+
+	if strings.Contains(host, ":") {
+		// IPv6?
+		host = "[" + host + "]"
 	}
 
 	return host + ":" + port, nil
