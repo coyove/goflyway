@@ -317,3 +317,7 @@ __pycache__/
 
 # OpenCover UI analysis results
 OpenCover/
+heap.txt
+*.keystore 
+cmd/goflyway/lib
+shadowsocks*
