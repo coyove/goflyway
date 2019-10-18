@@ -60,7 +60,7 @@ func (f *frame) marshal(blk cipher.Block) []byte {
 func parseframe(r io.ReadCloser, blk cipher.Block) (f frame, ok bool) {
 	k := sched.Schedule(func() {
 		v.VVprint("[ParseFrame] waiting too long")
-		r.Close()
+		go r.Close()
 	}, time.Minute)
 	defer k.Cancel()
 
