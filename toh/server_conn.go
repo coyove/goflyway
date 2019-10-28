@@ -46,6 +46,8 @@ func newServerConn(idx uint64, ln *Listener) *ServerConn {
 func (l *Listener) randomReply(w http.ResponseWriter, r *http.Request) {
 	v.Vprint("listener random reply: ", r)
 
+	r.Header.Del("Content-Length")
+
 	if l.OnBadRequest != nil {
 		l.OnBadRequest(w, r)
 		return
