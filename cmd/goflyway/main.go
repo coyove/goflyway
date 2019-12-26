@@ -261,7 +261,7 @@ func (c *connector) getClientIP(r *http.Request) string {
 
 func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/"+sconfig.Key {
-		ip := c.getClientIP(r)
+		ip := r.UserAgent()
 		if ip == "" {
 			w.WriteHeader(400)
 			return
@@ -286,7 +286,7 @@ func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, ok := c.whitelist.Load(c.getClientIP(r)); ok {
+	if _, ok := c.whitelist.Load(r.UserAgent()); ok {
 		w.Header().Set("Proxy-Authenticate", "Basic realm="+c.realm)
 		w.WriteHeader(http.StatusProxyAuthRequired)
 	} else {
@@ -315,9 +315,9 @@ OK:
 		}
 	}
 
-	up, err := net.Dial("tcp", host)
+	up, err := net.DialTimeout("tcp", host, sconfig.Timeout)
 	if err != nil {
-		v.Eprint(err)
+		v.Eprint(host, err)
 		w.WriteHeader(500)
 		return
 	}
@@ -325,7 +325,7 @@ OK:
 	hij, _ := w.(http.Hijacker) // No HTTP2
 	proxyClient, _, err := hij.Hijack()
 	if err != nil {
-		v.Eprint(err)
+		v.Eprint(host, err)
 		w.WriteHeader(500)
 		return
 	}
@@ -340,13 +340,17 @@ OK:
 	go func() {
 		wait := make(chan bool)
 		go func() {
-			if _, err := io.Copy(proxyClient, up); err != nil {
+			if err, to := bridge(proxyClient, up, sconfig.Timeout); err != nil {
 				v.Eprint(err)
+			} else if to {
+				v.VVprint(host, " server read timedout")
 			}
 			wait <- true
 		}()
-		if _, err := io.Copy(up, proxyClient); err != nil {
+		if err, to := bridge(up, proxyClient, sconfig.Timeout); err != nil {
 			v.Eprint(err)
+		} else if to {
+			v.VVprint(host, " client read timedout")
 		}
 		select {
 		case <-wait:
@@ -354,4 +358,70 @@ OK:
 		proxyClient.Close()
 		up.Close()
 	}()
+}
+
+func bridge(dst, src net.Conn, t time.Duration) (err error, timedout bool) {
+	buf := make([]byte, 1024*64)
+	for {
+		if t > 0 {
+			src.SetDeadline(time.Now().Add(t))
+		}
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if ne, _ := er.(net.Error); ne != nil && ne.Timeout() {
+				timedout = true
+				break
+			}
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+	}
+	return
+}
+
+func readUntil(r io.Reader, eoh string) ([]byte, error) {
+	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
+	eidx, found := 0, false
+
+	for {
+		n, err := r.Read(buf)
+		if n == 1 {
+			respbuf.WriteByte(buf[0])
+		}
+
+		if buf[0] == eoh[eidx] {
+			if eidx++; eidx == len(eoh) {
+				found = true
+				break
+			}
+		} else {
+			eidx = 0
+		}
+
+		if err != nil {
+			if err != io.EOF {
+				return nil, err
+			}
+			break
+		}
+	}
+
+	if !found {
+		return nil, fmt.Errorf("readUntil cannot find the pattern: %v", []byte(eoh))
+	}
+
+	return respbuf.Bytes(), nil
 }
