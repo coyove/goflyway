@@ -1,7 +1,7 @@
 package main
 
 import (
-	"crypto/tls"
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -192,9 +193,13 @@ func main() {
 			HostPolicy: autocert.HostWhitelist(httpsProxy),
 		}
 		s := &http.Server{
-			Addr:         addr,
-			TLSConfig:    m.TLSConfig(),
-			TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+			Addr:      addr,
+			TLSConfig: m.TLSConfig(),
+		}
+		for i, p := range s.TLSConfig.NextProtos {
+			if p == "h2" {
+				s.TLSConfig.NextProtos[i] = "h2-disabled"
+			}
 		}
 		s.Handler = &connector{}
 		v.Eprint(s.ListenAndServeTLS("", ""))
@@ -233,17 +238,26 @@ func watchTraffic(cconfig *goflyway.ClientConfig, reset bool) {
 type connector struct{}
 
 func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	plain := false
+
 	if r.Method != "CONNECT" {
-		w.WriteHeader(404)
-		return
+		if r.URL.Host == "" {
+			w.WriteHeader(404)
+			return
+		}
+
+		v.VVprint("plain http proxy: ", r.URL)
+		plain = true
 	}
 
 	// we are inside GFW and should pass data to upstream
 	host := r.URL.Host
-	v.VVprint(r.URL)
-
 	if !regexp.MustCompile(`:\d+$`).MatchString(host) {
-		host += ":443"
+		if plain {
+			host += ":80"
+		} else {
+			host += ":443"
+		}
 	}
 
 	up, err := net.Dial("tcp", host)
@@ -261,17 +275,28 @@ func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyClient.Write([]byte("HTTP/1.1 101 Switching Protocols"))
+	if plain {
+		req, _ := httputil.DumpRequestOut(r, false)
+		io.Copy(up, io.MultiReader(bytes.NewReader(req), r.Body))
+	} else {
+		proxyClient.Write([]byte("HTTP/1.0 200 Connection Established\r\n\r\n"))
+	}
 
 	go func() {
-		if _, err := io.Copy(proxyClient, up); err != nil {
-			v.Eprint(err)
-		}
-	}()
-
-	go func() {
+		wait := make(chan bool)
+		go func() {
+			if _, err := io.Copy(proxyClient, up); err != nil {
+				v.Eprint(err)
+			}
+			wait <- true
+		}()
 		if _, err := io.Copy(up, proxyClient); err != nil {
 			v.Eprint(err)
 		}
+		select {
+		case <-wait:
+		}
+		proxyClient.Close()
+		up.Close()
 	}()
 }
