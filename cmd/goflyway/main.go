@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coyove/common/sched"
@@ -201,7 +203,9 @@ func main() {
 				s.TLSConfig.NextProtos[i] = "h2-disabled"
 			}
 		}
-		s.Handler = &connector{}
+		s.Handler = &connector{
+			realm: "R" + strconv.FormatInt(time.Now().Unix(), 16),
+		}
 		v.Eprint(s.ListenAndServeTLS("", ""))
 	} else {
 		v.Vprint("server listen on ", addr)
@@ -235,11 +239,62 @@ func watchTraffic(cconfig *goflyway.ClientConfig, reset bool) {
 	}
 }
 
-type connector struct{}
+type connector struct {
+	realm     string
+	whitelist sync.Map
+}
+
+func (c *connector) getClientIP(r *http.Request) string {
+	clientIP := r.Header.Get("X-Forwarded-For")
+	clientIP = strings.TrimSpace(strings.Split(clientIP, ",")[0])
+	if clientIP == "" {
+		clientIP = strings.TrimSpace(r.Header.Get("X-Real-Ip"))
+	}
+	if clientIP != "" {
+		return clientIP
+	}
+	if ip, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
+		return ip
+	}
+	return ""
+}
 
 func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/"+sconfig.Key {
+		ip := c.getClientIP(r)
+		if ip == "" {
+			w.WriteHeader(400)
+			return
+		}
+		c.whitelist.Store(ip, true)
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+		return
+	}
+
 	plain := false
 
+	if r.URL.Hostname() == httpsProxy {
+		// we proxy the traffic to ourselves without auth
+		goto OK
+	}
+
+	if parts := strings.Split(r.Header.Get("Proxy-Authorization"), " "); len(parts) == 2 {
+		pa, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
+		if string(pa) == "admin:"+sconfig.Key {
+			goto OK
+		}
+	}
+
+	if _, ok := c.whitelist.Load(c.getClientIP(r)); ok {
+		w.Header().Set("Proxy-Authenticate", "Basic realm="+c.realm)
+		w.WriteHeader(http.StatusProxyAuthRequired)
+	} else {
+		w.WriteHeader(400)
+	}
+	return
+
+OK:
 	if r.Method != "CONNECT" {
 		if r.URL.Host == "" {
 			w.WriteHeader(404)
