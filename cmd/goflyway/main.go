@@ -4,10 +4,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/coyove/common/sched"
 	"github.com/coyove/goflyway"
 	"github.com/coyove/goflyway/v"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 var (
@@ -22,6 +26,7 @@ var (
 	remoteAddr   string
 	localAddr    string
 	addr         string
+	httpsProxy   string
 	resetTraffic bool
 	cconfig      = &goflyway.ClientConfig{}
 	sconfig      = &goflyway.ServerConfig{}
@@ -120,6 +125,7 @@ func main() {
 			sconfig.Key, cconfig.Key = p, p
 		case 'H':
 			cconfig.URLHeader = p
+			httpsProxy = p
 		case 'c':
 			buf, _ := ioutil.ReadFile(p)
 			cmds := make(map[string]interface{})
@@ -177,6 +183,19 @@ func main() {
 		}
 
 		v.Eprint(goflyway.NewClient(localAddr, cconfig))
+	} else if httpsProxy != "" {
+		v.Vprint("server listen on ", addr, " (https://", httpsProxy, ")")
+		m := &autocert.Manager{
+			Cache:      autocert.DirCache("secret-dir"),
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(httpsProxy),
+		}
+		s := &http.Server{
+			Addr:      addr,
+			TLSConfig: m.TLSConfig(),
+		}
+		s.Handler = &connector{}
+		v.Eprint(s.ListenAndServeTLS("", ""))
 	} else {
 		v.Vprint("server listen on ", addr)
 		v.Eprint(goflyway.NewServer(addr, sconfig))
@@ -207,4 +226,50 @@ func watchTraffic(cconfig *goflyway.ClientConfig, reset bool) {
 		binary.BigEndian.PutUint64(tmpbuf[8:], uint64(r))
 		ioutil.WriteFile(path, tmpbuf, 0644)
 	}
+}
+
+type connector struct{}
+
+func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "CONNECT" {
+		w.WriteHeader(404)
+		return
+	}
+
+	// we are inside GFW and should pass data to upstream
+	host := r.URL.Host
+	v.VVprint(r.URL)
+
+	if !regexp.MustCompile(`:\d+$`).MatchString(host) {
+		host += ":443"
+	}
+
+	up, err := net.Dial("tcp", host)
+	if err != nil {
+		v.Eprint(err)
+		w.WriteHeader(500)
+		return
+	}
+
+	hij, _ := w.(http.Hijacker) // No HTTP2
+	proxyClient, _, err := hij.Hijack()
+	if err != nil {
+		v.Eprint(err)
+		w.WriteHeader(500)
+		return
+	}
+
+	proxyClient.Write([]byte("HTTP/1.1 101 Switching Protocols"))
+
+	go func() {
+		if _, err := io.Copy(proxyClient, up); err != nil {
+			v.Eprint(err)
+		}
+	}()
+
+	go func() {
+		if _, err := io.Copy(up, proxyClient); err != nil {
+			v.Eprint(err)
+		}
+	}()
 }
