@@ -2,12 +2,12 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -204,9 +204,13 @@ func main() {
 			}
 		}
 		s.Handler = &connector{
-			realm: "R" + strconv.FormatInt(time.Now().Unix(), 16),
+			timeout: sconfig.Timeout,
 		}
-		v.Eprint(s.ListenAndServeTLS("", ""))
+		if os.Getenv("GFW_TEST") == "1" {
+			v.Eprint(s.ListenAndServe())
+		} else {
+			v.Eprint(s.ListenAndServeTLS("", ""))
+		}
 	} else {
 		v.Vprint("server listen on ", addr)
 		v.Eprint(goflyway.NewServer(addr, sconfig))
@@ -240,8 +244,9 @@ func watchTraffic(cconfig *goflyway.ClientConfig, reset bool) {
 }
 
 type connector struct {
-	realm     string
-	whitelist sync.Map
+	book    TTLMap
+	mu      sync.Mutex
+	timeout time.Duration
 }
 
 func (c *connector) getClientIP(r *http.Request) string {
@@ -259,49 +264,20 @@ func (c *connector) getClientIP(r *http.Request) string {
 	return ""
 }
 
-func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/"+sconfig.Key {
-		ip := r.UserAgent()
-		if ip == "" {
-			w.WriteHeader(400)
-			return
-		}
-		c.whitelist.Store(ip, true)
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-		return
-	}
+func (c *connector) getFingerprint(r *http.Request) string {
+	return r.UserAgent() //+ "/" + r.Header.Get("Accept-Language")
+}
 
+func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	plain := false
 
-	if r.URL.Hostname() == httpsProxy {
-		// we proxy the traffic to ourselves without auth
-		goto OK
-	}
-
-	if parts := strings.Split(r.Header.Get("Proxy-Authorization"), " "); len(parts) == 2 {
-		pa, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(parts[1]))
-		if string(pa) == "admin:"+sconfig.Key {
-			goto OK
-		}
-	}
-
-	if _, ok := c.whitelist.Load(r.UserAgent()); ok {
-		w.Header().Set("Proxy-Authenticate", "Basic realm="+c.realm)
-		w.WriteHeader(http.StatusProxyAuthRequired)
-	} else {
-		w.WriteHeader(400)
-	}
-	return
-
-OK:
 	if r.Method != "CONNECT" {
 		if r.URL.Host == "" {
 			w.WriteHeader(404)
 			return
 		}
 
-		v.VVprint("plain http proxy: ", r.URL)
+		v.VVprint("plain http proxy: ", r.URL.Host)
 		plain = true
 	}
 
@@ -315,7 +291,53 @@ OK:
 		}
 	}
 
-	up, err := net.DialTimeout("tcp", host, sconfig.Timeout)
+	ip := c.getClientIP(r)
+
+	if plain && host == "zzz.com:80" {
+		w.Header().Add("Content-Type", "text/html")
+		w.Write([]byte(fmt.Sprintf("<title>Bookkeeper</title>Whitelisted: %s@%s", c.getFingerprint(r), c.getClientIP(r))))
+
+		c.book.Add(ip, "white", 0)
+		c.book.Add(c.getFingerprint(r), ip, 0)
+		return
+	}
+
+	{
+		c.mu.Lock()
+		state, _ := c.book.Get(ip)
+		if state == "white" {
+			goto OK
+		} else if state == "black" {
+			v.VVprint(ip, " is not known and is blocked")
+		} else {
+			ip2, ok := c.book.Get(c.getFingerprint(r))
+			if !ok {
+				c.mu.Unlock()
+				w.WriteHeader(400)
+				return
+			}
+
+			if state2, ok := c.book.Get(ip2); ok && state2 == "white" {
+				v.VVprint(ip, " is not known, but fingerprint is okay")
+				c.book.Delete(ip2)
+				goto OK
+			}
+		}
+
+		v.VVprint(ip, " is not known nor is the fingerprint")
+		c.book.Add(ip, "black", time.Second*10)
+		c.mu.Unlock()
+
+		w.WriteHeader(400)
+		return
+
+	OK:
+		c.book.Add(ip, "white", 0)
+		c.book.Add(c.getFingerprint(r), ip, 0)
+		c.mu.Unlock()
+	}
+
+	up, err := net.DialTimeout("tcp", host, c.timeout)
 	if err != nil {
 		v.Eprint(host, err)
 		w.WriteHeader(500)
@@ -334,20 +356,25 @@ OK:
 		req, _ := httputil.DumpRequestOut(r, false)
 		io.Copy(up, io.MultiReader(bytes.NewReader(req), r.Body))
 	} else {
-		proxyClient.Write([]byte("HTTP/1.0 200 Connection Established\r\n\r\n"))
+		proxyClient.Write([]byte("HTTP/1.0 200 Connection Established\r\n"))
+		proxyClient.Write([]byte("Filler: "))
+		for i := 0; i < rand.Intn(100)+100; i++ {
+			proxyClient.Write([]byte("aaaaaaaa"))
+		}
+		proxyClient.Write([]byte("\r\n\r\n"))
 	}
 
 	go func() {
 		wait := make(chan bool)
 		go func() {
-			if err, to := bridge(proxyClient, up, sconfig.Timeout); err != nil {
+			if err, to := bridge(proxyClient, up, c.timeout); err != nil {
 				v.Eprint(err)
 			} else if to {
 				v.VVprint(host, " server read timedout")
 			}
 			wait <- true
 		}()
-		if err, to := bridge(up, proxyClient, sconfig.Timeout); err != nil {
+		if err, to := bridge(up, proxyClient, c.timeout); err != nil {
 			v.Eprint(err)
 		} else if to {
 			v.VVprint(host, " client read timedout")
@@ -392,36 +419,49 @@ func bridge(dst, src net.Conn, t time.Duration) (err error, timedout bool) {
 	return
 }
 
-func readUntil(r io.Reader, eoh string) ([]byte, error) {
-	buf, respbuf := make([]byte, 1), &bytes.Buffer{}
-	eidx, found := 0, false
+type TTLMap struct {
+	m sync.Map
+}
 
-	for {
-		n, err := r.Read(buf)
-		if n == 1 {
-			respbuf.WriteByte(buf[0])
-		}
+func (m *TTLMap) String() string {
+	p := bytes.Buffer{}
+	m.m.Range(func(k, v interface{}) bool {
+		p.WriteString(k.(string))
+		p.WriteString(":")
+		p.WriteString(fmt.Sprint(v))
+		p.WriteString(",")
+		return true
+	})
+	return p.String()
+}
 
-		if buf[0] == eoh[eidx] {
-			if eidx++; eidx == len(eoh) {
-				found = true
-				break
-			}
-		} else {
-			eidx = 0
-		}
-
-		if err != nil {
-			if err != io.EOF {
-				return nil, err
-			}
-			break
-		}
+func (m *TTLMap) Add(key string, value string, ttl time.Duration) {
+	if ttl == 0 {
+		m.m.Store(key, value)
+	} else {
+		m.m.Store(key, [2]interface{}{value, time.Now().Add(ttl)})
 	}
+}
 
-	if !found {
-		return nil, fmt.Errorf("readUntil cannot find the pattern: %v", []byte(eoh))
+func (m *TTLMap) Delete(key string) {
+	m.m.Delete(key)
+}
+
+func (m *TTLMap) Get(key string) (string, bool) {
+	v, ok := m.m.Load(key)
+	if !ok {
+		return "", false
 	}
-
-	return respbuf.Bytes(), nil
+	switch v := v.(type) {
+	case string:
+		return v, true
+	case [2]interface{}:
+		if time.Now().After(v[1].(time.Time)) {
+			m.m.Delete(key)
+			return "", false
+		}
+		return v[0].(string), true
+	default:
+		panic("shouldn't happen")
+	}
 }
