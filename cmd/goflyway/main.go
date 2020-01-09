@@ -271,7 +271,7 @@ func (c *connector) getFingerprint(r *http.Request) string {
 }
 
 func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	plain := false
+	plain, iscurl := false, false
 	pp := func() {
 		path := r.URL.Path
 		if !strings.HasPrefix(path, "/") {
@@ -336,7 +336,7 @@ func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			pa, err := base64.StdEncoding.DecodeString(strings.TrimSpace(authData))
 			if err == nil && bytes.ContainsRune(pa, ':') {
-				if string(pa[bytes.IndexByte(pa, ':')+1]) == c.auth {
+				if string(pa[bytes.IndexByte(pa, ':')+1:]) == c.auth {
 					goto OK
 				}
 			}
@@ -366,6 +366,8 @@ func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.book.Add(ip, "white", 0)
 		c.book.Add(c.getFingerprint(r), ip, 0)
 		c.mu.Unlock()
+
+		iscurl = strings.Contains(strings.ToLower(r.UserAgent()), "curl/")
 	}
 
 	if plain {
@@ -407,7 +409,11 @@ func (c *connector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyClient.Write([]byte("HTTP/1.0 200 Connection Established\r\n"))
+	if iscurl {
+		proxyClient.Write([]byte("HTTP/1.1 200 OK\r\n"))
+	} else {
+		proxyClient.Write([]byte("HTTP/1.0 200 Connection Established\r\n"))
+	}
 	proxyClient.Write([]byte("Filler: "))
 	for i := 0; i < rand.Intn(100)+300; i++ {
 		proxyClient.Write([]byte("aaaaaaaa"))
