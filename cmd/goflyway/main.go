@@ -450,7 +450,7 @@ func bridge(dst, src net.Conn, t time.Duration) (err error, timedout bool) {
 	buf := make([]byte, 1024*64)
 	for {
 		if t > 0 {
-			src.SetDeadline(time.Now().Add(t))
+			src.SetReadDeadline(time.Now().Add(t))
 		}
 		nr, er := src.Read(buf)
 		if nr > 0 {
