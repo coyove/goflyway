@@ -1,0 +1,27 @@
+name: goflyway
+version: '1.0'
+summary: An encrypted HTTP server 
+description: |
+  An encrypted HTTP server
+grade: stable
+confinement: strict
+base: core18
+parts:
+  goflyway:
+    plugin: go
+    source: https://github.com/coyove/goflyway.git
+    go-importpath: github.com/coyove/goflyway
+    build-packages:
+      - build-essential
+apps:
+  goflyway:
+    command: bin/goflyway
+    daemon: simple
+    restart-condition: on-abnormal
+    plugs:
+      - home
+      - network
+      - network-bind
+
+      
+      
